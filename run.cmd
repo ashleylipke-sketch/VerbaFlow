@@ -4,9 +4,8 @@ cd /d "%~dp0"
 echo === VerbaFlow: checking tools ===
 
 where dotnet >nul 2>nul || (echo [X] .NET SDK not found. Install the .NET 10 SDK from https://dotnet.microsoft.com/download then open a NEW Command Prompt. & goto fail)
-for /f "delims=" %%v in ('dotnet --version') do set DOTNETV=%%v
-echo .NET SDK: %DOTNETV%
-echo %DOTNETV% | findstr /b "10." >nul || (echo [X] .NET 10 is required but you have %DOTNETV%. Install the .NET 10 SDK. & goto fail)
+dotnet --list-sdks 2>nul | findstr /b "10." >nul || (echo [X] No .NET 10 SDK found. You may have only the runtime installed. Install the SDK ^(not the Runtime^) from https://dotnet.microsoft.com/download/dotnet/10.0 then open a NEW Command Prompt. & echo     SDKs found on this PC: & dotnet --list-sdks & goto fail)
+echo .NET 10 SDK found.
 
 where node >nul 2>nul || (echo [X] Node.js not found. Install Node.js 20 or newer from https://nodejs.org then open a NEW Command Prompt. & goto fail)
 for /f "delims=" %%v in ('node --version') do echo Node.js: %%v

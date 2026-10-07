@@ -102,6 +102,13 @@ public sealed class Item
         if (clearDueDate) DueDate = null; else if (dueDate is { } d) DueDate = d;
     }
 
+    public void SetLength(int lengthMs)
+    {
+        EnsureNotLocked();
+        if (lengthMs < 0) throw new DomainException("Length cannot be negative.");
+        LengthMs = lengthMs;
+    }
+
     public void CompleteProcessing()
     {
         EnsureNotLocked();

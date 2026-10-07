@@ -30,3 +30,13 @@ public interface IMalwareScanner
 {
     Task<ScanResult> ScanAsync(Stream content, CancellationToken ct);
 }
+
+/// <summary>
+/// Produces the noise-filtered processing copy used only for transcription.
+/// The original recording is never altered and stays the record.
+/// </summary>
+public interface IAudioEnhancer
+{
+    string Name { get; }
+    Task<Stream> EnhanceAsync(Stream original, CancellationToken ct);
+}

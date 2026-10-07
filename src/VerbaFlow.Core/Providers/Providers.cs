@@ -1,0 +1,32 @@
+using VerbaFlow.Core.Transcripts;
+
+namespace VerbaFlow.Core.Providers;
+
+public sealed record TranscribeOptions(string[] CandidateLanguages, int MaxSpeakers, bool Diarize);
+
+public sealed record TranscriptionResult(string Engine, IReadOnlyList<Speaker> Speakers, IReadOnlyList<Segment> Segments);
+
+/// <summary>Speech to text with diarization and per-segment language detection (Azure AI Speech in production).</summary>
+public interface ISpeechService
+{
+    Task<TranscriptionResult> TranscribeAsync(Stream audio, TranscribeOptions options, CancellationToken ct);
+}
+
+public sealed record AiOutputs(string Engine, string Language, string Summary, IReadOnlyList<string> ActionPoints,
+    string Minutes, string ToneOfMeeting);
+
+/// <summary>Summary, minutes, actions and tone (Azure OpenAI in production). Tone must use speech only.</summary>
+public interface IAiOutputService
+{
+    Task<AiOutputs> GenerateAsync(IReadOnlyList<RenderedSegment> transcript, string outputLanguage, CancellationToken ct);
+}
+
+public enum ScanOutcome { Clean, Rejected, Unscannable }
+
+public sealed record ScanResult(ScanOutcome Outcome, string? Detail);
+
+/// <summary>Virus scan on upload (Defender for Storage in production). Nothing is stored until it passes.</summary>
+public interface IMalwareScanner
+{
+    Task<ScanResult> ScanAsync(Stream content, CancellationToken ct);
+}

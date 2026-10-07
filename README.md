@@ -30,6 +30,10 @@ The rules that matter are real, not stand-ins: permissions, the approval lock (e
 
 ## Run it
 
+**Windows (easiest):** double-click `run.cmd` in the repo folder, or run it from Command Prompt. It checks that .NET 10 and Node.js are installed, builds the web app and starts the server at http://localhost:5044. Keep the window open while you use the app.
+
+**Manual steps:**
+
 ```bash
 dotnet test                       # 72 tests
 cd web && npm install && npm run build   # builds into src/VerbaFlow.Api/wwwroot

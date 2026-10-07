@@ -5,3 +5,4 @@ web/dist/
 data/
 *.user
 .vs/
+src/VerbaFlow.Api/wwwroot/

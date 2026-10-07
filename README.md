@@ -10,7 +10,7 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 | Speak · Dictate, Speech | Not started |
 | Meet, Widget | Not started |
 | Telephony bridge (ADR-15) | Designed, not built |
-| Azure services | Stand-ins in place; adapters not written |
+| Azure services | Speech adapter built (needs your key); other adapters not written |
 
 ## What is real and what is a stand-in
 
@@ -21,7 +21,7 @@ Everything marked *stand-in* sits behind an interface in `VerbaFlow.Core/Provide
 | `X-Dev-User` header sign-in (`DevUsers.cs`) | Microsoft Entra ID |
 | SQLite | Azure SQL |
 | Local media folder, read-only files | Blob storage with immutability policy |
-| `StandInSpeechService` (fake text) | Azure AI Speech (diarization, language detection) |
+| `StandInSpeechService` (fake text) | **Azure AI Speech: built.** Used automatically when `Speech:Endpoint` and `Speech:Key` are set. See `docs/azure-speech-setup.md` |
 | `StandInAiOutputService` | Azure OpenAI |
 | `StandInMalwareScanner` (rejects EICAR) | Defender for Storage |
 | In-process queue | Service Bus |

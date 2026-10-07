@@ -28,7 +28,14 @@ builder.Services.AddSingleton(new SqliteDatabase(Path.Combine(dataDir, "verbaflo
 builder.Services.AddSingleton(sp => new Stores(sp.GetRequiredService<SqliteDatabase>(), Path.Combine(dataDir, "media"), sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<ProcessingQueue>();
 // Stand-ins: swapped for Azure services behind these same interfaces.
-builder.Services.AddSingleton<ISpeechService, StandInSpeechService>();
+var speech = new VerbaFlow.Infrastructure.Azure.AzureSpeechOptions(
+    builder.Configuration["Speech:Endpoint"] ?? "", builder.Configuration["Speech:Key"] ?? "");
+if (speech.IsConfigured)
+{
+    builder.Services.AddSingleton(speech);
+    builder.Services.AddHttpClient<ISpeechService, VerbaFlow.Infrastructure.Azure.AzureSpeechService>(c => c.Timeout = TimeSpan.FromMinutes(30));
+}
+else builder.Services.AddSingleton<ISpeechService, StandInSpeechService>();
 builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
 builder.Services.AddSingleton<IMalwareScanner, StandInMalwareScanner>();
 builder.Services.AddSingleton<IAudioEnhancer, StandInAudioEnhancer>();
@@ -37,6 +44,9 @@ builder.Services.AddSingleton<ProcessingService>();
 builder.Services.AddHostedService<ProcessingWorker>();
 
 var app = builder.Build();
+app.Logger.LogInformation(speech.IsConfigured
+    ? "Speech: using Azure AI Speech at {Endpoint}"
+    : "Speech: STAND-IN (placeholder text). Set Speech:Endpoint and Speech:Key to use Azure AI Speech.", speech.Endpoint);
 
 await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
 

@@ -3,6 +3,9 @@ setlocal
 cd /d "%~dp0"
 echo === VerbaFlow: checking tools ===
 
+rem Prefer the 64-bit .NET install, in case an older 32-bit copy comes first on the PATH.
+if exist "%ProgramFiles%\dotnet\dotnet.exe" set "PATH=%ProgramFiles%\dotnet;%PATH%"
+
 where dotnet >nul 2>nul || (echo [X] .NET SDK not found. Install the .NET 10 SDK from https://dotnet.microsoft.com/download then open a NEW Command Prompt. & goto fail)
 dotnet --list-sdks 2>nul | findstr /b "10." >nul || (echo [X] No .NET 10 SDK found. You may have only the runtime installed. Install the SDK ^(not the Runtime^) from https://dotnet.microsoft.com/download/dotnet/10.0 then open a NEW Command Prompt. & echo     SDKs found on this PC: & dotnet --list-sdks & goto fail)
 echo .NET 10 SDK found.

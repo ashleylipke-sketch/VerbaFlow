@@ -85,3 +85,33 @@ public class TranscriptTests
         Assert.Equal("Edited", t.Render()[0].Segment.Text); // the original transcript is unaffected
     }
 }
+
+public class WordTimingTests
+{
+    private static (VerbaFlow.Core.Transcripts.Transcript T, VerbaFlow.Core.Transcripts.Segment Seg) Make()
+    {
+        var sp = new VerbaFlow.Core.Transcripts.Speaker(Guid.NewGuid(), "Speaker 1");
+        var seg = new VerbaFlow.Core.Transcripts.Segment(Guid.NewGuid(), sp.Id, "en", 0, 3000, "Mannchester United win", 0.9, false,
+            [new("Mannchester", 0, 1000), new("United", 1000, 2000), new("win", 2000, 3000)]);
+        return (VerbaFlow.Core.Transcripts.Transcript.CreateMachineV1(Guid.NewGuid(), "e", [sp], [seg], T.Now), seg);
+    }
+
+    [Fact]
+    public void A_spelling_fix_keeps_every_words_timing()
+    {
+        var (t, seg) = Make();
+        t.EditSegment(seg.Id, "Manchester United win", Guid.NewGuid(), "Owner", T.Now);
+        var words = t.Render().Single().Segment.Words!;
+        Assert.Equal(["Manchester", "United", "win"], words.Select(w => w.Text));
+        Assert.Equal([0, 1000, 2000], words.Select(w => w.StartMs));
+    }
+
+    [Fact]
+    public void Adding_or_removing_words_drops_the_timings_and_the_original_version_keeps_them()
+    {
+        var (t, seg) = Make();
+        t.EditSegment(seg.Id, "Manchester United will win", Guid.NewGuid(), "Owner", T.Now);
+        Assert.Null(t.Render().Single().Segment.Words);
+        Assert.Equal(3, t.Render(1).Single().Segment.Words!.Count);
+    }
+}

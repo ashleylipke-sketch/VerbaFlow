@@ -91,7 +91,14 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                 var len = p.TryGetProperty("durationMilliseconds", out var dur) ? dur.GetInt32() : 0;
                 var locale = p.TryGetProperty("locale", out var loc) ? loc.GetString() : null;
                 var conf = p.TryGetProperty("confidence", out var c) && c.TryGetDouble(out var cd) ? cd : 1.0;
-                segments.Add(new Segment(Guid.NewGuid(), speaker.Id, ShortLanguage(locale, o), start, start + len, text, conf, conf < LowConfidenceBelow));
+                var words = p.TryGetProperty("words", out var w) && w.ValueKind == JsonValueKind.Array
+                    ? w.EnumerateArray().Select(x => new WordTiming(x.GetProperty("text").GetString() ?? "",
+                        x.GetProperty("offsetMilliseconds").GetInt32(),
+                        x.GetProperty("offsetMilliseconds").GetInt32() + x.GetProperty("durationMilliseconds").GetInt32()))
+                        .Where(x => x.Text.Length > 0).ToList()
+                    : null;
+                segments.Add(new Segment(Guid.NewGuid(), speaker.Id, ShortLanguage(locale, o), start, start + len, text, conf,
+                    conf < LowConfidenceBelow, words is { Count: > 0 } ? words : null));
             }
         }
         return new TranscriptionResult(EngineName, speakers.Values.ToList(), MergeTurns(segments));
@@ -121,6 +128,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                     Text = last.Text + " " + p.Text,
                     Confidence = Math.Min(last.Confidence, p.Confidence),
                     LowConfidence = last.LowConfidence || p.LowConfidence,
+                    Words = last.Words is not null && p.Words is not null ? [.. last.Words, .. p.Words] : null,
                 };
             }
             else result.Add(p);

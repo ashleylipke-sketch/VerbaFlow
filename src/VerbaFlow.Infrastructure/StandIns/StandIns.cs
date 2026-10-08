@@ -28,8 +28,12 @@ public sealed class StandInSpeechService : ISpeechService
             var text = lang.StartsWith("fr")
                 ? $"[Transcription factice] {speaker.Label}, passage {i + 1}."
                 : $"[Stand-in transcript] {speaker.Label}, passage {i + 1}.";
-            segments.Add(new Segment(StableGuid(hash, 100 + i), speaker.Id, lang, i * 4000, i * 4000 + 3800, text,
-                0.9 - (i % 5 == 4 ? 0.4 : 0), LowConfidence: i % 5 == 4));
+            var start = i * 4000;
+            var tokens = text.Split(' ');
+            var per = 3800 / tokens.Length;
+            var words = tokens.Select((t, k) => new WordTiming(t, start + k * per, start + (k + 1) * per)).ToList();
+            segments.Add(new Segment(StableGuid(hash, 100 + i), speaker.Id, lang, start, start + 3800, text,
+                0.9 - (i % 5 == 4 ? 0.4 : 0), LowConfidence: i % 5 == 4, Words: words));
         }
         return new TranscriptionResult(EngineName, speakers, segments);
     }

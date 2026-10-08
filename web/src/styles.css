@@ -20,3 +20,11 @@ label.row { display:flex; gap:8px; align-items:flex-start; margin:10px 0; } .fie
 .timer { font-size:34px; font-variant-numeric:tabular-nums; } .seg { display:grid; grid-template-columns:150px 1fr; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); } .seg .who { font-weight:600; } .seg .t { color:var(--muted); font-size:12px; font-weight:400; }
 .low { background:rgba(180,83,9,.12); } .split { display:grid; grid-template-columns:1fr 320px; gap:16px; } @media (max-width:900px) { .split { grid-template-columns:1fr; } }
 .banner { background:rgba(180,83,9,.12); border:1px solid var(--warn); border-radius:8px; padding:10px 12px; margin-bottom:12px; }
+
+.player { position:sticky; top:0; z-index:5; background:var(--card); padding:10px 0; margin-top:6px; border-bottom:1px solid var(--line); }
+.words { margin:0 0 6px; line-height:1.7; }
+.w { border-radius:4px; padding:1px 2px; margin:0 -2px; }
+.w[role=button] { cursor:pointer; } .w[role=button]:hover { background:var(--line); }
+.w.now { background:var(--brand); color:var(--brand-ink); text-decoration:underline; text-underline-offset:3px; }
+.seg.reading { border-left:3px solid var(--brand); padding-left:9px; margin-left:-12px; }
+button.link { background:none; border:0; padding:0; color:var(--brand); text-decoration:underline; cursor:pointer; font-size:inherit; }

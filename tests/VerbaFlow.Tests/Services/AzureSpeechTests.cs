@@ -161,6 +161,23 @@ public class AzureSpeechTests
         Assert.Equal("Clear. mumble Clear again.", seg.Text);
     }
 
+    [Fact]
+    public void Word_timings_are_kept_and_joined_when_phrases_merge()
+    {
+        const string json = """
+        {"phrases":[
+         {"speaker":1,"offsetMilliseconds":1000,"durationMilliseconds":1000,"text":"Hello there.","locale":"en-GB","confidence":0.9,
+          "words":[{"text":"Hello","offsetMilliseconds":1000,"durationMilliseconds":400},{"text":"there.","offsetMilliseconds":1500,"durationMilliseconds":500}]},
+         {"speaker":1,"offsetMilliseconds":2500,"durationMilliseconds":800,"text":"Good day.","locale":"en-GB","confidence":0.9,
+          "words":[{"text":"Good","offsetMilliseconds":2500,"durationMilliseconds":300},{"text":"day.","offsetMilliseconds":2900,"durationMilliseconds":400}]}]}
+        """;
+        var seg = Assert.Single(AzureSpeechService.Parse(json, Opts).Segments);
+        Assert.Equal("Hello there. Good day.", seg.Text);
+        Assert.Equal(["Hello", "there.", "Good", "day."], seg.Words!.Select(w => w.Text));
+        Assert.Equal((1000, 1400), (seg.Words![0].StartMs, seg.Words![0].EndMs));
+        Assert.Equal((2900, 3300), (seg.Words![3].StartMs, seg.Words![3].EndMs));
+    }
+
     private sealed class ForwardOnly(Stream inner) : Stream
     {
         public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;

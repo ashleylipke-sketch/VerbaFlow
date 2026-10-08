@@ -11,7 +11,7 @@ export type Detail = {
   approvedAt: string | null; approvedBy: string | null; chainId: string;
   chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string;
 };
-export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean };
+export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null };
 export type Transcript = {
   versionNo: number; engine: string; segments: Segment[]; speakers: { id: string; label: string; name: string }[];
   versions: { no: number; kind: string; capacity: string; by: string | null; at: string; note: string | null }[];

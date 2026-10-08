@@ -10,7 +10,7 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 | Speak · Dictate, Speech | Not started |
 | Meet, Widget | Not started |
 | Telephony bridge (ADR-15) | Designed, not built |
-| Azure services | Speech adapter built (needs your key); other adapters not written |
+| Azure services | Speech and OpenAI (summary, action points, minutes, tone) adapters built, each needs your key. ffmpeg audio clean-up built. SQL, Blob, Service Bus, Defender, Entra ID not written |
 
 ## What is real and what is a stand-in
 
@@ -36,7 +36,7 @@ The rules that matter are real, not stand-ins: permissions, the approval lock (e
 **Manual steps:**
 
 ```bash
-dotnet test                       # 72 tests
+dotnet test                       # 121 tests
 cd web && npm install && npm run build   # builds into src/VerbaFlow.Api/wwwroot
 cd ../src/VerbaFlow.Api && dotnet run     # http://localhost:5044
 ```

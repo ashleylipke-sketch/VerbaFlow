@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
+import { diffWords } from '../diff';
 
 export default function ItemPage({ id }: { id: string }) {
   const [d, setD] = useState<Detail | null>(null);
@@ -17,6 +18,8 @@ export default function ItemPage({ id }: { id: string }) {
   const player = useRef<HTMLAudioElement>(null);
   const [pos, setPos] = useState({ seg: -1, word: -1 });
   const [playing, setPlaying] = useState(false);
+  // Tracked changes show while the transcript is a draft and are tucked away once it is approved. The reader can override either way.
+  const [changesChoice, setChangesChoice] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -64,6 +67,11 @@ export default function ItemPage({ id }: { id: string }) {
     a.addEventListener('timeupdate', back);
     a.currentTime = 1e101;
   };
+  const approved = d?.row.statusCode === 'Completed' || d?.row.statusCode === 'Purged';
+  const showChanges = changesChoice ?? !approved;
+  const labelOf = (speakerId: string) => t?.speakers.find(x => x.id === speakerId)?.label ?? '';
+  const editedCount = segs.filter(x => x.originalText !== null).length;
+  const renamedCount = (t?.speakers ?? []).filter(x => x.name !== x.label).length;
   const seek = (ms: number) => { const a = player.current; if (!a) return; a.currentTime = ms / 1000; a.play().catch(() => undefined); };
 
   const run = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await load(); } catch (e: any) { setError(e.message); } };
@@ -119,9 +127,15 @@ export default function ItemPage({ id }: { id: string }) {
           {!t && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No transcript.'}</p>}
           {t && <p className="note">Speakers: {t.speakers.map(s => (
             <span key={s.id} style={{ marginRight: 10 }}>{s.name}{d.canEditTranscript && <> <button onClick={() => { const n = prompt('Rename speaker', s.name); if (n?.trim()) run(() => api.put(`/items/${id}/speakers/${s.id}`, { name: n.trim() })); }}>Rename</button></>}</span>))}</p>}
+          {t && (editedCount > 0 || renamedCount > 0) && <div className="changes-bar">
+            <label><input type="checkbox" checked={showChanges} onChange={e => setChangesChoice(e.target.checked)} /> Show tracked changes</label>
+            <span className="note">{editedCount} passage{editedCount === 1 ? '' : 's'} edited · {renamedCount} speaker{renamedCount === 1 ? '' : 's'} renamed
+              {showChanges ? <> · <ins>Added or changed text</ins> · <del>Original text</del></> : ' · hidden'}
+              {approved && ' · approved version'}</span></div>}
           {audioUrl && t && <p className="note">Press play to follow along. Click any word to jump the audio to it.</p>}
           {t?.segments.map((s, i) => <SegmentRow key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
             playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript}
+            showChanges={showChanges} machineLabel={labelOf(s.speakerId)}
             onSave={text => run(() => api.put(`/items/${id}/segments/${s.id}`, { text }))} />)}
           {!d.canEditTranscript && t && <p className="note">This transcript is read-only for you right now.</p>}
         </div>
@@ -143,9 +157,12 @@ export default function ItemPage({ id }: { id: string }) {
   );
 }
 
-function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave }: {
-  s: Transcript['segments'][number]; words: { text: string; startMs: number; endMs: number }[]; active: boolean; activeWord: number;
+type WordT = { text: string; startMs: number; endMs: number };
+
+function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, machineLabel }: {
+  s: Transcript['segments'][number]; words: WordT[]; active: boolean; activeWord: number;
   playing: boolean; canSeek: boolean; onSeek: (ms: number) => void; editable: boolean; onSave: (t: string) => void;
+  showChanges: boolean; machineLabel: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(s.text);
@@ -159,10 +176,24 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
     }
   }, [active, playing]);
 
+  const word = (i: number) => {
+    const w = words[i];
+    if (!w) return null;
+    return (
+      <span className={'w' + (i === activeWord ? ' now' : '')} role={canSeek ? 'button' : undefined} tabIndex={canSeek ? 0 : undefined}
+        onClick={canSeek ? () => onSeek(w.startMs) : undefined}
+        onKeyDown={canSeek ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(w.startMs); } } : undefined}>{w.text}</span>
+    );
+  };
+  const marked = showChanges && s.originalText !== null;
+  const ops = marked ? diffWords(s.originalText!, s.text) : null;
+  const renamed = showChanges && machineLabel !== '' && machineLabel !== s.speaker;
+
   return (
-    <div ref={row} className={'seg' + (s.lowConfidence ? ' low' : '') + (active ? ' reading' : '')} aria-current={active ? 'true' : undefined}>
-      <div className="who">{s.speaker}
-        <div className="t">{canSeek ? <button className="link" onClick={() => onSeek(s.startMs)} title="Play from here">{fmtLen(s.startMs)}</button> : fmtLen(s.startMs)} · {s.language}</div></div>
+    <div ref={row} className={'seg' + (s.lowConfidence ? ' low' : '') + (active ? ' reading' : '') + (marked || renamed ? ' changed' : '')} aria-current={active ? 'true' : undefined}>
+      <div className="who">{renamed ? <><del>{machineLabel}</del> <ins>{s.speaker}</ins></> : s.speaker}
+        <div className="t">{canSeek ? <button className="link" onClick={() => onSeek(s.startMs)} title="Play from here">{fmtLen(s.startMs)}</button> : fmtLen(s.startMs)} · {s.language}
+          {marked && <> · <span className="tag">Edited</span></>}</div></div>
       <div>
         {editing ? <>
           <textarea rows={3} value={text} autoFocus onChange={e => setText(e.target.value)} />
@@ -170,12 +201,11 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
             onClick={() => { onSave(text); setEditing(false); }}>Save</button>
             <button onClick={() => { setText(s.text); setEditing(false); }}>Cancel</button></div>
         </> : <>
-          <p className="words">{words.map((w, i) => (
-            <span key={i}>
-              <span className={'w' + (i === activeWord ? ' now' : '')} role={canSeek ? 'button' : undefined} tabIndex={canSeek ? 0 : undefined}
-                onClick={canSeek ? () => onSeek(w.startMs) : undefined}
-                onKeyDown={canSeek ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(w.startMs); } } : undefined}>{w.text}</span>{' '}
-            </span>))}</p>
+          <p className="words">{ops
+            ? ops.map((o, i) => o.kind === 'del' ? <span key={i}><del>{o.text}</del>{' '}</span>
+              : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{' '}</span>
+              : <span key={i}>{word(o.cur!)}{' '}</span>)
+            : words.map((_, i) => <span key={i}>{word(i)}{' '}</span>)}</p>
           {editable && <button onClick={() => setEditing(true)}>Edit</button>}
         </>}
         {s.lowConfidence && <div className="note">Low confidence — please check.</div>}

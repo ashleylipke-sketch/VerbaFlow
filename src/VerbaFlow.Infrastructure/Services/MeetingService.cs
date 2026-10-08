@@ -208,12 +208,18 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
         var v = versionNo is null ? t.Current : t.Version(versionNo.Value);
+        // The machine output (version 1) is the baseline for tracked changes. It is only comparable passage by passage
+        // while both versions have the same number of passages; edits replace a passage in place, so that holds today.
+        var current = t.Render(v.No);
+        var machine = t.Render(1);
+        string? OriginalOf(int i) => machine.Count == current.Count && machine[i].Segment.Text != current[i].Segment.Text
+            ? machine[i].Segment.Text : null;
         return new TranscriptView(v.No,
             t.Versions.Select(x => new VersionView(x.No, x.Kind.ToString(), x.Capacity,
                 x.CreatedBy is { } u ? users.GetValueOrDefault(u) : null, x.CreatedAt, x.Note)).ToList(),
-            t.Render(v.No).Select(r => new SegmentView(r.Segment.Id, r.SpeakerName, r.Segment.SpeakerId, r.Segment.Language,
+            current.Select((r, i) => new SegmentView(r.Segment.Id, r.SpeakerName, r.Segment.SpeakerId, r.Segment.Language,
                 r.Segment.StartMs, r.Segment.EndMs, r.Segment.Text, r.Segment.LowConfidence,
-                r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList())).ToList(),
+                r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList(), OriginalOf(i))).ToList(),
             t.Speakers.Select(s => new SpeakerView(s.Id, s.Label, v.SpeakerNames.GetValueOrDefault(s.Id, s.Label))).ToList(), t.Engine);
     }
 

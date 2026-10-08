@@ -35,7 +35,7 @@ public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCu
 public sealed record WordView(string Text, int StartMs, int EndMs);
 
 public sealed record SegmentView(Guid Id, string Speaker, Guid SpeakerId, string Language, int StartMs, int EndMs, string Text,
-    bool LowConfidence, IReadOnlyList<WordView>? Words);
+    bool LowConfidence, IReadOnlyList<WordView>? Words, string? OriginalText = null);
 
 public sealed record VersionView(int No, string Kind, string Capacity, string? By, DateTimeOffset At, string? Note);
 

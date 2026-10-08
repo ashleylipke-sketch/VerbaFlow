@@ -31,9 +31,10 @@ The owner is not a developer. Explain in plain words, give exact commands, never
 Built and confirmed working by the owner on real Azure: record or import, Azure AI Speech transcription with speakers, repeated-speaker merging, follow-along word highlighting, tracked changes, custom vocabulary, Azure OpenAI summary/action points/minutes/tone (deployment `gpt-4.1-mini`), regenerate button, Author column in the list, save/discard after recording.
 Built, **not yet confirmed by the owner**: ffmpeg audio clean-up (mono 16 kHz, levelled) and custom vocabulary with mixed en+fr locales.
 
-## Open problem: speaker separation
-Recorded in-app on one microphone with 4 or 5 people. Before the audio clean-up Azure over-split one person into two and missed a speaker. After it, Azure finds only 2 speakers and misses the 4th. We already allow up to 8 speakers (`ProcessingService`, `maxSpeakers`), so raising the limit will not help. The owner declined manual speaker reassignment/merge as the main fix and wants diarization itself improved.
-Options discussed: (1) try Azure **batch transcription**, which supports a minimum as well as maximum speaker count (field names unverified; needs blob storage and async results), spike on the problem recording first; (2) a separate local diarization model; (3) one microphone/channel per person; (4) manual fix tools as a backup. Recommendation given: option 1, awaiting the owner's go-ahead.
+## Speaker separation (in progress: needs the owner's real-meeting result)
+Azure's own diarization failed on a 4 or 5 person meeting recorded in-app on one microphone: it first over-split one person, and after the ffmpeg audio clean-up it found only 2 speakers and missed the 4th. The owner chose to run a **separate local speaker-separation model** (option 2) and combine its output with the Azure transcript. The owner declined manual reassign/merge tools as the main fix.
+Built: `SherpaSpeakerDiarizer` (sherpa-onnx, Pyannote segmentation 3.0 + TitaNet-small, models auto-downloaded into `data/models` and checksum-pinned), `SpeakerAligner` (each Azure word goes to the local speaker with most overlap, phrases are split at voice changes, lone stray words are smoothed), wired into `ProcessingService` with fallback to Azure's labels plus a warning. Settings `Diarization:Threshold` (default 0.8), `Diarization:NumSpeakers`, `Diarization:Enabled`. See `docs/speaker-separation.md`.
+Verified only on a public four-speaker sample (Chinese, finds 4 at threshold 0.8; 0.5 gave 8). **Not yet verified on the owner's English/French meeting.** Next step: the owner records the 4 or 5 person meeting again and reports how many speakers it found; then tune the threshold, or expose NumSpeakers on the Record/Import pages. Other options if this fails: Azure batch transcription with a minimum speaker count, one microphone per person, manual speaker-fix tools.
 
 ## Not built yet (parked)
 Dictate and Speech modes, Meet, Widget, telephony bridge (ADR-15), purge/retention, attachments, export/signing, noise filtering, Entra ID sign-in, Azure SQL/Blob/Service Bus/Defender adapters, automatic voice-to-person matching.
@@ -42,7 +43,7 @@ Dictate and Speech modes, Meet, Widget, telephony bridge (ADR-15), purge/retenti
 Owner on Windows: `run.cmd` in the repo root (builds web, starts http://localhost:5044). If `dotnet` is not found in a plain Command Prompt: `set PATH=C:\Program Files\dotnet;%PATH%` (a 32-bit dotnet can come first on PATH). Secrets are set with `dotnet user-secrets` from `src\VerbaFlow.Api`: `Speech:Endpoint`, `Speech:Key`, `OpenAI:Endpoint`, `OpenAI:Key`, `OpenAI:Deployment`, optional `Audio:FfmpegPath`. ffmpeg: `winget install Gyan.FFmpeg`. Startup log lines say whether Speech, Summaries and Audio are real or stand-in.
 Dev sign-in is an `X-Dev-User` header (alice, bob, carol (admin), dave (admin)); it stands in for Entra ID.
 
-Tests: `dotnet test` (121 pass) and `cd web && npx vitest run` (13 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
+Tests: `dotnet test` (130 pass) and `cd web && npx vitest run` (13 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
 
 ## Working agreements
 - Commit and push after each finished piece. Commit messages end with the attribution lines the session gives you.

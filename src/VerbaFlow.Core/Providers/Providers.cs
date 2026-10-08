@@ -45,3 +45,16 @@ public interface IAudioEnhancer
 
 /// <summary>The processing copy. <paramref name="Applied"/> says what was done to it; <paramref name="Warning"/> is set when clean-up was skipped.</summary>
 public sealed record EnhancedAudio(Stream Audio, string Applied, string? Warning = null);
+
+/// <summary>One stretch of one voice. <paramref name="Speaker"/> is the diarizer's own number, meaningful only within one recording.</summary>
+public sealed record SpeakerTurn(int StartMs, int EndMs, int Speaker);
+
+/// <summary>
+/// Works out who spoke when from the audio alone, with no words. Its turns are combined with the speech service's words
+/// (see SpeakerAligner) because the speech service's own speaker separation can merge or split voices.
+/// </summary>
+public interface ISpeakerDiarizer
+{
+    string Name { get; }
+    Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, CancellationToken ct);
+}

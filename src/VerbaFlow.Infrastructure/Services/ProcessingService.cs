@@ -10,7 +10,7 @@ namespace VerbaFlow.Infrastructure.Services;
 /// language detection, then the AI outputs. Transcription uses the filtered copy; the original is never touched.
 /// </summary>
 public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiOutputService ai, IAudioEnhancer enhancer,
-    TimeProvider clock)
+    TimeProvider clock, ISpeakerDiarizer? diarizer = null)
 {
     private static readonly string[] CandidateLanguages = ["en", "fr"];
 
@@ -29,6 +29,26 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await using var copy = enhanced.Audio;
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
             var result = await speech.TranscribeAsync(copy, new TranscribeOptions(CandidateLanguages, 8, true, phrases), ct);
+
+            // Azure's own speaker labels can merge or split voices. When a local diarizer is available, its turns decide who spoke each word.
+            var separation = "azure";
+            if (diarizer is not null && copy.CanSeek)
+            {
+                try
+                {
+                    copy.Position = 0;
+                    var turns = await diarizer.DiarizeAsync(copy, ct);
+                    if (turns.Count > 0)
+                    {
+                        result = SpeakerAligner.Relabel(result, turns) with { Engine = result.Engine + "+" + diarizer.Name };
+                        separation = diarizer.Name;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    result = result with { Warning = string.Join(" ", new[] { result.Warning, "Local speaker separation failed, so Azure's speaker labels were used: " + ex.Message }.Where(x => x is not null)) };
+                }
+            }
 
             var transcript = Transcript.CreateMachineV1(itemId, result.Engine, result.Speakers, result.Segments, clock.GetUtcNow());
             await stores.Transcripts.UpsertAsync(itemId, transcript);
@@ -50,7 +70,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Items.UpsertAsync(itemId, item);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied), ("audioPrepWarning", enhanced.Warning),
-                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count),
+                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
                     ("vocabularyTerms", phrases.Count), ("warning", result.Warning)));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

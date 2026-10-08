@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="TestData\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\VerbaFlow.Core\VerbaFlow.Core.csproj" />
     <ProjectReference Include="..\..\src\VerbaFlow.Infrastructure\VerbaFlow.Infrastructure.csproj" />
   </ItemGroup>

@@ -49,6 +49,17 @@ var ffmpegPath = builder.Configuration["Audio:FfmpegPath"];
 var ffmpegFound = await VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer.IsAvailableAsync(ffmpegPath);
 if (ffmpegFound) builder.Services.AddSingleton<IAudioEnhancer>(_ => new VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer(ffmpegPath));
 else builder.Services.AddSingleton<IAudioEnhancer, StandInAudioEnhancer>();
+// Local speaker separation needs ffmpeg to read audio. Models are downloaded once into the data folder.
+var diarizationOn = ffmpegFound && !string.Equals(builder.Configuration["Diarization:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
+if (diarizationOn)
+{
+    var diar = new VerbaFlow.Infrastructure.Services.DiarizationOptions(Path.Combine(dataDir, "models"), ffmpegPath,
+        float.TryParse(builder.Configuration["Diarization:Threshold"], System.Globalization.CultureInfo.InvariantCulture, out var th) ? th : 0.8f,
+        int.TryParse(builder.Configuration["Diarization:NumSpeakers"], out var ns) ? ns : -1);
+    builder.Services.AddSingleton(diar);
+    builder.Services.AddHttpClient<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>(c => c.Timeout = TimeSpan.FromMinutes(15));
+    builder.Services.AddSingleton<ISpeakerDiarizer>(sp => sp.GetRequiredService<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>());
+}
 builder.Services.AddSingleton<MeetingService>();
 builder.Services.AddSingleton<VocabularyService>();
 builder.Services.AddSingleton<ProcessingService>();
@@ -61,6 +72,15 @@ app.Logger.LogInformation(speech.IsConfigured
 app.Logger.LogInformation(ffmpegFound
     ? "Audio: ffmpeg found, so recordings are made mono, 16 kHz and levelled before transcription"
     : "Audio: ffmpeg NOT found, so recordings are sent as they are. Install ffmpeg to improve speaker separation (see docs/audio-preparation.md).");
+app.Logger.LogInformation(diarizationOn
+    ? "Speakers: using the local speaker-separation model (downloaded once into the data folder)"
+    : "Speakers: using Azure's own speaker labels. Local speaker separation needs ffmpeg (see docs/speaker-separation.md).");
+if (diarizationOn)
+    _ = Task.Run(async () =>
+    {
+        try { await app.Services.GetRequiredService<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>().EnsureModelsAsync(); app.Logger.LogInformation("Speakers: models are ready"); }
+        catch (Exception ex) { app.Logger.LogWarning("Speakers: the models could not be downloaded yet ({Reason}). Azure's labels will be used until they can.", ex.Message); }
+    });
 app.Logger.LogInformation(openAi.IsConfigured
     ? "Summaries: using Azure OpenAI deployment {Deployment}"
     : "Summaries: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);

@@ -73,7 +73,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         var other => other,
     };
 
-    internal static TranscriptionResult Parse(string json, TranscribeOptions o)
+    public static TranscriptionResult Parse(string json, TranscribeOptions o)
     {
         using var doc = JsonDocument.Parse(json);
         var speakers = new Dictionary<int, Speaker>();
@@ -94,7 +94,38 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                 segments.Add(new Segment(Guid.NewGuid(), speaker.Id, ShortLanguage(locale, o), start, start + len, text, conf, conf < LowConfidenceBelow));
             }
         }
-        return new TranscriptionResult(EngineName, speakers.Values.ToList(), segments);
+        return new TranscriptionResult(EngineName, speakers.Values.ToList(), MergeTurns(segments));
+    }
+
+    /// <summary>A new paragraph starts after this much silence from the same speaker.</summary>
+    public const int MaxGapMs = 4000;
+    /// <summary>...or when a paragraph would grow past this many characters, so long monologues stay editable.</summary>
+    public const int MaxParagraphChars = 800;
+
+    /// <summary>
+    /// Azure returns one entry per phrase. Joins consecutive phrases from the same speaker, in the same language and
+    /// without a long pause, into one paragraph. A paragraph is low confidence if any phrase in it was.
+    /// </summary>
+    public static IReadOnlyList<Segment> MergeTurns(IEnumerable<Segment> phrases)
+    {
+        var result = new List<Segment>();
+        foreach (var p in phrases.OrderBy(x => x.StartMs))
+        {
+            var last = result.Count > 0 ? result[^1] : null;
+            if (last is not null && last.SpeakerId == p.SpeakerId && last.Language == p.Language
+                && p.StartMs - last.EndMs <= MaxGapMs && last.Text.Length + 1 + p.Text.Length <= MaxParagraphChars)
+            {
+                result[^1] = last with
+                {
+                    EndMs = Math.Max(last.EndMs, p.EndMs),
+                    Text = last.Text + " " + p.Text,
+                    Confidence = Math.Min(last.Confidence, p.Confidence),
+                    LowConfidence = last.LowConfidence || p.LowConfidence,
+                };
+            }
+            else result.Add(p);
+        }
+        return result;
     }
 
     private static string ShortLanguage(string? locale, TranscribeOptions o) =>

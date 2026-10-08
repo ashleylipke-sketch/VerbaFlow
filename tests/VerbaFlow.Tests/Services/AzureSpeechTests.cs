@@ -115,6 +115,52 @@ public class AzureSpeechTests
         Assert.False(new AzureSpeechOptions("https://x", " ").IsConfigured);
     }
 
+    private static string Phrases(params (int Spk, int Start, int Dur, string Text, string Locale, double Conf)[] p) =>
+        "{\"phrases\":[" + string.Join(",", p.Select(x =>
+            $"{{\"speaker\":{x.Spk},\"offsetMilliseconds\":{x.Start},\"durationMilliseconds\":{x.Dur},\"text\":\"{x.Text}\",\"locale\":\"{x.Locale}\",\"confidence\":{x.Conf}}}")) + "]}";
+
+    [Fact]
+    public void Consecutive_phrases_from_one_speaker_become_one_paragraph()
+    {
+        var r = AzureSpeechService.Parse(Phrases(
+            (1, 2000, 1500, "Hi, Ashley here.", "en-GB", 0.9),
+            (1, 5000, 1000, "I'm running a test with Matthew.", "en-GB", 0.9),
+            (1, 6000, 2000, "I'm going to ask a few questions.", "en-GB", 0.9),
+            (2, 18000, 3000, "Manchester United will win.", "en-GB", 0.9),
+            (1, 22000, 2000, "Who is your favourite player?", "en-GB", 0.9)), Opts);
+        Assert.Equal(3, r.Segments.Count);
+        Assert.Equal("Hi, Ashley here. I'm running a test with Matthew. I'm going to ask a few questions.", r.Segments[0].Text);
+        Assert.Equal((2000, 8000), (r.Segments[0].StartMs, r.Segments[0].EndMs));
+        Assert.Equal(r.Segments[0].SpeakerId, r.Segments[2].SpeakerId);
+        Assert.NotEqual(r.Segments[0].SpeakerId, r.Segments[1].SpeakerId);
+    }
+
+    [Fact]
+    public void A_language_change_a_long_pause_or_a_very_long_paragraph_starts_a_new_one()
+    {
+        var langChange = AzureSpeechService.Parse(Phrases((1, 0, 1000, "Hello.", "en-GB", 0.9), (1, 1000, 1000, "Bonjour.", "fr-FR", 0.9)), Opts);
+        Assert.Equal(2, langChange.Segments.Count);
+
+        var pause = AzureSpeechService.Parse(Phrases((1, 0, 1000, "First.", "en-GB", 0.9), (1, 1000 + AzureSpeechService.MaxGapMs, 1000, "Same gap.", "en-GB", 0.9),
+            (1, 1000 + AzureSpeechService.MaxGapMs + 1000 + AzureSpeechService.MaxGapMs + 1, 1000, "Too late.", "en-GB", 0.9)), Opts);
+        Assert.Equal(2, pause.Segments.Count);
+        Assert.Equal("First. Same gap.", pause.Segments[0].Text);
+
+        var big = new string('x', 500);
+        var cap = AzureSpeechService.Parse(Phrases((1, 0, 1000, big, "en-GB", 0.9), (1, 1000, 1000, big, "en-GB", 0.9)), Opts);
+        Assert.Equal(2, cap.Segments.Count);
+    }
+
+    [Fact]
+    public void A_paragraph_is_low_confidence_if_any_phrase_in_it_was_and_keeps_the_lowest_score()
+    {
+        var r = AzureSpeechService.Parse(Phrases((1, 0, 1000, "Clear.", "en-GB", 0.95), (1, 1000, 1000, "mumble", "en-GB", 0.3), (1, 2000, 1000, "Clear again.", "en-GB", 0.9)), Opts);
+        var seg = Assert.Single(r.Segments);
+        Assert.True(seg.LowConfidence);
+        Assert.Equal(0.3, seg.Confidence);
+        Assert.Equal("Clear. mumble Clear again.", seg.Text);
+    }
+
     private sealed class ForwardOnly(Stream inner) : Stream
     {
         public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;

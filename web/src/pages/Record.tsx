@@ -14,6 +14,8 @@ export default function Record() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
   const rec = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const blob = useRef<Blob | null>(null);
@@ -61,6 +63,22 @@ export default function Record() {
     rec.current?.stop(); stream.current?.getTracks().forEach(t => t.stop()); cancelAnimationFrame(raf.current); setLevel(0); setState('stopped');
   };
 
+  // Once recording has stopped the audio exists only in this browser tab, so offer a preview and warn before it is lost.
+  useEffect(() => {
+    if (state !== 'stopped') return;
+    const t = setTimeout(() => { if (blob.current) setPreviewUrl(URL.createObjectURL(blob.current)); }, 200);
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => { clearTimeout(t); window.removeEventListener('beforeunload', warn); };
+  }, [state]);
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
+  /** Throws the recording away without uploading anything, and returns to the start. */
+  const discard = () => {
+    blob.current = null; chunks.current = []; activeMs.current = 0;
+    setPreviewUrl(''); setMarkers([]); setElapsed(0); setConfirmDiscard(false); setError(''); setState('idle');
+  };
+
   const save = async () => {
     setBusy(true); setError('');
     try {
@@ -96,7 +114,15 @@ export default function Record() {
           <input autoFocus value={reason} onChange={e => setReason(e.target.value)} onKeyDown={e => e.key === 'Enter' && confirmPause()} /></label>
           <div className="actions"><button className="primary" disabled={!reason.trim()} onClick={confirmPause}>Pause recording</button><button onClick={() => setPausing(false)}>Cancel</button></div></div>}
         {markers.length > 0 && <ul className="note">{markers.map((m, i) => <li key={i}>{fmtLen(m.offsetMs)} — {m.type}{m.note ? `: ${m.note}` : ''}</li>)}</ul>}
-        {state === 'stopped' && <button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save recording'}</button>}
+        {state === 'stopped' && <>
+          <p className="note">Recording stopped. It is not saved yet. Listen back if you like, then save it or discard it.</p>
+          {previewUrl && <audio controls src={previewUrl} style={{ width: '100%', marginBottom: 12 }} />}
+          {!confirmDiscard && <div className="actions">
+            <button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save recording'}</button>
+            <button className="danger" disabled={busy} onClick={() => setConfirmDiscard(true)}>Discard recording</button></div>}
+          {confirmDiscard && <div className="banner"><strong>Discard this recording?</strong> Nothing has been saved, so it cannot be recovered.
+            <div className="actions" style={{ marginTop: 8 }}><button className="danger" onClick={discard}>Yes, discard it</button><button onClick={() => setConfirmDiscard(false)}>No, keep it</button></div></div>}
+        </>}
       </>}
       {error && <div className="error">{error}</div>}
     </div>

@@ -96,6 +96,8 @@ public static class Endpoints
         api.MapPost("/items/{id:guid}/versions/{no:int}/restore", async (HttpContext h, MeetingService s, Guid id, int no) =>
         { await s.RestoreVersionAsync(h.Current(), id, no); return Results.NoContent(); });
         api.MapGet("/items/{id:guid}/outputs", (HttpContext h, MeetingService s, Guid id) => s.GetOutputsAsync(h.Current(), id));
+        api.MapPost("/items/{id:guid}/outputs/regenerate", async (HttpContext h, MeetingService s, Guid id, CancellationToken ct) =>
+        { await s.RegenerateOutputsAsync(h.Current(), id, ct); return Results.NoContent(); });
 
         // Playback needs only Read; download is the separate ExportAudio right. Range requests let the player seek.
         api.MapGet("/items/{id:guid}/audio", async (HttpContext h, MeetingService s, Guid id, bool? download) =>

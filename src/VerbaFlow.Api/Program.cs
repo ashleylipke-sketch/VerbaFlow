@@ -36,7 +36,14 @@ if (speech.IsConfigured)
     builder.Services.AddHttpClient<ISpeechService, VerbaFlow.Infrastructure.Azure.AzureSpeechService>(c => c.Timeout = TimeSpan.FromMinutes(30));
 }
 else builder.Services.AddSingleton<ISpeechService, StandInSpeechService>();
-builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
+var openAi = new VerbaFlow.Infrastructure.Azure.AzureOpenAiOptions(builder.Configuration["OpenAI:Endpoint"] ?? "",
+    builder.Configuration["OpenAI:Key"] ?? "", builder.Configuration["OpenAI:Deployment"] ?? "");
+if (openAi.IsConfigured)
+{
+    builder.Services.AddSingleton(openAi);
+    builder.Services.AddHttpClient<IAiOutputService, VerbaFlow.Infrastructure.Azure.AzureOpenAiOutputService>(c => c.Timeout = TimeSpan.FromMinutes(10));
+}
+else builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
 builder.Services.AddSingleton<IMalwareScanner, StandInMalwareScanner>();
 builder.Services.AddSingleton<IAudioEnhancer, StandInAudioEnhancer>();
 builder.Services.AddSingleton<MeetingService>();
@@ -48,6 +55,9 @@ var app = builder.Build();
 app.Logger.LogInformation(speech.IsConfigured
     ? "Speech: using Azure AI Speech at {Endpoint}"
     : "Speech: STAND-IN (placeholder text). Set Speech:Endpoint and Speech:Key to use Azure AI Speech.", speech.Endpoint);
+app.Logger.LogInformation(openAi.IsConfigured
+    ? "Summaries: using Azure OpenAI deployment {Deployment}"
+    : "Summaries: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);
 
 await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
 

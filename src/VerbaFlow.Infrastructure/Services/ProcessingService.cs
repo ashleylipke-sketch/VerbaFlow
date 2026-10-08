@@ -31,15 +31,24 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
 
             var transcript = Transcript.CreateMachineV1(itemId, result.Engine, result.Speakers, result.Segments, clock.GetUtcNow());
             await stores.Transcripts.UpsertAsync(itemId, transcript);
-            var outputs = await ai.GenerateAsync(transcript.Render(), item.OutputLanguage, ct);
-            await stores.Outputs.UpsertAsync(itemId, new StoredOutputs(itemId, outputs));
+            AiOutputs? outputs = null;
+            try
+            {
+                outputs = await ai.GenerateAsync(transcript.Render(), item.OutputLanguage, ct);
+                await stores.Outputs.UpsertAsync(itemId, new StoredOutputs(itemId, outputs));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The transcript is safe and the item still completes. The summary can be created later from the item page.
+                await stores.Audit.AppendAsync(null, "system", "speak", itemId, "outputs.failed", AuditChain.Details(("reason", ex.Message)));
+            }
 
             item = await stores.RequireItemAsync(itemId);
             if (item.LengthMs == 0 && result.Segments.Count > 0) item.SetLength(result.Segments.Max(s => s.EndMs));
             item.CompleteProcessing();
             await stores.Items.UpsertAsync(itemId, item);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
-                AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs.Engine), ("enhancer", enhancer.Name),
+                AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count),
                     ("vocabularyTerms", phrases.Count), ("warning", result.Warning)));
         }

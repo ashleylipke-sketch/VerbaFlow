@@ -12,7 +12,7 @@ namespace VerbaFlow.Infrastructure.Services;
 /// Every method checks permission first, changes state, and appends an audit entry.
 /// </summary>
 public sealed class MeetingService(Stores stores, IMalwareScanner scanner, ProcessingQueue queue, PlatformPolicy policy,
-    TimeProvider clock)
+    TimeProvider clock, IAiOutputService ai)
 {
     private const string Product = "speak";
 
@@ -251,6 +251,27 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var v = t.Restore(versionNo, actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
         await stores.Transcripts.UpsertAsync(id, t);
         await Audit(actor, v.Capacity, id, "transcript.restored", ("restoredFrom", versionNo), ("version", v.No));
+    }
+
+    /// <summary>
+    /// Writes the summary, minutes, actions and tone again from the transcript as it is now, with its speaker names.
+    /// Use it after correcting the transcript or naming the speakers. Locked items cannot be changed.
+    /// </summary>
+    public async Task RegenerateOutputsAsync(User actor, Guid id, CancellationToken ct = default)
+    {
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Write);
+        if (item.Processing == ProcessingState.Running) throw new DomainException("Wait for transcription to finish first.");
+        var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
+        AiOutputs outputs;
+        try { outputs = await ai.GenerateAsync(t.Render(), item.OutputLanguage, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await Audit(actor, CapacityOf(actor, item), id, "outputs.failed", ("reason", ex.Message));
+            throw new DomainException("The summary could not be created. " + ex.Message);
+        }
+        await stores.Outputs.UpsertAsync(id, new StoredOutputs(id, outputs));
+        await Audit(actor, CapacityOf(actor, item), id, "outputs.regenerated", ("engine", outputs.Engine), ("transcriptVersion", t.Current.No));
     }
 
     public async Task<OutputsView?> GetOutputsAsync(User actor, Guid id)

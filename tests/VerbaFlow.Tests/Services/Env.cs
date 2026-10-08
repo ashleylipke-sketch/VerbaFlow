@@ -14,6 +14,20 @@ public sealed class FixedClock : TimeProvider
     public override DateTimeOffset GetUtcNow() => Now;
 }
 
+public sealed class FakeAi : IAiOutputService
+{
+    public bool Fail { get; set; }
+    public int Calls { get; private set; }
+    public IReadOnlyList<VerbaFlow.Core.Transcripts.RenderedSegment>? LastTranscript { get; private set; }
+    public Task<AiOutputs> GenerateAsync(IReadOnlyList<VerbaFlow.Core.Transcripts.RenderedSegment> transcript, string outputLanguage, CancellationToken ct)
+    {
+        Calls++; LastTranscript = transcript;
+        if (Fail) throw new InvalidOperationException("ai service unavailable");
+        var names = string.Join(", ", transcript.Select(t => t.SpeakerName).Distinct().Order());
+        return Task.FromResult(new AiOutputs("fake-ai", outputLanguage, $"Summary for {names} (call {Calls})", ["A: do it"], "Minutes", "Calm"));
+    }
+}
+
 public sealed class ThrowingSpeech : ISpeechService
 {
     public bool Fail { get; set; } = true;
@@ -31,6 +45,7 @@ public sealed class Env : IDisposable
     public Stores Stores { get; }
     public ThrowingSpeech Speech { get; } = new() { Fail = false };
     public ProcessingQueue Queue { get; } = new();
+    public FakeAi Ai { get; } = new();
     public MeetingService Meeting { get; }
     public VocabularyService Vocabulary { get; }
     public ProcessingService Processing { get; }
@@ -45,9 +60,9 @@ public sealed class Env : IDisposable
     {
         Db = new SqliteDatabase(DbPath);
         Stores = new Stores(Db, Path.Combine(Dir, "media"), Clock);
-        Meeting = new MeetingService(Stores, new StandInMalwareScanner(), Queue, policy ?? new PlatformPolicy(), Clock);
+        Meeting = new MeetingService(Stores, new StandInMalwareScanner(), Queue, policy ?? new PlatformPolicy(), Clock, Ai);
         Vocabulary = new VocabularyService(Stores, Clock);
-        Processing = new ProcessingService(Stores, Speech, new StandInAiOutputService(), new StandInAudioEnhancer(), Clock);
+        Processing = new ProcessingService(Stores, Speech, Ai, new StandInAudioEnhancer(), Clock);
         foreach (var u in new[] { Alice, Bob, Carol, Dave, Xavier }) Stores.Users.UpsertAsync(u.Id, u).GetAwaiter().GetResult();
     }
 

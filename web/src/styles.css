@@ -34,3 +34,4 @@ ins { text-decoration:underline; text-underline-offset:3px; font-weight:700; col
 del { text-decoration:line-through; color:var(--del); }
 .changes-bar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; padding:8px 10px; margin-bottom:10px; border:1px solid var(--line); border-radius:8px; }
 .seg.changed { background:rgba(36,87,197,.05); }
+.minutes { white-space: pre-wrap; font-size: 14px; line-height: 1.5; }

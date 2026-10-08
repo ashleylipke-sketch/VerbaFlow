@@ -22,7 +22,7 @@ Everything marked *stand-in* sits behind an interface in `VerbaFlow.Core/Provide
 | SQLite | Azure SQL |
 | Local media folder, read-only files | Blob storage with immutability policy |
 | `StandInSpeechService` (fake text) | **Azure AI Speech: built.** Used automatically when `Speech:Endpoint` and `Speech:Key` are set. See `docs/azure-speech-setup.md` |
-| `StandInAiOutputService` | Azure OpenAI |
+| `StandInAiOutputService` | **Azure OpenAI: built.** Used automatically when `OpenAI:Endpoint`, `OpenAI:Key` and `OpenAI:Deployment` are set. See `docs/azure-openai-setup.md` |
 | `StandInMalwareScanner` (rejects EICAR) | Defender for Storage |
 | In-process queue | Service Bus |
 

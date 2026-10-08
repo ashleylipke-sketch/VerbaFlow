@@ -37,7 +37,7 @@ Record or import a meeting. The transcript page shows the engine name under the 
 - Limits: files under 500 MB and 5 hours.
 - Cost: Azure bills per audio hour transcribed. Check current pricing for your tier.
 - Audio is sent to Azure to be transcribed. Production should use a Speech resource in the region your data-protection rules require, and keyless Microsoft Entra authentication instead of a key.
-- The summary, minutes and action points are still placeholders. They need Azure OpenAI, which is the next adapter.
+- The summary, minutes and action points come from Azure OpenAI. See `docs/azure-openai-setup.md`.
 
 ## Custom vocabulary
 

@@ -45,7 +45,10 @@ if (openAi.IsConfigured)
 }
 else builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
 builder.Services.AddSingleton<IMalwareScanner, StandInMalwareScanner>();
-builder.Services.AddSingleton<IAudioEnhancer, StandInAudioEnhancer>();
+var ffmpegPath = builder.Configuration["Audio:FfmpegPath"];
+var ffmpegFound = await VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer.IsAvailableAsync(ffmpegPath);
+if (ffmpegFound) builder.Services.AddSingleton<IAudioEnhancer>(_ => new VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer(ffmpegPath));
+else builder.Services.AddSingleton<IAudioEnhancer, StandInAudioEnhancer>();
 builder.Services.AddSingleton<MeetingService>();
 builder.Services.AddSingleton<VocabularyService>();
 builder.Services.AddSingleton<ProcessingService>();
@@ -55,6 +58,9 @@ var app = builder.Build();
 app.Logger.LogInformation(speech.IsConfigured
     ? "Speech: using Azure AI Speech at {Endpoint}"
     : "Speech: STAND-IN (placeholder text). Set Speech:Endpoint and Speech:Key to use Azure AI Speech.", speech.Endpoint);
+app.Logger.LogInformation(ffmpegFound
+    ? "Audio: ffmpeg found, so recordings are made mono, 16 kHz and levelled before transcription"
+    : "Audio: ffmpeg NOT found, so recordings are sent as they are. Install ffmpeg to improve speaker separation (see docs/audio-preparation.md).");
 app.Logger.LogInformation(openAi.IsConfigured
     ? "Summaries: using Azure OpenAI deployment {Deployment}"
     : "Summaries: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);

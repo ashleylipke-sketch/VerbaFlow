@@ -40,5 +40,8 @@ public interface IMalwareScanner
 public interface IAudioEnhancer
 {
     string Name { get; }
-    Task<Stream> EnhanceAsync(Stream original, CancellationToken ct);
+    Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct);
 }
+
+/// <summary>The processing copy. <paramref name="Applied"/> says what was done to it; <paramref name="Warning"/> is set when clean-up was skipped.</summary>
+public sealed record EnhancedAudio(Stream Audio, string Applied, string? Warning = null);

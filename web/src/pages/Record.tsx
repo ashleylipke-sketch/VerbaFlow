@@ -35,7 +35,7 @@ export default function Record() {
   const start = async () => {
     setError('');
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       stream.current = s;
       const ctx = new AudioContext(); audioCtx.current = ctx;
       const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(s).connect(an);

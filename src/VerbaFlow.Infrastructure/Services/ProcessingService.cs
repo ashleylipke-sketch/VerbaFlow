@@ -25,7 +25,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             var asset = await stores.Media.FindOriginalAsync(item.MediaSourceItemId)
                 ?? throw new InvalidOperationException("The original recording is missing.");
             await using var original = stores.Media.OpenRead(asset);
-            await using var copy = await enhancer.EnhanceAsync(original, ct);
+            var enhanced = await enhancer.EnhanceAsync(original, ct);
+            await using var copy = enhanced.Audio;
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
             var result = await speech.TranscribeAsync(copy, new TranscribeOptions(CandidateLanguages, 8, true, phrases), ct);
 
@@ -48,7 +49,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             item.CompleteProcessing();
             await stores.Items.UpsertAsync(itemId, item);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
-                AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name),
+                AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied), ("audioPrepWarning", enhanced.Warning),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count),
                     ("vocabularyTerms", phrases.Count), ("warning", result.Warning)));
         }

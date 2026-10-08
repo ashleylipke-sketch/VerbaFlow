@@ -69,9 +69,7 @@ export default function ItemPage({ id }: { id: string }) {
   };
   const approved = d?.row.statusCode === 'Completed' || d?.row.statusCode === 'Purged';
   const showChanges = changesChoice ?? !approved;
-  const labelOf = (speakerId: string) => t?.speakers.find(x => x.id === speakerId)?.label ?? '';
   const editedCount = segs.filter(x => x.originalText !== null).length;
-  const renamedCount = (t?.speakers ?? []).filter(x => x.name !== x.label).length;
   const seek = (ms: number) => { const a = player.current; if (!a) return; a.currentTime = ms / 1000; a.play().catch(() => undefined); };
 
   const run = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await load(); } catch (e: any) { setError(e.message); } };
@@ -127,15 +125,15 @@ export default function ItemPage({ id }: { id: string }) {
           {!t && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No transcript.'}</p>}
           {t && <p className="note">Speakers: {t.speakers.map(s => (
             <span key={s.id} style={{ marginRight: 10 }}>{s.name}{d.canEditTranscript && <> <button onClick={() => { const n = prompt('Rename speaker', s.name); if (n?.trim()) run(() => api.put(`/items/${id}/speakers/${s.id}`, { name: n.trim() })); }}>Rename</button></>}</span>))}</p>}
-          {t && (editedCount > 0 || renamedCount > 0) && <div className="changes-bar">
+          {t && editedCount > 0 && <div className="changes-bar">
             <label><input type="checkbox" checked={showChanges} onChange={e => setChangesChoice(e.target.checked)} /> Show tracked changes</label>
-            <span className="note">{editedCount} passage{editedCount === 1 ? '' : 's'} edited · {renamedCount} speaker{renamedCount === 1 ? '' : 's'} renamed
+            <span className="note">{editedCount} passage{editedCount === 1 ? '' : 's'} edited
               {showChanges ? <> · <ins>Added or changed text</ins> · <del>Original text</del></> : ' · hidden'}
               {approved && ' · approved version'}</span></div>}
           {audioUrl && t && <p className="note">Press play to follow along. Click any word to jump the audio to it.</p>}
           {t?.segments.map((s, i) => <SegmentRow key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
             playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript}
-            showChanges={showChanges} machineLabel={labelOf(s.speakerId)}
+            showChanges={showChanges}
             onSave={text => run(() => api.put(`/items/${id}/segments/${s.id}`, { text }))} />)}
           {!d.canEditTranscript && t && <p className="note">This transcript is read-only for you right now.</p>}
         </div>
@@ -159,10 +157,10 @@ export default function ItemPage({ id }: { id: string }) {
 
 type WordT = { text: string; startMs: number; endMs: number };
 
-function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, machineLabel }: {
+function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges }: {
   s: Transcript['segments'][number]; words: WordT[]; active: boolean; activeWord: number;
   playing: boolean; canSeek: boolean; onSeek: (ms: number) => void; editable: boolean; onSave: (t: string) => void;
-  showChanges: boolean; machineLabel: string;
+  showChanges: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(s.text);
@@ -187,11 +185,10 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
   };
   const marked = showChanges && s.originalText !== null;
   const ops = marked ? diffWords(s.originalText!, s.text) : null;
-  const renamed = showChanges && machineLabel !== '' && machineLabel !== s.speaker;
 
   return (
-    <div ref={row} className={'seg' + (s.lowConfidence ? ' low' : '') + (active ? ' reading' : '') + (marked || renamed ? ' changed' : '')} aria-current={active ? 'true' : undefined}>
-      <div className="who">{renamed ? <><del>{machineLabel}</del> <ins>{s.speaker}</ins></> : s.speaker}
+    <div ref={row} className={'seg' + (s.lowConfidence ? ' low' : '') + (active ? ' reading' : '') + (marked ? ' changed' : '')} aria-current={active ? 'true' : undefined}>
+      <div className="who">{s.speaker}
         <div className="t">{canSeek ? <button className="link" onClick={() => onSeek(s.startMs)} title="Play from here">{fmtLen(s.startMs)}</button> : fmtLen(s.startMs)} · {s.language}
           {marked && <> · <span className="tag">Edited</span></>}</div></div>
       <div>

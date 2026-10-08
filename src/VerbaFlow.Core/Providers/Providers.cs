@@ -2,9 +2,11 @@ using VerbaFlow.Core.Transcripts;
 
 namespace VerbaFlow.Core.Providers;
 
-public sealed record TranscribeOptions(string[] CandidateLanguages, int MaxSpeakers, bool Diarize);
+/// <param name="Phrases">Names and terms the speech service should expect (the company's custom vocabulary).</param>
+public sealed record TranscribeOptions(string[] CandidateLanguages, int MaxSpeakers, bool Diarize, IReadOnlyList<string>? Phrases = null);
 
-public sealed record TranscriptionResult(string Engine, IReadOnlyList<Speaker> Speakers, IReadOnlyList<Segment> Segments);
+/// <param name="Warning">Set when the service worked but had to skip something, for example it could not use the vocabulary.</param>
+public sealed record TranscriptionResult(string Engine, IReadOnlyList<Speaker> Speakers, IReadOnlyList<Segment> Segments, string? Warning = null);
 
 /// <summary>Speech to text with diarization and per-segment language detection (Azure AI Speech in production).</summary>
 public interface ISpeechService

@@ -17,8 +17,9 @@ public sealed class FixedClock : TimeProvider
 public sealed class ThrowingSpeech : ISpeechService
 {
     public bool Fail { get; set; } = true;
+    public TranscribeOptions? LastOptions { get; private set; }
     public Task<VerbaFlow.Core.Providers.TranscriptionResult> TranscribeAsync(Stream audio, TranscribeOptions options, CancellationToken ct) =>
-        Fail ? throw new InvalidOperationException("speech service unavailable") : new StandInSpeechService().TranscribeAsync(audio, options, ct);
+        (LastOptions = options) is null ? throw new InvalidOperationException() : Fail ? throw new InvalidOperationException("speech service unavailable") : new StandInSpeechService().TranscribeAsync(audio, options, ct);
 }
 
 /// <summary>A fresh database, media folder and set of services per test.</summary>
@@ -31,6 +32,7 @@ public sealed class Env : IDisposable
     public ThrowingSpeech Speech { get; } = new() { Fail = false };
     public ProcessingQueue Queue { get; } = new();
     public MeetingService Meeting { get; }
+    public VocabularyService Vocabulary { get; }
     public ProcessingService Processing { get; }
     public User Alice { get; } = T.U("Alice");
     public User Bob { get; } = T.U("Bob");
@@ -44,6 +46,7 @@ public sealed class Env : IDisposable
         Db = new SqliteDatabase(DbPath);
         Stores = new Stores(Db, Path.Combine(Dir, "media"), Clock);
         Meeting = new MeetingService(Stores, new StandInMalwareScanner(), Queue, policy ?? new PlatformPolicy(), Clock);
+        Vocabulary = new VocabularyService(Stores, Clock);
         Processing = new ProcessingService(Stores, Speech, new StandInAiOutputService(), new StandInAudioEnhancer(), Clock);
         foreach (var u in new[] { Alice, Bob, Carol, Dave, Xavier }) Stores.Users.UpsertAsync(u.Id, u).GetAwaiter().GetResult();
     }

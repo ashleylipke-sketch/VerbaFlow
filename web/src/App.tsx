@@ -5,6 +5,7 @@ import Record from './pages/Record';
 import Import from './pages/Import';
 import ItemPage from './pages/ItemPage';
 import Reopen from './pages/Reopen';
+import Vocabulary from './pages/Vocabulary';
 
 function useHash() {
   const [h, setH] = useState(location.hash || '#/');
@@ -30,6 +31,7 @@ export default function App() {
           <a href="#/" className={path === '/' ? 'on' : ''}>Meeting</a>
           <a href="#/record" className={path === '/record' ? 'on' : ''}>Record</a>
           <a href="#/import" className={path === '/import' ? 'on' : ''}>Import</a>
+          <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
           {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen requests</a>}
         </nav>
         <label className="note" title="Development stand-in for Microsoft Entra ID sign-in">
@@ -46,6 +48,7 @@ export default function App() {
           : path === '/record' ? <Record />
           : path === '/import' ? <Import />
           : path === '/reopen' ? <Reopen />
+          : path === '/vocabulary' ? <Vocabulary />
           : <Dashboard />}
       </main>
     </>

@@ -34,6 +34,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         var start = seekable.CanSeek ? seekable.Position : 0;
         var url = $"{options.Endpoint.TrimEnd('/')}/speechtotext/transcriptions:transcribe?api-version={ApiVersion}";
         var definition = BuildDefinition(o);
+        string? warning = null;
 
         for (var attempt = 0; ; attempt++)
         {
@@ -47,21 +48,34 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
             req.Headers.Add("Ocp-Apim-Subscription-Key", options.Key);
 
             using var res = await http.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct);
-            if (res.IsSuccessStatusCode) return Parse(await res.Content.ReadAsStringAsync(ct), o);
+            if (res.IsSuccessStatusCode)
+            {
+                var parsed = Parse(await res.Content.ReadAsStringAsync(ct), o);
+                return warning is null ? parsed : parsed with { Warning = warning };
+            }
 
             var retriable = res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
                 or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
             if (retriable && attempt < RetryDelays.Length) { await Delay(RetryDelays[attempt], ct); continue; }
+            // A bad request while a vocabulary was attached: transcribe without it rather than fail the whole recording.
+            if (res.StatusCode == HttpStatusCode.BadRequest && warning is null && o.Phrases is { Count: > 0 })
+            {
+                warning = "Azure did not accept the custom vocabulary, so this recording was transcribed without it.";
+                definition = BuildDefinition(o with { Phrases = null });
+                continue;
+            }
             throw new InvalidOperationException(Describe(res.StatusCode, await res.Content.ReadAsStringAsync(ct)));
         }
     }
 
-    internal static string BuildDefinition(TranscribeOptions o)
+    public static string BuildDefinition(TranscribeOptions o)
     {
         var def = new JsonObject();
         var locales = o.CandidateLanguages.Select(ToLocale).Distinct().ToArray();
         if (locales.Length > 0) def["locales"] = new JsonArray(locales.Select(l => (JsonNode)l).ToArray());
         if (o.Diarize) def["diarization"] = new JsonObject { ["enabled"] = true, ["maxSpeakers"] = Math.Clamp(o.MaxSpeakers, 2, 35) };
+        if (o.Phrases is { Count: > 0 })
+            def["phraseList"] = new JsonObject { ["phrases"] = new JsonArray(o.Phrases.Distinct(StringComparer.OrdinalIgnoreCase).Take(2000).Select(x => (JsonNode)x).ToArray()) };
         def["profanityFilterMode"] = "None"; // a transcript must record what was said
         return def.ToJsonString();
     }

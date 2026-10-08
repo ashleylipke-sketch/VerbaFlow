@@ -40,6 +40,7 @@ builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
 builder.Services.AddSingleton<IMalwareScanner, StandInMalwareScanner>();
 builder.Services.AddSingleton<IAudioEnhancer, StandInAudioEnhancer>();
 builder.Services.AddSingleton<MeetingService>();
+builder.Services.AddSingleton<VocabularyService>();
 builder.Services.AddSingleton<ProcessingService>();
 builder.Services.AddHostedService<ProcessingWorker>();
 

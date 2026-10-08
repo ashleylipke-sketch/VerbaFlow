@@ -17,6 +17,7 @@ public sealed class Stores
     public DocTable<StoredOutputs> Outputs { get; }
     public DocTable<ReopenRequest> Reopen { get; }
     public DocTable<MediaAsset> MediaAssets { get; }
+    public DocTable<VocabularyTerm> Vocabulary { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -28,6 +29,7 @@ public sealed class Stores
         Outputs = new(db, "doc_outputs");
         Reopen = new(db, "doc_reopen");
         MediaAssets = new(db, "doc_media");
+        Vocabulary = new(db, "doc_vocabulary");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

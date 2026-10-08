@@ -38,3 +38,13 @@ Record or import a meeting. The transcript page shows the engine name under the 
 - Cost: Azure bills per audio hour transcribed. Check current pricing for your tier.
 - Audio is sent to Azure to be transcribed. Production should use a Speech resource in the region your data-protection rules require, and keyless Microsoft Entra authentication instead of a key.
 - The summary, minutes and action points are still placeholders. They need Azure OpenAI, which is the next adapter.
+
+## Custom vocabulary
+
+Administrators keep a shared list of names and terms on the **Vocabulary** page. It is sent to Azure with every recording or import transcribed from then on, which makes those words more likely to be heard correctly. It nudges the service but cannot force a word, so transcripts still need checking.
+
+- Anyone signed in can read the list; only administrators change it. Every change is in the audit trail.
+- Keep it short and focused. Azure advises under 2,000 terms and says longer lists lower quality and slow things down. VerbaFlow stops at 2,000.
+- Terms are sent to Azure along with the audio.
+- Each transcription records how many terms were used. If Azure rejects the list, the recording is transcribed without it and the record says so.
+- Azure documents the vocabulary feature for one language at a time. VerbaFlow transcribes English and French together, so this has not been confirmed against live Azure. The fallback above covers it if Azure refuses.

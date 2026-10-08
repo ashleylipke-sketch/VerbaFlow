@@ -26,7 +26,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 ?? throw new InvalidOperationException("The original recording is missing.");
             await using var original = stores.Media.OpenRead(asset);
             await using var copy = await enhancer.EnhanceAsync(original, ct);
-            var result = await speech.TranscribeAsync(copy, new TranscribeOptions(CandidateLanguages, 8, true), ct);
+            var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
+            var result = await speech.TranscribeAsync(copy, new TranscribeOptions(CandidateLanguages, 8, true, phrases), ct);
 
             var transcript = Transcript.CreateMachineV1(itemId, result.Engine, result.Speakers, result.Segments, clock.GetUtcNow());
             await stores.Transcripts.UpsertAsync(itemId, transcript);
@@ -39,7 +40,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Items.UpsertAsync(itemId, item);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs.Engine), ("enhancer", enhancer.Name),
-                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count)));
+                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count),
+                    ("vocabularyTerms", phrases.Count), ("warning", result.Warning)));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

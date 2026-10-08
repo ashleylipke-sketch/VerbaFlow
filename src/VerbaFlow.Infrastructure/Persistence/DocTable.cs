@@ -34,4 +34,13 @@ public sealed class DocTable<T>(SqliteDatabase db, string table)
         cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(doc, Json.Options));
         await cmd.ExecuteNonQueryAsync();
     }
+
+    public async Task<bool> DeleteAsync(Guid id)
+    {
+        await using var c = db.Open();
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = $"DELETE FROM {table} WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id.ToString());
+        return await cmd.ExecuteNonQueryAsync() > 0;
+    }
 }

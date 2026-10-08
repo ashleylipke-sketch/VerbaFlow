@@ -10,6 +10,8 @@ public static class Endpoints
     public sealed record ReasonBody(string Reason);
     public sealed record TextBody(string Text);
     public sealed record NameBody(string Name);
+    public sealed record TermBody(string Text, string? Note);
+    public sealed record LinesBody(string Lines);
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web)
         { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
@@ -19,6 +21,12 @@ public static class Endpoints
         api.MapGet("/me", (HttpContext h) => h.Current());
         api.MapGet("/users", (MeetingService s) => s.ListUsersAsync());
         api.MapGet("/policy", (PlatformPolicy p) => p);
+
+        // Custom vocabulary: anyone signed in can read it, administrators change it.
+        api.MapGet("/vocabulary", (VocabularyService v) => v.ListAsync());
+        api.MapPost("/vocabulary", async (HttpContext h, VocabularyService v, TermBody b) => Results.Ok(await v.AddAsync(h.Current(), b.Text, b.Note)));
+        api.MapPost("/vocabulary/import", async (HttpContext h, VocabularyService v, LinesBody b) => Results.Ok(await v.ImportAsync(h.Current(), b.Lines)));
+        api.MapDelete("/vocabulary/{id:guid}", async (HttpContext h, VocabularyService v, Guid id) => { await v.RemoveAsync(h.Current(), id); return Results.NoContent(); });
 
         api.MapGet("/items", (HttpContext h, MeetingService s, string? statuses, bool? selfAssigned, string? search) =>
         {

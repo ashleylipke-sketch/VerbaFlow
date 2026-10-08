@@ -19,6 +19,7 @@ export type Transcript = {
 export type Outputs = { engine: string; language: string; summary: string; actionPoints: string[]; minutes: string; toneOfMeeting: string };
 export type UserView = { id: string; name: string; email: string; isAdmin: boolean };
 export type AuditEvent = { seq: number; at: string; actor: string; action: string; details: string; hash: string };
+export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
 
 let devUser = localStorage.getItem('devUser') ?? '';
@@ -50,6 +51,10 @@ export const api = {
   post: (path: string, body?: unknown) => call<any>('POST', path, body ?? {}),
   put: (path: string, body: unknown) => call<void>('PUT', path, body),
   form: (path: string, f: FormData) => call<{ id: string }>('POST', path, f),
+  vocabulary: () => call<Term[]>('GET', '/vocabulary'),
+  addTerm: (text: string, note: string) => call<Term>('POST', '/vocabulary', { text, note: note || null }),
+  importTerms: (lines: string) => call<{ added: number; skipped: string[] }>('POST', '/vocabulary/import', { lines }),
+  removeTerm: (id: string) => call<void>('DELETE', `/vocabulary/${id}`),
   reopenRequests: () => call<Reopen[]>('GET', '/reopen'),
   async audio(id: string, download = false): Promise<Blob> {
     const res = await fetch(`/api/items/${id}/audio${download ? '?download=true' : ''}`, { headers: { 'X-Dev-User': devUser } });

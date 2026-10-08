@@ -178,6 +178,40 @@ public class AzureSpeechTests
         Assert.Equal((2900, 3300), (seg.Words![3].StartMs, seg.Words![3].EndMs));
     }
 
+    [Fact]
+    public async Task The_vocabulary_is_sent_as_a_phrase_list_and_left_out_when_empty()
+    {
+        var h = new Handler((_, _) => Json(HttpStatusCode.OK, Good));
+        await Make(h).TranscribeAsync(new MemoryStream([1]), Opts with { Phrases = ["Amarin", "Bruno Fernandes", "amarin"] }, default);
+        Assert.Contains("\"phraseList\":{\"phrases\":[\"Amarin\",\"Bruno Fernandes\"]}", h.Calls[0].Body);
+
+        var h2 = new Handler((_, _) => Json(HttpStatusCode.OK, Good));
+        await Make(h2).TranscribeAsync(new MemoryStream([1]), Opts with { Phrases = [] }, default);
+        Assert.DoesNotContain("phraseList", h2.Calls[0].Body);
+    }
+
+    [Fact]
+    public async Task If_azure_rejects_the_vocabulary_the_recording_is_transcribed_without_it_and_flagged()
+    {
+        var h = new Handler((_, body) => body.Contains("phraseList")
+            ? Json(HttpStatusCode.BadRequest, """{"error":{"message":"phraseList is not supported with multiple locales"}}""")
+            : Json(HttpStatusCode.OK, Good));
+        var r = await Make(h).TranscribeAsync(new MemoryStream([1]), Opts with { Phrases = ["Amarin"] }, default);
+        Assert.Equal(2, h.Calls.Count);
+        Assert.DoesNotContain("phraseList", h.Calls[1].Body);
+        Assert.Equal(3, r.Segments.Count);
+        Assert.Contains("without it", r.Warning);
+    }
+
+    [Fact]
+    public async Task A_bad_request_with_no_vocabulary_is_still_an_error()
+    {
+        var h = new Handler((_, _) => Json(HttpStatusCode.BadRequest, """{"error":{"message":"unsupported audio"}}"""));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
+        Assert.Single(h.Calls);
+        Assert.Contains("unsupported audio", ex.Message);
+    }
+
     private sealed class ForwardOnly(Stream inner) : Stream
     {
         public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;

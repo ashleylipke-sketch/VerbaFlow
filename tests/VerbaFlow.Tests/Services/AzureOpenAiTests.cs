@@ -213,3 +213,17 @@ public class AzureOpenAiTests
         Assert.Equal(calls, env.Ai.Calls);
     }
 }
+
+public class AuthorColumnTests
+{
+    [Fact]
+    public async Task The_list_names_the_author_even_after_the_item_is_assigned_to_someone_else()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync(env.Alice);
+        await env.Meeting.AssignAsync(env.Alice, id, env.Bob.Id, null);
+        var row = (await env.Meeting.ListAsync(env.Alice, new VerbaFlow.Infrastructure.Services.ListQuery(null, null, null))).Single(r => r.Id == id);
+        Assert.Equal("Alice", row.Author);
+        Assert.Equal("Bob", row.AssignedTo);
+    }
+}

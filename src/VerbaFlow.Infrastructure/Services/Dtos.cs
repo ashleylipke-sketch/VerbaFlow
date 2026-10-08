@@ -19,7 +19,7 @@ public sealed record ListQuery(IReadOnlySet<ItemStatus>? Statuses, bool? SelfAss
 
 public sealed record ItemRow(
     Guid Id, string Name, string Priority, string Status, ItemStatus StatusCode, int LengthMs, string? ClientReference,
-    string? Description, string? AssignedTo, DateTimeOffset CreatedOn, DateOnly? DueDate, bool Overdue,
+    string? Description, string? AssignedTo, string? Author, DateTimeOffset CreatedOn, DateOnly? DueDate, bool Overdue,
     IReadOnlyList<string> Tags, IReadOnlyList<string> Actions, int VersionNo);
 
 public sealed record MarkerView(string Type, int OffsetMs, string? Note, string By, DateTimeOffset At);

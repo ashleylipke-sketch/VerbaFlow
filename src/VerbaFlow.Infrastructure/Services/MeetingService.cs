@@ -367,7 +367,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (i.VersionNo > 1) tags.Add($"v{i.VersionNo}");
         var overdue = i.DueDate is { } d && i.Status != ItemStatus.Completed && d < DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
         return new ItemRow(i.Id, i.Name, i.Priority.ToString(), StatusLabels.For(i.Mode, i.Status), i.Status, i.LengthMs,
-            i.ClientReference, i.Description, i.AssignedUserId is { } a ? users.GetValueOrDefault(a)?.Name : null, i.CreatedAt,
+            i.ClientReference, i.Description, i.AssignedUserId is { } a ? users.GetValueOrDefault(a)?.Name : null,
+            users.GetValueOrDefault(i.OwnerId)?.Name, i.CreatedAt,
             i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo);
     }
 

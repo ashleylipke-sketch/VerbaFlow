@@ -45,10 +45,10 @@ export default function Dashboard() {
       {error && <div className="error">{error}</div>}
       <div className="scroll">
         <table>
-          <thead><tr><th>Priority</th><th>Status</th><th>Length</th><th>Client Reference</th><th>Description</th><th>Assigned to</th><th>Created on</th><th>Due date</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Priority</th><th>Status</th><th>Length</th><th>Client Reference</th><th>Description</th><th>Author</th><th>Assigned to</th><th>Created on</th><th>Due date</th><th>Actions</th></tr></thead>
           <tbody>
-            {rows === null && <tr><td colSpan={9}>Loading…</td></tr>}
-            {rows !== null && shown.length === 0 && <tr><td colSpan={9} className="note">Nothing to show with these views. Record or import a meeting to get started.</td></tr>}
+            {rows === null && <tr><td colSpan={10}>Loading…</td></tr>}
+            {rows !== null && shown.length === 0 && <tr><td colSpan={10} className="note">Nothing to show with these views. Record or import a meeting to get started.</td></tr>}
             {shown.map(r => (
               <tr key={r.id}>
                 <td>{r.priority}</td>
@@ -56,6 +56,7 @@ export default function Dashboard() {
                 <td>{fmtLen(r.lengthMs)}</td>
                 <td>{r.clientReference ?? ''}</td>
                 <td className="wrap"><a href={`#/items/${r.id}`}>{r.name}</a>{r.description ? ` — ${r.description}` : ''}</td>
+                <td>{r.author ?? ''}</td>
                 <td>{r.assignedTo ?? ''}</td>
                 <td>{fmtDate(r.createdOn)}</td>
                 <td className={r.overdue ? 'overdue' : ''}>{r.dueDate ? fmtDate(r.dueDate) : ''}{r.overdue ? ' (overdue)' : ''}</td>

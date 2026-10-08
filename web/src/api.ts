@@ -1,6 +1,6 @@
 export type Row = {
   id: string; name: string; priority: string; status: string; statusCode: string; lengthMs: number;
-  clientReference: string | null; description: string | null; assignedTo: string | null; createdOn: string;
+  clientReference: string | null; description: string | null; assignedTo: string | null; author: string | null; createdOn: string;
   dueDate: string | null; overdue: boolean; tags: string[]; actions: string[]; versionNo: number;
 };
 export type Detail = {

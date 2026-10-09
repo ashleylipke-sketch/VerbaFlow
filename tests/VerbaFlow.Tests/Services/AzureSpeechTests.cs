@@ -252,4 +252,15 @@ public class AzureSpeechTests
         Assert.Equal(FaultKind.Busy, ((ProviderException)ex).Kind);
         Assert.Contains("S0", ex.Message); // the technical text for support keeps the pricing-tier hint
     }
+
+    [Fact]
+    public async Task A_request_timeout_from_azure_is_retried_and_counts_as_unreachable()
+    {
+        var n = 0;
+        var h = new Handler((_, _) => ++n < 3 ? Json(HttpStatusCode.RequestTimeout, "{\"error\":{\"code\":\"Timeout\",\"message\":\"The operation was timeout.\"}}") : Json(HttpStatusCode.OK, Good));
+        var r = await Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default);
+        Assert.Equal(3, h.Calls.Count);
+        Assert.NotEmpty(r.Segments);
+        Assert.Equal(FaultKind.Unavailable, VerbaFlow.Infrastructure.Services.FailureReporter.ForStatus(HttpStatusCode.RequestTimeout));
+    }
 }

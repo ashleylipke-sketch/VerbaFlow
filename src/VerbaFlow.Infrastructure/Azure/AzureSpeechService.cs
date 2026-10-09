@@ -58,7 +58,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                 return warning is null ? parsed : parsed with { Warning = warning };
             }
 
-            var retriable = res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
+            var retriable = res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.RequestTimeout or HttpStatusCode.InternalServerError
                 or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
             var delays = res.StatusCode == HttpStatusCode.TooManyRequests ? BusyDelays : RetryDelays;
             if (retriable && attempt < delays.Length)

@@ -41,7 +41,7 @@ public sealed class FailureReporter(Stores stores, TimeProvider clock, ILogger<F
     public static FaultKind ForStatus(HttpStatusCode code) => code switch
     {
         HttpStatusCode.TooManyRequests => FaultKind.Busy,
-        HttpStatusCode.InternalServerError or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout => FaultKind.Unavailable,
+        HttpStatusCode.RequestTimeout or HttpStatusCode.InternalServerError or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout => FaultKind.Unavailable,
         HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound => FaultKind.Settings,
         HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.UnsupportedMediaType => FaultKind.Audio,
         _ => FaultKind.Other,

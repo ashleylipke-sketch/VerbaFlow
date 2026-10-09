@@ -353,7 +353,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     }
 
     public async Task<IReadOnlyList<UserView>> ListUsersAsync() =>
-        (await stores.Users.ListAsync()).Select(u => new UserView(u.Id, u.Name, u.Email, u.IsAdmin)).ToList();
+        (await stores.Users.ListAsync()).Select(u => new UserView(u.Id, u.Name, u.Email, u.IsAdmin, u.IsSupport)).ToList();
 
     // ---------- helpers ----------
 

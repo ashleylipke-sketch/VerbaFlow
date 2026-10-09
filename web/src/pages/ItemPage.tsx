@@ -78,7 +78,7 @@ export default function ItemPage({ id }: { id: string }) {
 
   if (!d) return <div className="card">{error ? <span className="error">{error}</span> : 'Loading…'}</div>;
   const r = d.row, acts = new Set(r.actions);
-  const assignee = users.filter(u => u.id !== undefined);
+  const assignee = users.filter(u => !u.isSupport);
 
   return (
     <>

@@ -6,6 +6,7 @@ import Import from './pages/Import';
 import ItemPage from './pages/ItemPage';
 import Reopen from './pages/Reopen';
 import Vocabulary from './pages/Vocabulary';
+import Support from './pages/Support';
 
 function useHash() {
   const [h, setH] = useState(location.hash || '#/');
@@ -22,6 +23,7 @@ export default function App() {
   const path = hash.replace(/^#/, '');
   const item = path.match(/^\/items\/([0-9a-f-]{36})$/);
   const admin = users.find(u => key(u) === me)?.isAdmin;
+  const support = users.find(u => key(u) === me)?.isSupport;
 
   return (
     <>
@@ -32,13 +34,14 @@ export default function App() {
           <a href="#/record" className={path === '/record' ? 'on' : ''}>Record</a>
           <a href="#/import" className={path === '/import' ? 'on' : ''}>Import</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
+          {support && <a href="#/support" className={path === '/support' ? 'on' : ''}>Support: errors</a>}
           {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen requests</a>}
         </nav>
         <label className="note" title="Development stand-in for Microsoft Entra ID sign-in">
           Signed in as{' '}
           <select value={me} onChange={e => { setUser(e.target.value); setMe(e.target.value); }}>
             <option value="">Choose…</option>
-            {users.map(u => <option key={u.id} value={key(u)}>{u.name}{u.isAdmin ? ' (admin)' : ''}</option>)}
+            {users.map(u => <option key={u.id} value={key(u)}>{u.name}{u.isAdmin ? ' (admin)' : ''}{u.isSupport ? ' (support)' : ''}</option>)}
           </select>
         </label>
       </header>
@@ -49,6 +52,7 @@ export default function App() {
           : path === '/import' ? <Import />
           : path === '/reopen' ? <Reopen />
           : path === '/vocabulary' ? <Vocabulary />
+          : path === '/support' ? <Support />
           : <Dashboard />}
       </main>
     </>

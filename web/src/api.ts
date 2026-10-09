@@ -17,7 +17,8 @@ export type Transcript = {
   versions: { no: number; kind: string; capacity: string; by: string | null; at: string; note: string | null }[];
 };
 export type Outputs = { engine: string; language: string; summary: string; actionPoints: string[]; minutes: string; toneOfMeeting: string };
-export type UserView = { id: string; name: string; email: string; isAdmin: boolean };
+export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean };
+export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
 export type AuditEvent = { seq: number; at: string; actor: string; action: string; details: string; hash: string };
 export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
@@ -44,6 +45,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const api = {
   users: () => call<UserView[]>('GET', '/users'),
   me: () => call<UserView>('GET', '/me'),
+  supportErrors: (reference?: string) => call<SupportError[]>('GET', `/support/errors${reference ? `?reference=${encodeURIComponent(reference)}` : ''}`),
   items: () => call<Row[]>('GET', '/items'),
   item: (id: string) => call<Detail>('GET', `/items/${id}`),
   transcript: (id: string, v?: number) => call<Transcript>('GET', `/items/${id}/transcript${v ? `?version=${v}` : ''}`),

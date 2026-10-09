@@ -19,7 +19,9 @@ Messages written for customers are in `VerbaFlow.Core/Domain/Failures.cs` (`Cust
 
 ## Looking up a reference (support and developers)
 
-Sign in as a support user and open `/api/support/errors?reference=VF-7K2Q9M` (leave off `reference` for the latest 200). Customers and customer administrators are refused.
+Sign in as a support user. A **Support: errors** link appears in the top bar. Type the reference code and press Find, or press Show latest. Click a row's detail to see the full technical text. Customers and customer administrators never see the link, and the server refuses them if they open the address directly (`/api/support/errors`).
+
+Support users deliberately **cannot see customers' meetings, recordings or transcripts**. They see an empty meeting list. They work from the reference code and the technical detail only. (Looking inside a customer's item would need a separate, audited access process, which is not built.)
 
 In development the support user is "Sam Support" (`X-Dev-User: sam`). In production, support access will come from a VerbaFlow-owned group in Microsoft Entra ID, separate from any customer's administrators. That mapping is not built yet.
 

@@ -55,4 +55,4 @@ public sealed record AudioHandle(Stream Content, string ContentType, string File
 public sealed record ReopenView(Guid Id, Guid ItemId, string ItemName, string Reason, string RequestedBy, int Approvals,
     IReadOnlyList<string> ApprovedBy, bool Open, string? Outcome, Guid? NewItemId);
 
-public sealed record UserView(Guid Id, string Name, string Email, bool IsAdmin);
+public sealed record UserView(Guid Id, string Name, string Email, bool IsAdmin, bool IsSupport = false);

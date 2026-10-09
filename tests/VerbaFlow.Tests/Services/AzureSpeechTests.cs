@@ -243,11 +243,13 @@ public class AzureSpeechTests
     }
 
     [Fact]
-    public async Task A_persistent_429_explains_the_free_tier_limit()
+    public async Task A_persistent_429_gives_the_user_plain_advice_and_no_pricing_instructions()
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.TooManyRequests, "{}"));
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
         Assert.Equal(6, h.Calls.Count);
-        Assert.Contains("S0", ex.Message);
+        Assert.Contains("busy", ex.Message);
+        Assert.DoesNotContain("S0", ex.Message);
+        Assert.DoesNotContain("tier", ex.Message);
     }
 }

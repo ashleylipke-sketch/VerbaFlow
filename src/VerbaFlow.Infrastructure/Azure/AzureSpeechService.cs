@@ -171,7 +171,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => " Check the Speech key and endpoint.",
             HttpStatusCode.NotFound => " Check the Speech endpoint address.",
-            HttpStatusCode.TooManyRequests => " Azure is limiting how many requests this Speech resource accepts per minute (the free F0 tier allows very few). Wait a minute and press Retry, or move the resource to the Standard S0 tier.",
+            HttpStatusCode.TooManyRequests => " The transcription service is busy right now. Wait a few minutes and press Retry conversion. If this keeps happening, tell your administrator.",
             HttpStatusCode.RequestEntityTooLarge => " The file is too large for transcription (limit 500 MB or 5 hours).",
             _ => "",
         };

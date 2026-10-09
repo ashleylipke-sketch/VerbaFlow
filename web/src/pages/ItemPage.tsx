@@ -160,14 +160,19 @@ export default function ItemPage({ id }: { id: string }) {
               <button disabled={busy} onClick={() => { setBusy(true); run(() => api.post(`/items/${id}/outputs/regenerate`)).finally(() => setBusy(false)); }}>
                 {busy ? 'Writing…' : o ? 'Regenerate from current transcript' : 'Create summary'}</button></div>}
           </div>}
-          {acts.has('rerun') && t && t.versions.length === 1 && d.processingState !== 'Processing' && <div className="card"><h2>Speakers look wrong?</h2>
-            <p className="note">Run the conversion again on the same recording. If you know how many people spoke, say so and the app will group the voices into exactly that many. This is only possible until the transcript has been edited.</p>
+          {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>Speakers look wrong?</h2>
+            <p className="note">Run the conversion again on the same recording. If you know how many people spoke, say so and the app will group the voices into exactly that many.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>
             <div className="actions">
               <label className="note">Number of speakers{' '}
                 <select value={rerunSpeakers} onChange={e => setRerunSpeakers(e.target.value)}>
                   <option value="">Work it out automatically</option>
                   {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
-              <button disabled={busy} onClick={() => { setBusy(true); run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null })).finally(() => setBusy(false)); }}>Run again</button></div></div>}
+              <button disabled={busy} onClick={() => {
+                const edited = t.versions.length > 1;
+                if (edited && !confirm(`This replaces your ${t.versions.length - 1} correction${t.versions.length > 2 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;
+                setBusy(true);
+                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited })).finally(() => setBusy(false));
+              }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>
               <b>v{v.no}</b> {v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}

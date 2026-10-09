@@ -96,4 +96,20 @@ public class RerunTests
         row = (await env.Meeting.ListAsync(env.Alice, new ListQuery(null, null, null))).Single(r => r.Id == id);
         Assert.DoesNotContain("rerun", row.Actions);
     }
+
+    [Fact]
+    public async Task An_edited_transcript_is_only_replaced_when_the_owner_says_so()
+    {
+        var (env, _, processing, id) = await Start();
+        using var _ = env;
+        var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        await env.Meeting.EditSegmentAsync(env.Alice, id, t.Segments[0].Id, "something corrected");
+        await Assert.ThrowsAsync<DomainException>(() => env.Meeting.RerunAsync(env.Alice, id, 3));
+        await env.Meeting.RerunAsync(env.Alice, id, 3, null, discardEdits: true);
+        await processing.ProcessAsync(id);
+        var fresh = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        Assert.Equal(1, fresh.VersionNo);
+        var ev = (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "processing.rerun_requested");
+        Assert.Contains("replacedEdits", ev.Details);
+    }
 }

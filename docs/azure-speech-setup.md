@@ -51,6 +51,6 @@ Administrators keep a shared list of names and terms on the **Vocabulary** page.
 
 ## "429 TooManyRequests"
 
-People using the app see only "The transcription service is busy right now. Wait a few minutes and press Retry conversion." This section is for whoever runs the Azure resource. Azure is limiting how many requests your Speech resource accepts per minute. The free **F0** tier allows very few, and a recording that fails here is often the second or third in quick succession. The app now waits and retries for several minutes (obeying Azure's own "retry after" when it gives one) before giving up.
+People using the app see only "The transcription service is busy right now. Wait a few minutes and try again." plus a reference code. The detail below is for support and whoever runs the Azure resource: look up the reference as described in `support-and-errors.md`. Azure is limiting how many requests your Speech resource accepts per minute. The free **F0** tier allows very few, and a recording that fails here is often the second or third in quick succession. The app now waits and retries for several minutes (obeying Azure's own "retry after" when it gives one) before giving up.
 
 If it still fails: wait a minute and press **Retry** on the item. To stop it happening, change the resource to **Standard S0** in the Azure portal (open the Speech resource, then **Pricing tier**, or create an S0 resource and update the user-secrets). S0 is billed per audio hour, with a far higher request limit.

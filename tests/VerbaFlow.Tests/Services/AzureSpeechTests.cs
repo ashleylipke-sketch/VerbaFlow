@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using VerbaFlow.Core.Domain;
 using VerbaFlow.Core.Providers;
 using VerbaFlow.Infrastructure.Azure;
 
@@ -82,7 +83,7 @@ public class AzureSpeechTests
     public async Task Gives_up_after_repeated_server_errors()
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.ServiceUnavailable, "{}"));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
+        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
         Assert.Equal(5, h.Calls.Count);
         Assert.Contains("503", ex.Message);
     }
@@ -91,7 +92,7 @@ public class AzureSpeechTests
     public async Task A_rejected_key_fails_at_once_with_a_clear_message_that_does_not_repeat_the_key()
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.Unauthorized, """{"error":{"message":"Access denied due to invalid subscription key."}}"""));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
+        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
         Assert.Single(h.Calls);
         Assert.Contains("Check the Speech key and endpoint", ex.Message);
         Assert.Contains("invalid subscription key", ex.Message);
@@ -207,7 +208,7 @@ public class AzureSpeechTests
     public async Task A_bad_request_with_no_vocabulary_is_still_an_error()
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.BadRequest, """{"error":{"message":"unsupported audio"}}"""));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
+        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
         Assert.Single(h.Calls);
         Assert.Contains("unsupported audio", ex.Message);
     }
@@ -243,13 +244,12 @@ public class AzureSpeechTests
     }
 
     [Fact]
-    public async Task A_persistent_429_gives_the_user_plain_advice_and_no_pricing_instructions()
+    public async Task A_persistent_429_is_classified_as_busy_for_support()
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.TooManyRequests, "{}"));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
+        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
         Assert.Equal(6, h.Calls.Count);
-        Assert.Contains("busy", ex.Message);
-        Assert.DoesNotContain("S0", ex.Message);
-        Assert.DoesNotContain("tier", ex.Message);
+        Assert.Equal(FaultKind.Busy, ((ProviderException)ex).Kind);
+        Assert.Contains("S0", ex.Message); // the technical text for support keeps the pricing-tier hint
     }
 }

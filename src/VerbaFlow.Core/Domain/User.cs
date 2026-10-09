@@ -5,4 +5,4 @@ namespace VerbaFlow.Core.Domain;
 /// admin status and department come from group membership. Grants are per-capability
 /// rights assigned in the app.
 /// </summary>
-public sealed record User(Guid Id, string Name, string Email, bool IsAdmin, Capability Grants, string? Department = null);
+public sealed record User(Guid Id, string Name, string Email, bool IsAdmin, Capability Grants, string? Department = null, bool IsSupport = false);

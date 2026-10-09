@@ -37,7 +37,7 @@ The rules that matter are real, not stand-ins: permissions, the approval lock (e
 **Manual steps:**
 
 ```bash
-dotnet test                       # 121 tests
+dotnet test                       # 143 tests
 cd web && npm install && npm run build   # builds into src/VerbaFlow.Api/wwwroot
 cd ../src/VerbaFlow.Api && dotnet run     # http://localhost:5044
 ```
@@ -50,4 +50,4 @@ Pick a user at the top right: Alice (author), Bob (assignee), Carol and Dave (ad
 - `src/VerbaFlow.Infrastructure`: SQLite, media store, services, stand-ins.
 - `src/VerbaFlow.Api`: minimal API.
 - `web/`: React + TypeScript front end.
-- `docs/`: decision record and data model.
+- `docs/`: decision record, data model, setup guides, and `support-and-errors.md` (what customers see when something fails versus what support sees).

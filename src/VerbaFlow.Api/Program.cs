@@ -60,6 +60,7 @@ if (diarizationOn)
     builder.Services.AddHttpClient<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>(c => c.Timeout = TimeSpan.FromMinutes(15));
     builder.Services.AddSingleton<ISpeakerDiarizer>(sp => sp.GetRequiredService<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>());
 }
+builder.Services.AddSingleton<VerbaFlow.Infrastructure.Services.FailureReporter>();
 builder.Services.AddSingleton<MeetingService>();
 builder.Services.AddSingleton<VocabularyService>();
 builder.Services.AddSingleton<ProcessingService>();
@@ -95,7 +96,15 @@ app.UseExceptionHandler(e => e.Run(async ctx =>
         ForbiddenException => 403, NotFoundException => 404, DomainException => 400, _ => 500
     };
     ctx.Response.ContentType = "application/json";
-    var message = ex is DomainException or ForbiddenException or NotFoundException ? ex.Message : "Something went wrong.";
+    string message;
+    if (ex is DomainException or ForbiddenException or NotFoundException) message = ex.Message;
+    else
+    {
+        // Anything unexpected: the customer gets a plain message and a reference. Support gets the detail under the same reference.
+        var rep = await ctx.RequestServices.GetRequiredService<VerbaFlow.Infrastructure.Services.FailureReporter>()
+            .ReportAsync("request", null, ex ?? new InvalidOperationException("Unknown error"));
+        message = CustomerMessages.For(FaultKind.Other, "VerbaFlow", rep.Reference);
+    }
     await ctx.Response.WriteAsJsonAsync(new { error = message });
 }));
 

@@ -10,7 +10,7 @@ namespace VerbaFlow.Infrastructure.Services;
 /// language detection, then the AI outputs. Transcription uses the filtered copy; the original is never touched.
 /// </summary>
 public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiOutputService ai, IAudioEnhancer enhancer,
-    TimeProvider clock, ISpeakerDiarizer? diarizer = null)
+    TimeProvider clock, FailureReporter reporter, ISpeakerDiarizer? diarizer = null)
 {
     private static readonly string[] CandidateLanguages = ["en", "fr"];
 
@@ -25,7 +25,13 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             var asset = await stores.Media.FindOriginalAsync(item.MediaSourceItemId)
                 ?? throw new InvalidOperationException("The original recording is missing.");
             await using var original = stores.Media.OpenRead(asset);
+            var notices = new List<string>(); // plain, customer-safe notes recorded in the history
             var enhanced = await enhancer.EnhanceAsync(original, ct);
+            if (enhanced.Warning is not null)
+            {
+                var rep = await reporter.ReportAsync("audio-preparation", itemId, new InvalidOperationException(enhanced.Warning));
+                notices.Add($"audio clean-up was skipped ({rep.Reference})");
+            }
             await using var copy = enhanced.Audio;
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
             var result = await speech.TranscribeAsync(copy, new TranscribeOptions(CandidateLanguages, 8, true, phrases), ct);
@@ -46,7 +52,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    result = result with { Warning = string.Join(" ", new[] { result.Warning, "Local speaker separation failed, so Azure's speaker labels were used: " + ex.Message }.Where(x => x is not null)) };
+                    var rep = await reporter.ReportAsync("speaker-separation", itemId, ex);
+                    notices.Add($"speaker separation fell back to the speech service's own labels ({rep.Reference})");
                 }
             }
 
@@ -61,7 +68,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // The transcript is safe and the item still completes. The summary can be created later from the item page.
-                await stores.Audit.AppendAsync(null, "system", "speak", itemId, "outputs.failed", AuditChain.Details(("reason", ex.Message)));
+                var rep = await reporter.ReportAsync("summary", itemId, ex);
+                await stores.Audit.AppendAsync(null, "system", "speak", itemId, "outputs.failed", AuditChain.Details(("kind", rep.Kind.ToString()), ("reference", rep.Reference)));
             }
 
             item = await stores.RequireItemAsync(itemId);
@@ -69,17 +77,18 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             item.CompleteProcessing();
             await stores.Items.UpsertAsync(itemId, item);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
-                AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied), ("audioPrepWarning", enhanced.Warning),
+                AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
-                    ("vocabularyTerms", phrases.Count), ("warning", result.Warning)));
+                    ("vocabularyTerms", phrases.Count), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             item = await stores.RequireItemAsync(itemId);
-            item.FailProcessing(ex.Message);
+            var rep = await reporter.ReportAsync("transcription", itemId, ex);
+            item.FailProcessing(rep.UserMessage);
             await stores.Items.UpsertAsync(itemId, item);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.failed",
-                AuditChain.Details(("reason", ex.Message)));
+                AuditChain.Details(("kind", rep.Kind.ToString()), ("reference", rep.Reference)));
         }
     }
 }

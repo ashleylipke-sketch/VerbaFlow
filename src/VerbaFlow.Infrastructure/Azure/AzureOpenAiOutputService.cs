@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using VerbaFlow.Core.Domain;
 using VerbaFlow.Core.Providers;
 using VerbaFlow.Core.Transcripts;
 
@@ -31,7 +32,7 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
 
     public async Task<AiOutputs> GenerateAsync(IReadOnlyList<RenderedSegment> transcript, string outputLanguage, CancellationToken ct)
     {
-        if (!options.IsConfigured) throw new InvalidOperationException("Azure OpenAI is not configured.");
+        if (!options.IsConfigured) throw new ProviderException(FaultKind.Settings, "Azure OpenAI is not configured.");
         if (transcript.Count == 0) throw new InvalidOperationException("There is no transcript to summarise.");
         var lines = transcript.Select(Line).ToList();
         var chunks = Chunk(lines, MaxTranscriptChars);
@@ -134,7 +135,8 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
             var retriable = res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
                 or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
             if (retriable && attempt < RetryDelays.Length) { await Delay(RetryDelays[attempt], ct); continue; }
-            throw new InvalidOperationException(Describe(res.StatusCode, text));
+            var blocked = res.StatusCode == HttpStatusCode.BadRequest && text.Contains("content_filter", StringComparison.OrdinalIgnoreCase);
+            throw new ProviderException(blocked ? FaultKind.Blocked : res.StatusCode == HttpStatusCode.BadRequest ? FaultKind.Other : Services.FailureReporter.ForStatus(res.StatusCode), Describe(res.StatusCode, text));
         }
     }
 
@@ -151,12 +153,12 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException)
         {
-            throw new InvalidOperationException("Azure OpenAI sent a reply this app could not read.");
+            throw new ProviderException(FaultKind.Other, "Azure OpenAI sent a reply this app could not read.");
         }
         if (msg.TryGetProperty("refusal", out var refusal) && refusal.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(refusal.GetString()))
-            throw new InvalidOperationException("Azure OpenAI declined to summarise this meeting: " + refusal.GetString());
+            throw new ProviderException(FaultKind.Blocked, "Azure OpenAI declined to summarise this meeting: " + refusal.GetString());
         if (finish is not null && finish != "stop")
-            throw new InvalidOperationException(finish == "content_filter"
+            throw new ProviderException(finish == "content_filter" ? FaultKind.Blocked : FaultKind.Other, finish == "content_filter"
                 ? "Azure OpenAI's content filter stopped the summary."
                 : "The summary was cut short because it was too long. Try again, or summarise a shorter meeting.");
         try
@@ -169,7 +171,7 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or NullReferenceException)
         {
-            throw new InvalidOperationException("Azure OpenAI's summary was not in the expected form.");
+            throw new ProviderException(FaultKind.Other, "Azure OpenAI's summary was not in the expected form.");
         }
     }
 

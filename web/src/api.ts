@@ -30,7 +30,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const init: RequestInit = { method, headers: { 'X-Dev-User': devUser } };
   if (body instanceof FormData) init.body = body;
   else if (body !== undefined) { (init.headers as Record<string, string>)['Content-Type'] = 'application/json'; init.body = JSON.stringify(body); }
-  const res = await fetch('/api' + path, init);
+  let res: Response;
+  try { res = await fetch('/api' + path, init); }
+  catch { throw new Error('VerbaFlow could not be reached. Check your connection and try again.'); }
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = (await res.json()).error ?? msg; } catch { /* keep status text */ }

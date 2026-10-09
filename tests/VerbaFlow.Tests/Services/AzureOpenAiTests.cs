@@ -82,7 +82,7 @@ public class AzureOpenAiTests
     public async Task A_refusal_is_reported_not_used_as_a_summary()
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.OK, Reply(refusal: "I can't help with that.")));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).GenerateAsync(Transcript(), "en", default));
+        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).GenerateAsync(Transcript(), "en", default));
         Assert.Contains("declined", ex.Message);
     }
 
@@ -92,7 +92,7 @@ public class AzureOpenAiTests
     public async Task A_reply_that_did_not_finish_normally_is_refused(string finish, string expected)
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.OK, Reply(finish: finish)));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).GenerateAsync(Transcript(), "en", default));
+        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).GenerateAsync(Transcript(), "en", default));
         Assert.Contains(expected, ex.Message);
     }
 
@@ -103,7 +103,7 @@ public class AzureOpenAiTests
     public async Task Malformed_replies_give_a_plain_error(string body)
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.OK, body));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).GenerateAsync(Transcript(), "en", default));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).GenerateAsync(Transcript(), "en", default));
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public class AzureOpenAiTests
     public async Task A_rejected_key_gives_advice_and_never_echoes_the_key()
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.Unauthorized, "{\"error\":{\"message\":\"Access denied\"}}"));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).GenerateAsync(Transcript(), "en", default));
+        var ex = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).GenerateAsync(Transcript(), "en", default));
         Assert.Single(h.Calls);
         Assert.Contains("Check the Azure OpenAI key", ex.Message);
         Assert.DoesNotContain("secret-key-123", ex.Message);
@@ -145,7 +145,7 @@ public class AzureOpenAiTests
     public async Task An_empty_transcript_is_refused_without_calling_azure()
     {
         var h = new Handler((_, _) => Json(HttpStatusCode.OK, Reply()));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).GenerateAsync([], "en", default));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Make(h).GenerateAsync([], "en", default));
         Assert.Empty(h.Calls);
     }
 
@@ -196,7 +196,8 @@ public class AzureOpenAiTests
         var before = (await env.Meeting.GetOutputsAsync(env.Alice, id))!.Summary;
         env.Ai.Fail = true;
         var ex = await Assert.ThrowsAsync<DomainException>(() => env.Meeting.RegenerateOutputsAsync(env.Alice, id));
-        Assert.Contains("could not be created", ex.Message);
+        Assert.Contains("Reference: VF-", ex.Message);
+        Assert.DoesNotContain("ai service unavailable", ex.Message); // the technical text stays with support
         Assert.Equal(before, (await env.Meeting.GetOutputsAsync(env.Alice, id))!.Summary);
         Assert.Contains(await env.Stores.Audit.ListAsync(id), a => a.Type == "outputs.failed");
     }

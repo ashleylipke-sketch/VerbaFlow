@@ -18,6 +18,7 @@ public sealed class Stores
     public DocTable<ReopenRequest> Reopen { get; }
     public DocTable<MediaAsset> MediaAssets { get; }
     public DocTable<VocabularyTerm> Vocabulary { get; }
+    public DocTable<SupportError> SupportErrors { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -30,6 +31,7 @@ public sealed class Stores
         Reopen = new(db, "doc_reopen");
         MediaAssets = new(db, "doc_media");
         Vocabulary = new(db, "doc_vocabulary");
+        SupportErrors = new(db, "doc_support_errors");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

@@ -41,11 +41,12 @@ Dictate and Speech modes, Meet, Widget, telephony bridge (ADR-15), purge/retenti
 
 ## Running things
 Owner on Windows: `run.cmd` in the repo root (builds web, starts http://localhost:5044). If `dotnet` is not found in a plain Command Prompt: `set PATH=C:\Program Files\dotnet;%PATH%` (a 32-bit dotnet can come first on PATH). Secrets are set with `dotnet user-secrets` from `src\VerbaFlow.Api`: `Speech:Endpoint`, `Speech:Key`, `OpenAI:Endpoint`, `OpenAI:Key`, `OpenAI:Deployment`, optional `Audio:FfmpegPath`. ffmpeg: `winget install Gyan.FFmpeg`. Startup log lines say whether Speech, Summaries and Audio are real or stand-in.
-Dev sign-in is an `X-Dev-User` header (alice, bob, carol (admin), dave (admin)); it stands in for Entra ID.
+Dev sign-in is an `X-Dev-User` header (alice, bob, carol (admin), dave (admin), sam (VerbaFlow support, the only one who can read `/api/support/errors`)); it stands in for Entra ID.
 
-Tests: `dotnet test` (132 pass) and `cd web && npx vitest run` (13 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
+Tests: `dotnet test` (143 pass) and `cd web && npx vitest run` (13 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
 
 ## Working agreements
+- **Customers never see technical error text, including their administrators.** They get a plain sentence plus a reference code (VF-XXXXXX). Technical detail goes to the support-only error table and the server log under the same code. Pass failures through `FailureReporter` (see `docs/support-and-errors.md`). Do not put `ex.Message`, provider responses or setup advice (keys, pricing tiers) in anything a customer can read.
 - Commit and push after each finished piece. Commit messages end with the attribution lines the session gives you.
 - Never commit keys. Keep docs and README status in step with the code.
 - Treat transcript text as untrusted when sending it to an AI model.

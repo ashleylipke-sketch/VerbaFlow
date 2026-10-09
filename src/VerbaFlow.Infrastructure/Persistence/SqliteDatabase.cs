@@ -41,6 +41,7 @@ public sealed class SqliteDatabase
             CREATE TABLE IF NOT EXISTS doc_media(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_reopen(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_vocabulary(id TEXT PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS doc_support_errors(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS audit_events(
                 seq INTEGER PRIMARY KEY, at TEXT NOT NULL, actor_id TEXT, capacity TEXT NOT NULL, product TEXT NOT NULL,
                 item_id TEXT, type TEXT NOT NULL, details TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL);

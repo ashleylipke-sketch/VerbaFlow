@@ -102,7 +102,7 @@ public class SpeakerSeparationTests
     private static async Task<(Env env, Guid id)> Run(ISpeakerDiarizer d)
     {
         var env = new Env();
-        var processing = new ProcessingService(env.Stores, env.Speech, env.Ai, new StandInAudioEnhancer(), env.Clock, d);
+        var processing = new ProcessingService(env.Stores, env.Speech, env.Ai, new StandInAudioEnhancer(), env.Clock, env.Reporter, d);
         var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Recording());
         await processing.ProcessAsync(id);
         return (env, id);
@@ -128,7 +128,8 @@ public class SpeakerSeparationTests
         var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);
         Assert.True(t.Speakers.Count > 1);
         var done = (await env.Stores.Audit.ListAsync(id)).Single(a => a.Type == "processing.completed");
-        Assert.Contains("Local speaker separation failed", done.Details);
+        Assert.Contains("speaker separation fell back", done.Details);
+        Assert.DoesNotContain("model missing", done.Details); // technical text never goes in the history
         Assert.Contains("azure", done.Details);
     }
 

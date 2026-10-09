@@ -46,6 +46,7 @@ public sealed class Env : IDisposable
     public ThrowingSpeech Speech { get; } = new() { Fail = false };
     public ProcessingQueue Queue { get; } = new();
     public FakeAi Ai { get; } = new();
+    public FailureReporter Reporter { get; }
     public MeetingService Meeting { get; }
     public VocabularyService Vocabulary { get; }
     public ProcessingService Processing { get; }
@@ -60,9 +61,10 @@ public sealed class Env : IDisposable
     {
         Db = new SqliteDatabase(DbPath);
         Stores = new Stores(Db, Path.Combine(Dir, "media"), Clock);
-        Meeting = new MeetingService(Stores, new StandInMalwareScanner(), Queue, policy ?? new PlatformPolicy(), Clock, Ai);
+        Reporter = new FailureReporter(Stores, Clock);
+        Meeting = new MeetingService(Stores, new StandInMalwareScanner(), Queue, policy ?? new PlatformPolicy(), Clock, Ai, Reporter);
         Vocabulary = new VocabularyService(Stores, Clock);
-        Processing = new ProcessingService(Stores, Speech, Ai, new StandInAudioEnhancer(), Clock);
+        Processing = new ProcessingService(Stores, Speech, Ai, new StandInAudioEnhancer(), Clock, Reporter);
         foreach (var u in new[] { Alice, Bob, Carol, Dave, Xavier }) Stores.Users.UpsertAsync(u.Id, u).GetAwaiter().GetResult();
     }
 

@@ -48,7 +48,7 @@ export default function Record() {
       r.ondataavailable = e => e.data.size && chunks.current.push(e.data);
       r.onstop = () => { blob.current = new Blob(chunks.current, { type: r.mimeType || 'audio/webm' }); };
       r.start(1000); activeMs.current = 0; setElapsed(0); setMarkers([]); setState('recording');
-    } catch (e: any) { setError('The microphone could not be started: ' + (e.message ?? e)); }
+    } catch (e: any) { setError(e?.name === 'NotAllowedError' ? 'VerbaFlow does not have permission to use the microphone. Allow it in your browser, then try again.' : 'The microphone could not be started. Check that one is connected and not in use by another app, then try again.'); }
   };
 
   const at = () => Math.round(activeMs.current + (state === 'recording' ? performance.now() - lastTick.current : 0));

@@ -134,7 +134,8 @@ public class CaptureTests
         await env.Processing.ProcessAsync(id);
         var failed = await env.Item(id);
         Assert.Equal(ItemStatus.ConversionFailed, failed.Status);
-        Assert.Contains("unavailable", failed.FailureReason);
+        Assert.Contains("Reference: VF-", failed.FailureReason);
+        Assert.DoesNotContain("unavailable", failed.FailureReason);
         Assert.NotNull(await env.Stores.Media.FindOriginalAsync(id));   // the original is never lost
 
         env.Speech.Fail = false;

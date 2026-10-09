@@ -12,7 +12,7 @@ namespace VerbaFlow.Infrastructure.Services;
 /// Every method checks permission first, changes state, and appends an audit entry.
 /// </summary>
 public sealed class MeetingService(Stores stores, IMalwareScanner scanner, ProcessingQueue queue, PlatformPolicy policy,
-    TimeProvider clock, IAiOutputService ai)
+    TimeProvider clock, IAiOutputService ai, FailureReporter reporter)
 {
     private const string Product = "speak";
 
@@ -267,8 +267,9 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         try { outputs = await ai.GenerateAsync(t.Render(), item.OutputLanguage, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await Audit(actor, CapacityOf(actor, item), id, "outputs.failed", ("reason", ex.Message));
-            throw new DomainException("The summary could not be created. " + ex.Message);
+            var rep = await reporter.ReportAsync("summary", id, ex);
+            await Audit(actor, CapacityOf(actor, item), id, "outputs.failed", ("kind", rep.Kind.ToString()), ("reference", rep.Reference));
+            throw new DomainException(rep.UserMessage);
         }
         await stores.Outputs.UpsertAsync(id, new StoredOutputs(id, outputs));
         await Audit(actor, CapacityOf(actor, item), id, "outputs.regenerated", ("engine", outputs.Engine), ("transcriptVersion", t.Current.No));

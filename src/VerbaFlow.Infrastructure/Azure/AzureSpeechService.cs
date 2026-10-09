@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using VerbaFlow.Core.Domain;
 using VerbaFlow.Core.Providers;
 using VerbaFlow.Core.Transcripts;
 
@@ -32,7 +33,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
 
     public async Task<TranscriptionResult> TranscribeAsync(Stream audio, TranscribeOptions o, CancellationToken ct)
     {
-        if (!options.IsConfigured) throw new InvalidOperationException("Azure AI Speech is not configured.");
+        if (!options.IsConfigured) throw new ProviderException(FaultKind.Settings, "Azure AI Speech is not configured.");
         var seekable = audio.CanSeek ? audio : await BufferAsync(audio, ct);
         var start = seekable.CanSeek ? seekable.Position : 0;
         var url = $"{options.Endpoint.TrimEnd('/')}/speechtotext/transcriptions:transcribe?api-version={ApiVersion}";
@@ -74,7 +75,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                 definition = BuildDefinition(o with { Phrases = null });
                 continue;
             }
-            throw new InvalidOperationException(Describe(res.StatusCode, await res.Content.ReadAsStringAsync(ct)));
+            throw new ProviderException(Services.FailureReporter.ForStatus(res.StatusCode), Describe(res.StatusCode, await res.Content.ReadAsStringAsync(ct)));
         }
     }
 
@@ -171,7 +172,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => " Check the Speech key and endpoint.",
             HttpStatusCode.NotFound => " Check the Speech endpoint address.",
-            HttpStatusCode.TooManyRequests => " The transcription service is busy right now. Wait a few minutes and press Retry conversion. If this keeps happening, tell your administrator.",
+            HttpStatusCode.TooManyRequests => " Azure is limiting how many requests this Speech resource accepts per minute (the free F0 tier allows very few). Move the resource to Standard S0, or retry later.",
             HttpStatusCode.RequestEntityTooLarge => " The file is too large for transcription (limit 500 MB or 5 hours).",
             _ => "",
         };

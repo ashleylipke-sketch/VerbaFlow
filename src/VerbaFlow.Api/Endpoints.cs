@@ -19,6 +19,14 @@ public static class Endpoints
     public static void MapMeetingEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/me", (HttpContext h) => h.Current());
+        // Technical error detail for VerbaFlow support and developers only. Customers, including their administrators, are refused.
+        api.MapGet("/support/errors", async (HttpContext h, Stores stores, string? reference) =>
+        {
+            if (!h.Current().IsSupport) throw new ForbiddenException("This is only available to VerbaFlow support.");
+            var all = await stores.SupportErrors.ListAsync();
+            return all.Where(e => reference is null || string.Equals(e.Reference, reference, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(e => e.At).Take(200).ToList();
+        });
         api.MapGet("/users", (MeetingService s) => s.ListUsersAsync());
         api.MapGet("/policy", (PlatformPolicy p) => p);
 

@@ -91,14 +91,16 @@ export default function ItemPage({ id }: { id: string }) {
           {d.approvedAt && <> · Approved by {d.approvedBy} on {fmtDate(d.approvedAt)}</>}
         </div>
         {d.processingState === 'Processing' && <div className="banner">Transcribing… this page updates itself when it is ready.</div>}
-        {d.failureReason && <div className="banner">Conversion failed: {d.failureReason}</div>}
+        {d.failureReason && <div className="banner">Conversion failed: {d.failureReason}
+          {acts.has('retry') && <div className="actions" style={{ marginTop: 8 }}>
+            <button className="primary" onClick={() => run(() => api.post(`/items/${id}/retry`))}>Retry conversion</button>
+            <span className="note">The recording is safe. Retrying starts the conversion again from the original audio.</span></div>}</div>}
         {d.markers.length > 0 && <div className="note">Markers: {d.markers.map(m => `${fmtLen(m.offsetMs)} ${m.type}${m.note ? ` (${m.note})` : ''}`).join(' · ')}</div>}
         {d.chain.length > 1 && <div className="note">Versions: {d.chain.map(c => <span key={c.id}>{c.isCurrent ? <b>v{c.versionNo}</b> : <a href={`#/items/${c.id}`}>v{c.versionNo}</a>} ({c.status}){' '}</span>)}</div>}
         {audioUrl && <div className="player"><audio ref={player} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} />
           {d.canDownloadAudio && <button onClick={download}>Download original audio</button>}</div>}
         {error && <div className="error">{error}</div>}
         <div className="actions" style={{ marginTop: 12, flexWrap: 'wrap' }}>
-          {acts.has('retry') && <button onClick={() => run(() => api.post(`/items/${id}/retry`))}>Retry conversion</button>}
           {acts.has('accept') && <button className="primary" onClick={() => run(() => api.post(`/items/${id}/accept`))}>Accept</button>}
           {acts.has('return') && <button onClick={() => run(() => api.post(`/items/${id}/return`))}>Return to owner</button>}
           {acts.has('approve') && <button className="primary" onClick={() => { if (confirm('Approving locks this item. Continue?')) run(() => api.post(`/items/${id}/approve`)); }}>Approve</button>}

@@ -57,7 +57,7 @@ public static class Endpoints
             var id = await s.CreateRecordingAsync(h.Current(), new RecordingUpload(stream, file.FileName, file.ContentType,
                 f["name"].ToString(), int.TryParse(f["lengthMs"], out var l) ? l : 0,
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
-                f["consentNoticeGiven"] == "true", markers), ct);
+                f["consentNoticeGiven"] == "true", markers, f["spokenLanguages"].ToString()), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 
@@ -70,11 +70,11 @@ public static class Endpoints
                 string.IsNullOrWhiteSpace(f["name"]) ? null : f["name"].ToString(),
                 int.TryParse(f["lengthMs"], out var l) ? l : 0,
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
-                f["rightsConfirmed"] == "true", f["sourceNote"].ToString()), ct);
+                f["rightsConfirmed"] == "true", f["sourceNote"].ToString(), f["spokenLanguages"].ToString()), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 
-        api.MapPost("/items/{id:guid}/retry", async (HttpContext h, MeetingService s, Guid id) => { await s.RetryAsync(h.Current(), id); return Results.NoContent(); });
+        api.MapPost("/items/{id:guid}/retry", async (HttpContext h, MeetingService s, Guid id, RetryRequest? body) => { await s.RetryAsync(h.Current(), id, body?.SpokenLanguages); return Results.NoContent(); });
 
         api.MapPut("/items/{id:guid}/details", async (HttpContext h, MeetingService s, Guid id, DetailsUpdate d) =>
         { await s.UpdateDetailsAsync(h.Current(), id, d); return Results.NoContent(); });

@@ -9,7 +9,7 @@ export type Detail = {
   markers: { type: string; offsetMs: number; note: string | null; by: string; at: string }[];
   canEditTranscript: boolean; canEditDetails: boolean; canDownloadAudio: boolean; role: string; outputLanguage: string;
   approvedAt: string | null; approvedBy: string | null; chainId: string;
-  chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string;
+  chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string; spokenLanguages: string;
 };
 export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null };
 export type Transcript = {

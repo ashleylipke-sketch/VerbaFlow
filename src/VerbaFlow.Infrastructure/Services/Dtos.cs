@@ -7,10 +7,12 @@ public sealed record PlatformPolicy(long MaxUploadBytes = 500L * 1024 * 1024, bo
 public sealed record MarkerInput(MarkerType Type, int OffsetMs, string? Note);
 
 public sealed record RecordingUpload(Stream Audio, string FileName, string ContentType, string Name, int LengthMs,
-    string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers);
+    string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null);
 
 public sealed record ImportUpload(Stream File, string FileName, string ContentType, string? Name, int LengthMs,
-    string OutputLanguage, bool RightsConfirmed, string? SourceNote);
+    string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null);
+
+public sealed record RetryRequest(string? SpokenLanguages);
 
 public sealed record DetailsUpdate(string? Name, string? ClientReference, string? Description, Priority? Priority,
     DateOnly? DueDate, bool ClearDueDate);
@@ -28,7 +30,7 @@ public sealed record ItemDetail(
     ItemRow Row, string Owner, string OwnerRole, string? ProcessingState, string? FailureReason, string? OriginalFileName,
     string? ExternalSourceNote, string? OriginalSha256, IReadOnlyList<MarkerView> Markers, bool CanEditTranscript,
     bool CanEditDetails, bool CanDownloadAudio, string Role, string OutputLanguage, DateTimeOffset? ApprovedAt,
-    string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance);
+    string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en");
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 

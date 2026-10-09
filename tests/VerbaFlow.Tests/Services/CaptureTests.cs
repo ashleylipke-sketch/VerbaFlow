@@ -25,7 +25,8 @@ public class CaptureTests
     public async Task Processing_makes_machine_version_1_the_outputs_and_clears_the_progress_flag()
     {
         using var env = new Env();
-        var id = await env.ProcessedRecordingAsync();
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Recording() with { SpokenLanguages = "en,fr" }); // mixed languages
+        await env.Processing.ProcessAsync(id);
         var item = await env.Item(id);
         Assert.Equal(ProcessingState.Idle, item.Processing);
         var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);

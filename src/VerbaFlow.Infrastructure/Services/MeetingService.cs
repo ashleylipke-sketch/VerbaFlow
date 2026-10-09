@@ -31,6 +31,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var id = Guid.NewGuid();
         var now = clock.GetUtcNow();
         var item = Item.CreateRecorded(id, actor.Id, up.Name, up.LengthMs, up.OutputLanguage, now);
+        item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
         item.AddMarker(new TimelineMarker { Type = MarkerType.ConsentNotice, OffsetMs = 0, Note = "Notice given before recording", ActorId = actor.Id, At = now });
         foreach (var m in up.Markers.OrderBy(m => m.OffsetMs))
             item.AddMarker(new TimelineMarker { Type = m.Type, OffsetMs = m.OffsetMs, Note = m.Note, ActorId = actor.Id, At = now });
@@ -58,6 +59,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var id = Guid.NewGuid();
         var name = string.IsNullOrWhiteSpace(up.Name) ? Path.GetFileNameWithoutExtension(up.FileName) : up.Name!;
         var item = Item.CreateImported(id, actor.Id, name, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), SafeName(up.FileName), up.SourceNote);
+        item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Imported");
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, "importer", id, "item.imported", ("source", "Imported (external)"), ("originalFileName", SafeName(up.FileName)),
@@ -67,11 +69,12 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return id;
     }
 
-    public async Task RetryAsync(User actor, Guid id)
+    public async Task RetryAsync(User actor, Guid id, string? spokenLanguages = null)
     {
         var item = await stores.RequireItemAsync(id);
         RequireOwnerOrAdmin(actor, item);
         item.Retry();
+        if (!string.IsNullOrWhiteSpace(spokenLanguages)) item.SetSpokenLanguages(spokenLanguages);
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, CapacityOf(actor, item), id, "processing.retry_requested");
         queue.Enqueue(id);
@@ -336,7 +339,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             actor.IsAdmin && role == ItemRole.None ? "Admin" : role.ToString(), item.OutputLanguage, item.ApprovedAt,
             item.ApprovedBy is { } a ? users.GetValueOrDefault(a)?.Name : null, item.ChainId,
             chain.Select(c => new ChainEntry(c.Id, c.VersionNo, StatusLabels.For(c.Mode, c.Status), !all.Any(x => x.SupersedesItemId == c.Id))).ToList(),
-            item.Source == SourceKind.Imported ? "Imported (external source)" : "Recorded in app");
+            item.Source == SourceKind.Imported ? "Imported (external source)" : "Recorded in app", item.SpokenLanguages);
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)

@@ -12,6 +12,7 @@ export default function ItemPage({ id }: { id: string }) {
   const [audioUrl, setAudioUrl] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [retryLang, setRetryLang] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
@@ -93,7 +94,10 @@ export default function ItemPage({ id }: { id: string }) {
         {d.processingState === 'Processing' && <div className="banner">Transcribing… this page updates itself when it is ready.</div>}
         {d.failureReason && <div className="banner">Conversion failed: {d.failureReason}
           {acts.has('retry') && <div className="actions" style={{ marginTop: 8 }}>
-            <button className="primary" onClick={() => run(() => api.post(`/items/${id}/retry`))}>Retry conversion</button>
+            <label className="note">Language spoken{' '}
+              <select value={retryLang || (d.spokenLanguages === 'en,fr' ? 'en,fr' : d.spokenLanguages)} onChange={e => setRetryLang(e.target.value)}>
+                <option value="en">English</option><option value="fr">French</option><option value="en,fr">English and French (mixed)</option></select></label>
+            <button className="primary" onClick={() => run(() => api.post(`/items/${id}/retry`, { spokenLanguages: retryLang || d.spokenLanguages }))}>Retry conversion</button>
             <span className="note">The recording is safe. Retrying starts the conversion again from the original audio.</span></div>}</div>}
         {d.markers.length > 0 && <div className="note">Markers: {d.markers.map(m => `${fmtLen(m.offsetMs)} ${m.type}${m.note ? ` (${m.note})` : ''}`).join(' · ')}</div>}
         {d.chain.length > 1 && <div className="note">Versions: {d.chain.map(c => <span key={c.id}>{c.isCurrent ? <b>v{c.versionNo}</b> : <a href={`#/items/${c.id}`}>v{c.versionNo}</a>} ({c.status}){' '}</span>)}</div>}

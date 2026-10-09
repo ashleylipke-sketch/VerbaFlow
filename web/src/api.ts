@@ -29,7 +29,7 @@ export function describeAudit(a: AuditEvent): string {
     facts = Object.entries(o).filter(([, v]) => v !== null && v !== '' && v !== undefined)
       .map(([k, v]) => `${k}: ${v}`).join(', ');
   } catch { facts = a.details ?? ''; }
-  if (facts.length > 220) facts = facts.slice(0, 220) + '…';
+  if (facts.length > 900) facts = facts.slice(0, 900) + '…';
   return facts ? `${a.type} (${facts})` : a.type;
 }
 export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };

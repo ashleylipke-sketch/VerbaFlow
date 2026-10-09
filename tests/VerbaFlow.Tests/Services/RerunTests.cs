@@ -43,6 +43,8 @@ public class RerunTests
         var last = events.Last(a => a.Type == "processing.completed");
         Assert.Contains("localSpeakersFound", last.Details);
         Assert.Contains("speakersToldTo", last.Details);
+        Assert.Contains("localVoiceSeconds", last.Details);
+        Assert.Contains("prepared", last.Details);
     }
 
     [Fact]

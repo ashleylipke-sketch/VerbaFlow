@@ -56,7 +56,8 @@ if (diarizationOn)
     var diar = new VerbaFlow.Infrastructure.Services.DiarizationOptions(Path.Combine(dataDir, "models"), ffmpegPath,
         float.TryParse(builder.Configuration["Diarization:Threshold"], System.Globalization.CultureInfo.InvariantCulture, out var th) ? th : 0.8f,
         int.TryParse(builder.Configuration["Diarization:NumSpeakers"], out var ns) ? ns : -1,
-        builder.Configuration["Diarization:EmbeddingModel"] is { Length: > 0 } em ? em : "titanet-small");
+        builder.Configuration["Diarization:EmbeddingModel"] is { Length: > 0 } em ? em : "titanet-small",
+        string.Equals(builder.Configuration["Diarization:Audio"], "original", StringComparison.OrdinalIgnoreCase));
     builder.Services.AddSingleton(diar);
     builder.Services.AddHttpClient<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>(c => c.Timeout = TimeSpan.FromMinutes(15));
     builder.Services.AddSingleton<ISpeakerDiarizer>(sp => sp.GetRequiredService<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>());

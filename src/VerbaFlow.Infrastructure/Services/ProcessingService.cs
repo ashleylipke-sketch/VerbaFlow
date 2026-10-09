@@ -10,7 +10,7 @@ namespace VerbaFlow.Infrastructure.Services;
 /// language detection, then the AI outputs. Transcription uses the filtered copy; the original is never touched.
 /// </summary>
 public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiOutputService ai, IAudioEnhancer enhancer,
-    TimeProvider clock, FailureReporter reporter, ISpeakerDiarizer? diarizer = null)
+    TimeProvider clock, FailureReporter reporter, ISpeakerDiarizer? diarizer = null, DiarizationOptions? diarization = null)
 {
 
     public async Task ProcessAsync(Guid itemId, CancellationToken ct = default)
@@ -37,14 +37,19 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
 
             // Azure's own speaker labels can merge or split voices. When a local diarizer is available, its turns decide who spoke each word.
             var separation = "azure";
-            int? localTurns = null, localSpeakers = null;
+            int? localTurns = null, localSpeakers = null; string? voiceSeconds = null;
             if (diarizer is not null && copy.CanSeek)
             {
                 try
                 {
-                    copy.Position = 0;
-                    var turns = await diarizer.DiarizeAsync(copy, item.NumSpeakers, ct);
+                    // Normally the levelled copy; with Diarization:Audio=original, the untouched recording.
+                    await using var untouched = diarization?.UseOriginalAudio == true ? stores.Media.OpenRead(asset) : null;
+                    Stream heard = untouched ?? copy;
+                    if (heard.CanSeek) heard.Position = 0;
+                    var turns = await diarizer.DiarizeAsync(heard, item.NumSpeakers, ct);
                     localTurns = turns.Count; localSpeakers = turns.Select(t => t.Speaker).Distinct().Count();
+                    voiceSeconds = string.Join(" ", turns.GroupBy(t => t.Speaker).OrderByDescending(g => g.Sum(t => t.EndMs - t.StartMs))
+                        .Select(g => $"{g.Sum(t => t.EndMs - t.StartMs) / 1000}s"));
                     if (turns.Count > 0)
                     {
                         result = SpeakerAligner.Relabel(result, turns) with { Engine = result.Engine + "+" + diarizer.Name };
@@ -80,7 +85,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
-                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("speakersToldTo", item.NumSpeakers),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("voicesHeardFrom", localTurns is null ? null : diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers),
                     ("vocabularyTerms", phrases.Count), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

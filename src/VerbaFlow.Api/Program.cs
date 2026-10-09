@@ -58,7 +58,8 @@ if (diarizationOn)
         int.TryParse(builder.Configuration["Diarization:NumSpeakers"], out var ns) ? ns : -1,
         builder.Configuration["Diarization:EmbeddingModel"] is { Length: > 0 } em ? em : "titanet-small",
         string.Equals(builder.Configuration["Diarization:Audio"], "original", StringComparison.OrdinalIgnoreCase),
-        float.TryParse(builder.Configuration["Diarization:MinSpeakerSeconds"], System.Globalization.CultureInfo.InvariantCulture, out var minSec) ? minSec : 8f);
+        float.TryParse(builder.Configuration["Diarization:MinSpeakerSeconds"], System.Globalization.CultureInfo.InvariantCulture, out var minSec) ? minSec : 8f,
+        string.Equals(builder.Configuration["Diarization:Method"], "windowed", StringComparison.OrdinalIgnoreCase) ? "windowed" : "standard");
     builder.Services.AddSingleton(diar);
     builder.Services.AddHttpClient<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>(c => c.Timeout = TimeSpan.FromMinutes(15));
     builder.Services.AddSingleton<ISpeakerDiarizer>(sp => sp.GetRequiredService<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>());

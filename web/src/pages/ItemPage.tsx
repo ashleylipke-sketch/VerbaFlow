@@ -14,6 +14,7 @@ export default function ItemPage({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [retryLang, setRetryLang] = useState('');
   const [rerunSpeakers, setRerunSpeakers] = useState('');
+  const [rerunMethod, setRerunMethod] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
@@ -167,11 +168,15 @@ export default function ItemPage({ id }: { id: string }) {
                 <select value={rerunSpeakers} onChange={e => setRerunSpeakers(e.target.value)}>
                   <option value="">Work it out automatically</option>
                   {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
+              <label className="note">Way of telling voices apart{' '}
+                <select value={rerunMethod} onChange={e => setRerunMethod(e.target.value)}>
+                  <option value="">Standard</option>
+                  <option value="windowed">Short-window (try this if voices are mixed up)</option></select></label>
               <button disabled={busy} onClick={() => {
                 const edited = t.versions.length > 1;
                 if (edited && !confirm(`This replaces your ${t.versions.length - 1} correction${t.versions.length > 2 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;
                 setBusy(true);
-                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited })).finally(() => setBusy(false));
+                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null })).finally(() => setBusy(false));
               }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>

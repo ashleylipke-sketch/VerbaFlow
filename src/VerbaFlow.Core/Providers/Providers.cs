@@ -57,5 +57,5 @@ public interface ISpeakerDiarizer
 {
     string Name { get; }
     /// <param name="numSpeakers">The exact number of speakers if it is known, otherwise null to work it out.</param>
-    Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, CancellationToken ct);
+    Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, string? method, CancellationToken ct);
 }

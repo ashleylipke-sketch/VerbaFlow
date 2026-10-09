@@ -58,6 +58,10 @@ public sealed class Item
         if (value is < 2 or > 20) throw new DomainException("The number of speakers must be between 2 and 20.");
         NumSpeakers = value;
     }
+    /// <summary>How voices are grouped when the conversion is run again: "windowed" or null for the normal way.</summary>
+    [JsonInclude] public string? SpeakerMethod { get; private set; }
+    public void SetSpeakerMethod(string? value) =>
+        SpeakerMethod = string.Equals(value, "windowed", StringComparison.OrdinalIgnoreCase) ? "windowed" : null;
     [JsonInclude] public bool ObjectionFlag { get; private set; }
     [JsonInclude] public DateTimeOffset? ApprovedAt { get; private set; }
     [JsonInclude] public Guid? ApprovedBy { get; private set; }

@@ -11,8 +11,9 @@ namespace VerbaFlow.Infrastructure.Services;
 /// <param name="NumSpeakers">The exact number of speakers if it is known, otherwise -1 to work it out.</param>
 /// <param name="MinSpeakerSeconds">With the count left automatic, a voice group that spoke less than this in total is folded into the nearest real speaker. 0 switches this off.</param>
 /// <param name="UseOriginalAudio">Tell voices apart from the untouched recording instead of the levelled processing copy.</param>
+/// <param name="Method">"standard" (the model's own grouping) or "windowed" (listen in 1.5 second windows and group those).</param>
 /// <param name="EmbeddingModel">Which voice-recognition model to use: titanet-small, wespeaker-resnet34, wespeaker-resnet34-lm or titanet-large.</param>
-public sealed record DiarizationOptions(string ModelFolder, string? FfmpegPath, float Threshold = 0.8f, int NumSpeakers = -1, string EmbeddingModel = "titanet-small", bool UseOriginalAudio = false, float MinSpeakerSeconds = 8f);
+public sealed record DiarizationOptions(string ModelFolder, string? FfmpegPath, float Threshold = 0.8f, int NumSpeakers = -1, string EmbeddingModel = "titanet-small", bool UseOriginalAudio = false, float MinSpeakerSeconds = 8f, string Method = "standard");
 
 /// <summary>
 /// Finds who spoke when, locally, with no cloud service. Uses two small open models (Pyannote segmentation 3.0 and
@@ -99,7 +100,7 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
         File.Move(part, target, true);
     }
 
-    public async Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, CancellationToken ct)
+    public async Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, string? method, CancellationToken ct)
     {
         await EnsureModelsAsync(ct);
         var samples = await DecodeAsync(audio, ct);
@@ -109,13 +110,37 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
             await gate.WaitAsync(ct); // the native engine handles one recording at a time
             try
             {
-                var count = numSpeakers ?? options.NumSpeakers; // -1 means work it out
+                var windowed = string.Equals(method ?? options.Method, "windowed", StringComparison.OrdinalIgnoreCase);
+                // The windowed method only borrows the model's idea of where speech is; the grouping is done below.
+                var count = windowed ? -1 : numSpeakers ?? options.NumSpeakers; // -1 means work it out
                 if (!engines.TryGetValue(count, out var engine)) engines[count] = engine = Build(count);
-                return (IReadOnlyList<SpeakerTurn>)engine.Process(samples)
+                var turns = (IReadOnlyList<SpeakerTurn>)engine.Process(samples)
                     .Select(s => new SpeakerTurn((int)(s.Start * 1000), (int)(s.End * 1000), s.Speaker)).ToList();
+                return windowed ? GroupByWindows(samples, turns, numSpeakers) : turns;
             }
             finally { gate.Release(); }
         }, ct);
+    }
+
+    /// <summary>Listens to every 1.5 second window of speech on its own, fingerprints the voice, and groups the fingerprints.</summary>
+    private IReadOnlyList<SpeakerTurn> GroupByWindows(float[] samples, IReadOnlyList<SpeakerTurn> turns, int? numSpeakers)
+    {
+        var regions = WindowedTurns.SpeechRegions(turns);
+        var windows = WindowedTurns.MakeWindows(regions);
+        if (windows.Count == 0) return turns;
+        var cfg = new SpeakerEmbeddingExtractorConfig { Model = Path.Combine(options.ModelFolder, Embedding(options.EmbeddingModel).File), NumThreads = 2 };
+        using var extractor = new SpeakerEmbeddingExtractor(cfg);
+        var prints = new List<float[]>(windows.Count);
+        foreach (var w in windows)
+        {
+            var from = Math.Clamp((int)((long)w.StartMs * 16), 0, samples.Length); var to = Math.Clamp((int)((long)w.EndMs * 16), from, samples.Length);
+            using var stream = extractor.CreateStream();
+            stream.AcceptWaveform(16000, samples[from..to]);
+            stream.InputFinished();
+            prints.Add(extractor.IsReady(stream) ? extractor.Compute(stream) : new float[extractor.Dim]);
+        }
+        var labels = VoiceClusterer.Cluster(prints, numSpeakers is >= 2 ? numSpeakers : null);
+        return WindowedTurns.ToTurns(regions, windows, labels);
     }
 
     private OfflineSpeakerDiarization Build(int numSpeakers)

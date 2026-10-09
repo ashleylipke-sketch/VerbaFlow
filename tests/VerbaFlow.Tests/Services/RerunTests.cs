@@ -11,10 +11,11 @@ public class RerunTests
     private sealed class SpyDiarizer : ISpeakerDiarizer
     {
         public List<int?> Asked { get; } = [];
+        public List<string?> Methods { get; } = [];
         public string Name => "spy";
-        public Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, CancellationToken ct)
+        public Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, string? method, CancellationToken ct)
         {
-            Asked.Add(numSpeakers);
+            Asked.Add(numSpeakers); Methods.Add(method);
             return Task.FromResult<IReadOnlyList<SpeakerTurn>>([new SpeakerTurn(0, 1_000_000, 0), new SpeakerTurn(1_000_000, 2_000_000, 1)]);
         }
     }
@@ -27,6 +28,20 @@ public class RerunTests
         var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Recording());
         await processing.ProcessAsync(id);
         return (env, spy, processing, id);
+    }
+
+    [Fact]
+    public async Task The_window_method_is_passed_on_and_recorded_and_unknown_names_mean_the_normal_way()
+    {
+        var (env, spy, processing, id) = await Start();
+        using var _ = env;
+        await env.Meeting.RerunAsync(env.Alice, id, null, method: "windowed");
+        await processing.ProcessAsync(id);
+        await env.Meeting.RerunAsync(env.Alice, id, null, method: "something-else");
+        await processing.ProcessAsync(id);
+        Assert.Equal<string?>([null, "windowed", null], spy.Methods);
+        var events = await env.Stores.Audit.ListAsync(id);
+        Assert.Contains(events, a => a.Type == "processing.completed" && a.Details.Contains("\"groupingMethod\":\"windowed\""));
     }
 
     [Fact]

@@ -38,7 +38,7 @@ public class SmallVoiceTests
     private sealed class ManyVoices : ISpeakerDiarizer
     {
         public string Name => "many";
-        public Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, CancellationToken ct) =>
+        public Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, string? method, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<SpeakerTurn>>([T(0, 0, 100), T(1, 100, 200), T(5, 50, 51), T(6, 150, 151)]);
     }
 

@@ -108,7 +108,7 @@ public class SpeakerSeparationTests
     {
         public bool Fail { get; set; }
         public string Name => "fake-diarizer";
-        public Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, CancellationToken ct) =>
+        public Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, string? method, CancellationToken ct) =>
             Fail ? throw new InvalidOperationException("model missing") : Task.FromResult<IReadOnlyList<SpeakerTurn>>([new SpeakerTurn(0, 1_000_000, 0)]);
     }
 
@@ -158,8 +158,34 @@ public class SpeakerSeparationTests
         using var d = new SherpaSpeakerDiarizer(new DiarizationOptions(folder, null), http);
         try { await d.EnsureModelsAsync(); } catch (HttpRequestException) { return; } // offline machine
         await using var audio = File.OpenRead(wav);
-        var turns = await d.DiarizeAsync(audio, null, default);
+        var turns = await d.DiarizeAsync(audio, null, null, default);
         Assert.Equal(4, turns.Select(t => t.Speaker).Distinct().Count());
         Assert.All(turns, t => Assert.True(t.EndMs > t.StartMs));
+    }
+
+    [Fact]
+    public async Task The_window_method_also_finds_the_four_voices_in_the_sample()
+    {
+        if (!await FfmpegAudioEnhancer.IsAvailableAsync(null)) return;
+        var wav = Path.Combine(AppContext.BaseDirectory, "TestData", "four-speakers.wav");
+        var folder = Path.Combine(Path.GetTempPath(), "verbaflow-test-models");
+        using var http = new HttpClient();
+        using var d = new SherpaSpeakerDiarizer(new DiarizationOptions(folder, null), http);
+        try { await d.EnsureModelsAsync(); } catch (HttpRequestException) { return; }
+        await using var audio = File.OpenRead(wav);
+        var turns = await d.DiarizeAsync(audio, null, "windowed", default);
+        Assert.InRange(turns.Select(t => t.Speaker).Distinct().Count(), 3, 6);
+        audio.Position = 0;
+        var told = await d.DiarizeAsync(audio, 4, "windowed", default);
+        Assert.Equal(4, told.Select(t => t.Speaker).Distinct().Count());
+        audio.Position = 0;
+        var std = await d.DiarizeAsync(audio, null, null, default);
+        // Where the normal method (right on this sample) says one person, the window method should say one person too.
+        var cells = std.SelectMany(t => Enumerable.Range(0, Math.Max(1, (t.EndMs - t.StartMs) / 100)).Select(k =>
+                (Std: t.Speaker, Win: told.FirstOrDefault(x => t.StartMs + k * 100 >= x.StartMs && t.StartMs + k * 100 < x.EndMs)?.Speaker ?? -1)))
+            .Where(c => c.Win >= 0).ToList();
+        var agreeing = cells.GroupBy(c => c.Std).Sum(g => g.GroupBy(c => c.Win).Max(w => w.Count()));
+        Assert.True(agreeing >= cells.Count * 0.9, $"only {agreeing} of {cells.Count} moments agree");
+        Assert.All(told, t => Assert.True(t.EndMs > t.StartMs));
     }
 }

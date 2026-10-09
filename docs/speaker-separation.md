@@ -41,6 +41,12 @@ dotnet user-secrets set "Diarization:NumSpeakers" "4"
 
 On an item page, **Speakers look wrong?** lets the owner (or an admin) run the conversion again on the same audio, optionally saying how many people spoke (2 to 10). It is offered until the item is approved. If the transcript already has saved corrections, the page says how many and asks for confirmation, because running again replaces them with a fresh transcript; the History records `replacedEdits`. The History records `processing.rerun_requested` with the count, and the next `processing.completed` line shows `localSpeakersFound`, `localVoiceTurns`, `localVoiceSeconds` (how long each voice group spoke, longest first, so a tiny group stands out) and `speakersToldTo`, so it is clear what the local model did. If the local model finds no voices at all, the app keeps Azure's own labels (`speakerSeparation: azure`).
 
+## The short-window method
+
+The model's own grouping can give one label to several voices. **Way of telling voices apart: Short-window** on the same card uses a second method. The model is still used to find where people are talking; then each stretch of speech is cut into overlapping 1.5 second windows, each window gets its own voice fingerprint (same voice model, `Diarization:EmbeddingModel`), and the fingerprints are grouped (average-linkage clustering, cosine distance, `VoiceClusterer`). With no count given, the number of speakers is read from the biggest jump in merge distance (between 2 and 8); with a count, it makes exactly that many groups. A lone odd window between two windows of the same voice is smoothed away (`WindowedTurns`). Small groups are still folded by `MinSpeakerSeconds` when no count is given. History shows `groupingMethod`. To make it the default for every recording: `dotnet user-secrets set "Diarization:Method" "windowed"`.
+
+Tested: the grouping logic with unit tests, and on the public four-speaker sample, where told 4 it agrees with the normal method on over 90% of the speech. **Not yet tested on the owner's English meetings.**
+
 ## How well it works
 
 Checked automatically on a public four-person sample recording (in Chinese), where it finds all four voices at the default threshold. Different threshold values gave 4 to 8 speakers on the same recording, so **the threshold matters and the right value depends on your audio**. It has not been measured on English or French meetings with five people on one microphone. Try it, and tell the developers how many voices it found against how many there were.

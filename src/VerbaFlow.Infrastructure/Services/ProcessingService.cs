@@ -46,7 +46,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     await using var untouched = diarization?.UseOriginalAudio == true ? stores.Media.OpenRead(asset) : null;
                     Stream heard = untouched ?? copy;
                     if (heard.CanSeek) heard.Position = 0;
-                    var turns = await diarizer.DiarizeAsync(heard, item.NumSpeakers, ct);
+                    var turns = await diarizer.DiarizeAsync(heard, item.NumSpeakers, item.SpeakerMethod, ct);
                     localTurns = turns.Count; localSpeakers = turns.Select(t => t.Speaker).Distinct().Count();
                     voiceSeconds = string.Join(" ", turns.GroupBy(t => t.Speaker).OrderByDescending(g => g.Sum(t => t.EndMs - t.StartMs))
                         .Select(g => $"{g.Sum(t => t.EndMs - t.StartMs) / 1000}s"));
@@ -90,7 +90,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
-                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("voicesHeardFrom", localTurns is null ? null : diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("voicesHeardFrom", localTurns is null ? null : diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("vocabularyTerms", phrases.Count), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

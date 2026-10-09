@@ -104,8 +104,8 @@ export default function Record() {
         <div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Board meeting" /></label></div>
         <div className="field"><label>Language spoken<br />
           <select value={spoken} onChange={e => setSpoken(e.target.value)}>
-            <option value="en">English</option><option value="fr">French</option><option value="en,fr">English and French (mixed)</option></select></label>
-          <div className="note">One language is transcribed faster and more accurately. Choose mixed only if both are spoken in the same meeting.</div></div>
+            <option value="en">English</option><option value="fr">French</option><option value="en,fr">English and French (mixed)</option><option value="auto">Not sure: detect automatically</option></select></label>
+          <div className="note">One language is transcribed faster and more accurately. Choose mixed only if both are spoken in the same meeting. If you are not sure what is spoken, let it detect automatically, which is a little less accurate and slower.</div></div>
         <button className="primary" disabled={!consent} onClick={start}>Start recording</button>
       </>}
       {state !== 'idle' && <>

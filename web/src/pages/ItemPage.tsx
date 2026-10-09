@@ -96,7 +96,7 @@ export default function ItemPage({ id }: { id: string }) {
           {acts.has('retry') && <div className="actions" style={{ marginTop: 8 }}>
             <label className="note">Language spoken{' '}
               <select value={retryLang || (d.spokenLanguages === 'en,fr' ? 'en,fr' : d.spokenLanguages)} onChange={e => setRetryLang(e.target.value)}>
-                <option value="en">English</option><option value="fr">French</option><option value="en,fr">English and French (mixed)</option></select></label>
+                <option value="en">English</option><option value="fr">French</option><option value="en,fr">English and French (mixed)</option><option value="auto">Not sure: detect automatically</option></select></label>
             <button className="primary" onClick={() => run(() => api.post(`/items/${id}/retry`, { spokenLanguages: retryLang || d.spokenLanguages }))}>Retry conversion</button>
             <span className="note">The recording is safe. Retrying starts the conversion again from the original audio.</span></div>}</div>}
         {d.markers.length > 0 && <div className="note">Markers: {d.markers.map(m => `${fmtLen(m.offsetMs)} ${m.type}${m.note ? ` (${m.note})` : ''}`).join(' · ')}</div>}

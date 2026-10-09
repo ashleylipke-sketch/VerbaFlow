@@ -14,6 +14,8 @@ public class SpokenLanguageTests
     [InlineData("en,fr", "en", new[] { "en", "fr" })]
     [InlineData("EN+FR", "en", new[] { "en", "fr" })]
     [InlineData("klingon", "en", new[] { "en" })]
+    [InlineData("auto", "en", new string[0])]
+    [InlineData("en,auto", "en", new string[0])]
     public async Task Only_the_chosen_languages_are_sent_to_the_speech_service(string? spoken, string output, string[] expected)
     {
         using var env = new Env();

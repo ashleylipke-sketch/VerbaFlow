@@ -33,7 +33,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             }
             await using var copy = enhanced.Audio;
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
-            var result = await speech.TranscribeAsync(copy, new TranscribeOptions(item.SpokenLanguages.Split(','), 8, true, phrases), ct);
+            var result = await speech.TranscribeAsync(copy, new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','), 8, true, phrases), ct);
 
             // Azure's own speaker labels can merge or split voices. When a local diarizer is available, its turns decide who spoke each word.
             var separation = "azure";

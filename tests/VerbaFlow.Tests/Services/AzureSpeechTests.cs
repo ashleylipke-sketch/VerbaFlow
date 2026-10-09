@@ -263,4 +263,12 @@ public class AzureSpeechTests
         Assert.NotEmpty(r.Segments);
         Assert.Equal(FaultKind.Unavailable, VerbaFlow.Infrastructure.Services.FailureReporter.ForStatus(HttpStatusCode.RequestTimeout));
     }
+
+    [Fact]
+    public void With_no_candidate_languages_no_locales_are_sent_so_azure_detects_the_language()
+    {
+        var def = JsonDocument.Parse(AzureSpeechService.BuildDefinition(new TranscribeOptions([], 8, true))).RootElement;
+        Assert.False(def.TryGetProperty("locales", out _));
+        Assert.True(def.GetProperty("diarization").GetProperty("enabled").GetBoolean());
+    }
 }

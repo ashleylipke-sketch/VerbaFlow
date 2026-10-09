@@ -43,13 +43,13 @@ public sealed class Item
     [JsonInclude] public DateTimeOffset CreatedAt { get; private set; }
     [JsonInclude] public int LengthMs { get; private set; }
     [JsonInclude] public string OutputLanguage { get; private set; } = "en";
-    /// <summary>Languages spoken in the recording, comma separated ("en", "fr" or "en,fr"). One language is faster and more accurate to transcribe than two. Items saved before this existed keep both.</summary>
+    /// <summary>Languages spoken in the recording, comma separated ("en", "fr", "en,fr", or "auto" to let the speech service detect the language). One language is faster and more accurate to transcribe than two. Items saved before this existed keep both.</summary>
     [JsonInclude] public string SpokenLanguages { get; private set; } = "en,fr";
     public void SetSpokenLanguages(string? value)
     {
         var parts = (value ?? "").Split(new[] { ',', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(x => x.ToLowerInvariant()).Where(x => x is "en" or "fr").Distinct().ToList();
-        SpokenLanguages = parts.Count == 0 ? "en" : string.Join(",", parts);
+            .Select(x => x.ToLowerInvariant()).Where(x => x is "en" or "fr" or "auto").Distinct().ToList();
+        SpokenLanguages = parts.Contains("auto") ? "auto" : parts.Count == 0 ? "en" : string.Join(",", parts);
     }
     [JsonInclude] public bool ObjectionFlag { get; private set; }
     [JsonInclude] public DateTimeOffset? ApprovedAt { get; private set; }

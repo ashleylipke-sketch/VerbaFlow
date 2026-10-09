@@ -32,10 +32,15 @@ dotnet user-secrets set "Diarization:NumSpeakers" "4"
 
 - **Threshold** (default 0.8). Higher gives fewer speakers, lower gives more. If one person is split into two, raise it (0.85, 0.9). If two people are merged into one, lower it (0.7, 0.6).
 - **NumSpeakers** (default: not set). If you always know the exact number of people, set it. It overrides the threshold. Remove it for meetings with a different number of people: `dotnet user-secrets remove "Diarization:NumSpeakers"`.
+- **EmbeddingModel** (default `titanet-small`). The model that recognises voices. Others you can choose: `titanet-large` (bigger, more discriminating, same threshold scale), `wespeaker-resnet34` and `wespeaker-resnet34-lm` (a different family; these need a much **lower** threshold, around 0.3 to 0.4, and give 1 speaker at 0.8). Each model is downloaded on first use and checked against a fixed checksum. Example: `dotnet user-secrets set "Diarization:EmbeddingModel" "titanet-large"`.
 - To switch the feature off: `dotnet user-secrets set "Diarization:Enabled" "false"`.
 
 ## How well it works
 
 Checked automatically on a public four-person sample recording (in Chinese), where it finds all four voices at the default threshold. Different threshold values gave 4 to 8 speakers on the same recording, so **the threshold matters and the right value depends on your audio**. It has not been measured on English or French meetings with five people on one microphone. Try it, and tell the developers how many voices it found against how many there were.
+
+Measured on the four-speaker sample (speakers found at thresholds 0.4 / 0.5 / 0.6 / 0.7 / 0.8 / 0.9): titanet-small 8 / 8 / 6 / 5 / 4 / 4; titanet-large 9 / 7 / 5 / 5 / 4 / 4; wespeaker-resnet34 4 / 2 / 1 / 1 / 1 / 1. That recording is only 10 turns and not English, so it shows how each model's threshold scale differs, not which is better on your meetings.
+
+If a phrase arrives from Azure without usable word timings, the words are spread evenly across the phrase so a change of voice inside it can still be split (the timings are then a guess and are not kept).
 
 Speed: roughly one minute of processing for every ten minutes of audio on a normal laptop CPU.

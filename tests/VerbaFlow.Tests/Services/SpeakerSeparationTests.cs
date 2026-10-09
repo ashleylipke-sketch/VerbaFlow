@@ -76,17 +76,30 @@ public class SpeakerSeparationTests
         var s = new Speaker(Guid.NewGuid(), "Speaker 1");
         var noWords = new TranscriptionResult("azure", [s], [new Segment(Guid.NewGuid(), s.Id, "en", 0, 2000, "no word timings here", 0.9, false)]);
         var r = SpeakerAligner.Relabel(noWords, [new SpeakerTurn(0, 1000, 0), new SpeakerTurn(1000, 2000, 1)]);
-        Assert.Single(r.Segments); // cannot be split safely, so it goes to the speaker with most overlap
+        // No word timings, so they are estimated evenly (4 words over 2 s): two words per voice.
+        Assert.Equal(["no word", "timings here"], r.Segments.Select(x => x.Text));
+        Assert.NotEqual(r.Segments[0].SpeakerId, r.Segments[1].SpeakerId);
+        Assert.All(r.Segments, x => Assert.Null(x.Words)); // the timings were a guess, so they are not kept
     }
 
     [Fact]
-    public void Text_that_does_not_match_its_word_list_is_not_split()
+    public void A_very_short_phrase_without_word_timings_is_not_cut_up()
+    {
+        var s = new Speaker(Guid.NewGuid(), "Speaker 1");
+        var seg = new Segment(Guid.NewGuid(), s.Id, "en", 0, 80, "too quick", 0.9, false);
+        var r = SpeakerAligner.Relabel(new TranscriptionResult("azure", [s], [seg]), [new SpeakerTurn(0, 40, 0), new SpeakerTurn(40, 80, 1)]);
+        Assert.Single(r.Segments);
+    }
+
+    [Fact]
+    public void Text_that_does_not_match_its_word_list_is_split_using_estimated_timings()
     {
         var s = new Speaker(Guid.NewGuid(), "Speaker 1");
         var words = new[] { new WordTiming("hello", 0, 400), new WordTiming("there", 400, 800) };
         var seg = new Segment(Guid.NewGuid(), s.Id, "en", 0, 800, "Something else entirely", 0.9, false, words);
         var r = SpeakerAligner.Relabel(new TranscriptionResult("azure", [s], [seg]), [new SpeakerTurn(0, 400, 0), new SpeakerTurn(400, 800, 1)]);
-        Assert.Single(r.Segments);
+        Assert.Equal(2, r.Segments.Count);
+        Assert.Equal("Something else entirely", string.Join(" ", r.Segments.Select(x => x.Text)));
     }
 
     // ---------- how the app uses it ----------

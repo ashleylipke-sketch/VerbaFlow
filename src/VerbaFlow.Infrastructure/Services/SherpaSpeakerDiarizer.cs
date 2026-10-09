@@ -9,7 +9,8 @@ namespace VerbaFlow.Infrastructure.Services;
 
 /// <param name="Threshold">Higher means fewer speakers. 0.8 found all four voices in the test recording. Used only when NumSpeakers is -1.</param>
 /// <param name="NumSpeakers">The exact number of speakers if it is known, otherwise -1 to work it out.</param>
-public sealed record DiarizationOptions(string ModelFolder, string? FfmpegPath, float Threshold = 0.8f, int NumSpeakers = -1);
+/// <param name="EmbeddingModel">Which voice-recognition model to use: titanet-small, wespeaker-resnet34, wespeaker-resnet34-lm or titanet-large.</param>
+public sealed record DiarizationOptions(string ModelFolder, string? FfmpegPath, float Threshold = 0.8f, int NumSpeakers = -1, string EmbeddingModel = "titanet-small");
 
 /// <summary>
 /// Finds who spoke when, locally, with no cloud service. Uses two small open models (Pyannote segmentation 3.0 and
@@ -17,15 +18,29 @@ public sealed record DiarizationOptions(string ModelFolder, string? FfmpegPath, 
 /// </summary>
 public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient http) : ISpeakerDiarizer, IDisposable
 {
-    public string Name => "sherpa-onnx:pyannote-3.0+titanet-small";
+    public string Name => "sherpa-onnx:pyannote-3.0+" + options.EmbeddingModel;
 
     private const string Release = "https://github.com/k2-fsa/sherpa-onnx/releases/download/";
     internal static readonly (string Url, string File, string Sha256) Segmentation = (
         Release + "speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2", "pyannote-segmentation-3-0.onnx",
         "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"); // checksum of the downloaded archive
-    internal static readonly (string Url, string File, string Sha256) Embedding = (
-        Release + "speaker-recongition-models/nemo_en_titanet_small.onnx", "nemo_en_titanet_small.onnx", // sic: the release tag is spelled this way
-        "ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e");
+    private const string EmbeddingRelease = Release + "speaker-recongition-models/"; // sic: the release tag is spelled this way
+    /// <summary>The voice-recognition models that can be chosen. Each is checked against a fixed checksum after download.</summary>
+    internal static readonly IReadOnlyDictionary<string, (string Url, string File, string Sha256)> EmbeddingModels =
+        new Dictionary<string, (string, string, string)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["titanet-small"] = (EmbeddingRelease + "nemo_en_titanet_small.onnx", "nemo_en_titanet_small.onnx",
+                "ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e"),
+            ["titanet-large"] = (EmbeddingRelease + "nemo_en_titanet_large.onnx", "nemo_en_titanet_large.onnx",
+                "d51abcf31717ef28162f26acb9d44dd4127c3d44c9b8624f699f3425daca8e77"),
+            ["wespeaker-resnet34"] = (EmbeddingRelease + "wespeaker_en_voxceleb_resnet34.onnx", "wespeaker_en_voxceleb_resnet34.onnx",
+                "5ef208a9da1453335308a6b6f4e6dfbd7e183a38b604de0a57664f45d257fe94"),
+            ["wespeaker-resnet34-lm"] = (EmbeddingRelease + "wespeaker_en_voxceleb_resnet34_LM.onnx", "wespeaker_en_voxceleb_resnet34_LM.onnx",
+                "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012"),
+        };
+    internal static (string Url, string File, string Sha256) Embedding(string name) =>
+        EmbeddingModels.TryGetValue(name, out var m) ? m
+            : throw new InvalidOperationException($"Unknown speaker model '{name}'. Choose one of: {string.Join(", ", EmbeddingModels.Keys)}.");
 
     private readonly SemaphoreSlim gate = new(1, 1);
     private OfflineSpeakerDiarization? engine;
@@ -36,10 +51,11 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
     {
         Directory.CreateDirectory(options.ModelFolder);
         var seg = Path.Combine(options.ModelFolder, Segmentation.File);
-        var emb = Path.Combine(options.ModelFolder, Embedding.File);
+        var embSpec = Embedding(options.EmbeddingModel);
+        var emb = Path.Combine(options.ModelFolder, embSpec.File);
         if (File.Exists(seg) && File.Exists(emb)) return;
 
-        if (!File.Exists(emb)) { await DownloadAsync(Embedding.Url, Embedding.Sha256, emb, ct); }
+        if (!File.Exists(emb)) { await DownloadAsync(embSpec.Url, embSpec.Sha256, emb, ct); }
         if (!File.Exists(seg))
         {
             var archive = seg + ".tar.bz2";
@@ -103,7 +119,7 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
     {
         var cfg = new OfflineSpeakerDiarizationConfig();
         cfg.Segmentation.Pyannote.Model = Path.Combine(options.ModelFolder, Segmentation.File);
-        cfg.Embedding.Model = Path.Combine(options.ModelFolder, Embedding.File);
+        cfg.Embedding.Model = Path.Combine(options.ModelFolder, Embedding(options.EmbeddingModel).File);
         cfg.Clustering.NumClusters = options.NumSpeakers;
         cfg.Clustering.Threshold = options.Threshold;
         cfg.MinDurationOn = 0.2f;

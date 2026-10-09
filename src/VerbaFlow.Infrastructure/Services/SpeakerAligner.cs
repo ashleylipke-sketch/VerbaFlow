@@ -23,6 +23,8 @@ public static class SpeakerAligner
         foreach (var seg in result.Segments.OrderBy(s => s.StartMs))
         {
             var tokens = Tokens(seg);
+            var estimated = false;
+            if (tokens is null) { tokens = Estimate(seg); estimated = true; }
             if (tokens is null) { pieces.Add((seg, SpeakerFor(seg.StartMs, seg.EndMs, ordered) ?? -1)); continue; }
             var who = tokens.Select(t => SpeakerFor(t.Start, t.End, ordered) ?? -1).ToList();
             Smooth(who);
@@ -35,7 +37,7 @@ public static class SpeakerAligner
                 {
                     Id = Guid.NewGuid(), StartMs = run[0].Start, EndMs = run[^1].End,
                     Text = string.Join(" ", run.Select(t => t.Text)),
-                    Words = seg.Words is null ? null : [.. run.Select(t => new WordTiming(t.Text, t.Start, t.End))],
+                    Words = estimated ? null : seg.Words is null ? null : [.. run.Select(t => new WordTiming(t.Text, t.Start, t.End))],
                 }, who[i]));
                 i = j + 1;
             }
@@ -65,6 +67,18 @@ public static class SpeakerAligner
         static string Squash(string s) => new(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
         if (Squash(string.Join("", words.Select(w => w.Text))) != Squash(seg.Text)) return null;
         return words.Select(w => new Token(w.Text, w.StartMs, w.EndMs)).ToList();
+    }
+
+    /// <summary>
+    /// When the service gave no usable word timings, spread the words evenly over the phrase. The timings are only a guess,
+    /// but that is far better than giving a phrase with two voices in it to just one of them.
+    /// </summary>
+    private static List<Token>? Estimate(Segment seg)
+    {
+        var parts = seg.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var length = seg.EndMs - seg.StartMs;
+        if (parts.Length < 2 || length < parts.Length * 50) return null;
+        return parts.Select((w, i) => new Token(w, seg.StartMs + (int)((long)length * i / parts.Length), seg.StartMs + (int)((long)length * (i + 1) / parts.Length))).ToList();
     }
 
     /// <summary>The diarizer speaker with the most overlap, else the nearest turn if it is close enough.</summary>

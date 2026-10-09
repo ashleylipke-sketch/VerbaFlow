@@ -19,7 +19,19 @@ export type Transcript = {
 export type Outputs = { engine: string; language: string; summary: string; actionPoints: string[]; minutes: string; toneOfMeeting: string };
 export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean };
 export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
-export type AuditEvent = { seq: number; at: string; actor: string; action: string; details: string; hash: string };
+export type AuditEvent = { seq: number; at: string; actorId: string | null; capacity: string; type: string; details: string; hash: string };
+
+/** One readable line for the History list: what happened, then the recorded facts (empty ones left out). */
+export function describeAudit(a: AuditEvent): string {
+  let facts = '';
+  try {
+    const o = JSON.parse(a.details) as Record<string, unknown>;
+    facts = Object.entries(o).filter(([, v]) => v !== null && v !== '' && v !== undefined)
+      .map(([k, v]) => `${k}: ${v}`).join(', ');
+  } catch { facts = a.details ?? ''; }
+  if (facts.length > 220) facts = facts.slice(0, 220) + '…';
+  return facts ? `${a.type} (${facts})` : a.type;
+}
 export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
 

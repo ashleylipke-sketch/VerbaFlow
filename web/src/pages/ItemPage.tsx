@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
+import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
 
@@ -164,7 +164,7 @@ export default function ItemPage({ id }: { id: string }) {
               {d.canEditTranscript && v.no !== t.versionNo && <> <button onClick={() => run(() => api.post(`/items/${id}/versions/${v.no}/restore`))}>Restore</button></>}</div>)}</div>}
           <div className="card"><h2>History</h2>
             <button onClick={() => setShowAudit(!showAudit)}>{showAudit ? 'Hide' : 'Show'} audit trail ({audit.length})</button>
-            {showAudit && <ul className="note">{audit.map(a => <li key={a.seq}>{new Date(a.at).toLocaleString('en-GB')} — {a.action} by {a.actor}</li>)}</ul>}
+            {showAudit && <ul className="note">{audit.map(a => <li key={a.seq}>{new Date(a.at).toLocaleString('en-GB')} — {describeAudit(a)} · {users.find(u => u.id === a.actorId)?.name ?? 'system'}</li>)}</ul>}
             {d.originalSha256 && <p className="note">Original file fingerprint (SHA-256): {d.originalSha256.slice(0, 16)}…</p>}</div>
         </div>
       </div>

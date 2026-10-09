@@ -223,4 +223,31 @@ public class AzureSpeechTests
         public override void SetLength(long v) => throw new NotSupportedException();
         public override void Write(byte[] b, int o, int c) => throw new NotSupportedException();
     }
+
+    [Fact]
+    public async Task Too_many_requests_waits_as_long_as_azure_asks_and_keeps_trying_for_minutes()
+    {
+        var waits = new List<TimeSpan>();
+        var n = 0;
+        var h = new Handler((_, _) =>
+        {
+            if (++n > 3) return Json(HttpStatusCode.OK, Good);
+            var res = Json(HttpStatusCode.TooManyRequests, "{}");
+            if (n == 1) res.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(40));
+            return res;
+        });
+        var svc = new AzureSpeechService(new HttpClient(h), new AzureSpeechOptions("https://demo.cognitiveservices.azure.com/", "k"))
+        { Delay = (t, _) => { waits.Add(t); return Task.CompletedTask; } };
+        await svc.TranscribeAsync(new MemoryStream([1]), Opts, default);
+        Assert.Equal([TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)], waits);
+    }
+
+    [Fact]
+    public async Task A_persistent_429_explains_the_free_tier_limit()
+    {
+        var h = new Handler((_, _) => Json(HttpStatusCode.TooManyRequests, "{}"));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Make(h).TranscribeAsync(new MemoryStream([1]), Opts, default));
+        Assert.Equal(6, h.Calls.Count);
+        Assert.Contains("S0", ex.Message);
+    }
 }

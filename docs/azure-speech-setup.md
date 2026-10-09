@@ -48,3 +48,9 @@ Administrators keep a shared list of names and terms on the **Vocabulary** page.
 - Terms are sent to Azure along with the audio.
 - Each transcription records how many terms were used. If Azure rejects the list, the recording is transcribed without it and the record says so.
 - Azure documents the vocabulary feature for one language at a time. VerbaFlow transcribes English and French together, so this has not been confirmed against live Azure. The fallback above covers it if Azure refuses.
+
+## "429 TooManyRequests"
+
+Azure is limiting how many requests your Speech resource accepts per minute. The free **F0** tier allows very few, and a recording that fails here is often the second or third in quick succession. The app now waits and retries for several minutes (obeying Azure's own "retry after" when it gives one) before giving up.
+
+If it still fails: wait a minute and press **Retry** on the item. To stop it happening, change the resource to **Standard S0** in the Azure portal (open the Speech resource, then **Pricing tier**, or create an S0 resource and update the user-secrets). S0 is billed per audio hour, with a far higher request limit.

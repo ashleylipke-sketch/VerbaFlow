@@ -43,7 +43,7 @@ Dictate and Speech modes, Meet, Widget, telephony bridge (ADR-15), purge/retenti
 Owner on Windows: `run.cmd` in the repo root (builds web, starts http://localhost:5044). If `dotnet` is not found in a plain Command Prompt: `set PATH=C:\Program Files\dotnet;%PATH%` (a 32-bit dotnet can come first on PATH). Secrets are set with `dotnet user-secrets` from `src\VerbaFlow.Api`: `Speech:Endpoint`, `Speech:Key`, `OpenAI:Endpoint`, `OpenAI:Key`, `OpenAI:Deployment`, optional `Audio:FfmpegPath`. ffmpeg: `winget install Gyan.FFmpeg`. Startup log lines say whether Speech, Summaries and Audio are real or stand-in.
 Dev sign-in is an `X-Dev-User` header (alice, bob, carol (admin), dave (admin)); it stands in for Entra ID.
 
-Tests: `dotnet test` (130 pass) and `cd web && npx vitest run` (13 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
+Tests: `dotnet test` (132 pass) and `cd web && npx vitest run` (13 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
 
 ## Working agreements
 - Commit and push after each finished piece. Commit messages end with the attribution lines the session gives you.

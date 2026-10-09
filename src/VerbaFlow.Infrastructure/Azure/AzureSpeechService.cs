@@ -22,6 +22,9 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
     public const string EngineName = "azure-ai-speech-fast-transcription-2025-10-15";
     private const string ApiVersion = "2025-10-15";
     private const double LowConfidenceBelow = 0.6;
+    /// <summary>When Azure says "too many requests" the quota resets per minute, so wait longer. A Retry-After header, if sent, is obeyed (capped).</summary>
+    private static readonly TimeSpan[] BusyDelays = [TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(90)];
+    private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan[] RetryDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(16)];
 
     /// <summary>Delay between retries. Tests set this to zero.</summary>
@@ -56,7 +59,14 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
 
             var retriable = res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
                 or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
-            if (retriable && attempt < RetryDelays.Length) { await Delay(RetryDelays[attempt], ct); continue; }
+            var delays = res.StatusCode == HttpStatusCode.TooManyRequests ? BusyDelays : RetryDelays;
+            if (retriable && attempt < delays.Length)
+            {
+                var wait = delays[attempt];
+                if (res.Headers.RetryAfter?.Delta is { } ra && ra > TimeSpan.Zero) wait = ra < MaxRetryAfter ? ra : MaxRetryAfter;
+                await Delay(wait, ct);
+                continue;
+            }
             // A bad request while a vocabulary was attached: transcribe without it rather than fail the whole recording.
             if (res.StatusCode == HttpStatusCode.BadRequest && warning is null && o.Phrases is { Count: > 0 })
             {
@@ -161,6 +171,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => " Check the Speech key and endpoint.",
             HttpStatusCode.NotFound => " Check the Speech endpoint address.",
+            HttpStatusCode.TooManyRequests => " Azure is limiting how many requests this Speech resource accepts per minute (the free F0 tier allows very few). Wait a minute and press Retry, or move the resource to the Standard S0 tier.",
             HttpStatusCode.RequestEntityTooLarge => " The file is too large for transcription (limit 500 MB or 5 hours).",
             _ => "",
         };

@@ -9,9 +9,10 @@ namespace VerbaFlow.Infrastructure.Services;
 
 /// <param name="Threshold">Higher means fewer speakers. 0.8 found all four voices in the test recording. Used only when NumSpeakers is -1.</param>
 /// <param name="NumSpeakers">The exact number of speakers if it is known, otherwise -1 to work it out.</param>
+/// <param name="MinSpeakerSeconds">With the count left automatic, a voice group that spoke less than this in total is folded into the nearest real speaker. 0 switches this off.</param>
 /// <param name="UseOriginalAudio">Tell voices apart from the untouched recording instead of the levelled processing copy.</param>
 /// <param name="EmbeddingModel">Which voice-recognition model to use: titanet-small, wespeaker-resnet34, wespeaker-resnet34-lm or titanet-large.</param>
-public sealed record DiarizationOptions(string ModelFolder, string? FfmpegPath, float Threshold = 0.8f, int NumSpeakers = -1, string EmbeddingModel = "titanet-small", bool UseOriginalAudio = false);
+public sealed record DiarizationOptions(string ModelFolder, string? FfmpegPath, float Threshold = 0.8f, int NumSpeakers = -1, string EmbeddingModel = "titanet-small", bool UseOriginalAudio = false, float MinSpeakerSeconds = 8f);
 
 /// <summary>
 /// Finds who spoke when, locally, with no cloud service. Uses two small open models (Pyannote segmentation 3.0 and

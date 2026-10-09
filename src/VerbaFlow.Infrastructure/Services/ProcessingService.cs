@@ -37,7 +37,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
 
             // Azure's own speaker labels can merge or split voices. When a local diarizer is available, its turns decide who spoke each word.
             var separation = "azure";
-            int? localTurns = null, localSpeakers = null; string? voiceSeconds = null;
+            int? localTurns = null, localSpeakers = null, mergedSmall = null; string? voiceSeconds = null;
             if (diarizer is not null && copy.CanSeek)
             {
                 try
@@ -50,6 +50,11 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     localTurns = turns.Count; localSpeakers = turns.Select(t => t.Speaker).Distinct().Count();
                     voiceSeconds = string.Join(" ", turns.GroupBy(t => t.Speaker).OrderByDescending(g => g.Sum(t => t.EndMs - t.StartMs))
                         .Select(g => $"{g.Sum(t => t.EndMs - t.StartMs) / 1000}s"));
+                    if (item.NumSpeakers is null && diarization is not null) // a count the owner gave is trusted as it is
+                    {
+                        var cleaned = SpeakerTurnCleaner.AbsorbSmallVoices(turns, (int)(diarization.MinSpeakerSeconds * 1000));
+                        turns = cleaned.Turns; mergedSmall = cleaned.Merged;
+                    }
                     if (turns.Count > 0)
                     {
                         result = SpeakerAligner.Relabel(result, turns) with { Engine = result.Engine + "+" + diarizer.Name };
@@ -85,7 +90,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
-                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("voicesHeardFrom", localTurns is null ? null : diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("voicesHeardFrom", localTurns is null ? null : diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers),
                     ("vocabularyTerms", phrases.Count), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

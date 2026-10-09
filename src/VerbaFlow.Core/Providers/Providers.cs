@@ -56,5 +56,6 @@ public sealed record SpeakerTurn(int StartMs, int EndMs, int Speaker);
 public interface ISpeakerDiarizer
 {
     string Name { get; }
-    Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, CancellationToken ct);
+    /// <param name="numSpeakers">The exact number of speakers if it is known, otherwise null to work it out.</param>
+    Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, CancellationToken ct);
 }

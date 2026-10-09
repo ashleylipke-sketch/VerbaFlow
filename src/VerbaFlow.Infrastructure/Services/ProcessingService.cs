@@ -37,12 +37,14 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
 
             // Azure's own speaker labels can merge or split voices. When a local diarizer is available, its turns decide who spoke each word.
             var separation = "azure";
+            int? localTurns = null, localSpeakers = null;
             if (diarizer is not null && copy.CanSeek)
             {
                 try
                 {
                     copy.Position = 0;
-                    var turns = await diarizer.DiarizeAsync(copy, ct);
+                    var turns = await diarizer.DiarizeAsync(copy, item.NumSpeakers, ct);
+                    localTurns = turns.Count; localSpeakers = turns.Select(t => t.Speaker).Distinct().Count();
                     if (turns.Count > 0)
                     {
                         result = SpeakerAligner.Relabel(result, turns) with { Engine = result.Engine + "+" + diarizer.Name };
@@ -78,6 +80,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("speakersToldTo", item.NumSpeakers),
                     ("vocabularyTerms", phrases.Count), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

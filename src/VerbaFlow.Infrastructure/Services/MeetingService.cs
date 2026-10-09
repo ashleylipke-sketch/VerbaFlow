@@ -80,6 +80,22 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         queue.Enqueue(id);
     }
 
+    /// <summary>Runs the conversion again on the same audio, optionally telling it how many people spoke. Only while the transcript has no human edits.</summary>
+    public async Task RerunAsync(User actor, Guid id, int? numSpeakers, string? spokenLanguages = null)
+    {
+        var item = await stores.RequireItemAsync(id);
+        RequireOwnerOrAdmin(actor, item);
+        var transcript = await stores.Transcripts.GetAsync(id);
+        if (transcript is not null && transcript.Versions.Count > 1)
+            throw new DomainException("This transcript has been edited, and running the conversion again would replace those edits.");
+        item.Reprocess();
+        item.SetNumSpeakers(numSpeakers);
+        if (!string.IsNullOrWhiteSpace(spokenLanguages)) item.SetSpokenLanguages(spokenLanguages);
+        await stores.Items.UpsertAsync(id, item);
+        await Audit(actor, CapacityOf(actor, item), id, "processing.rerun_requested", ("numSpeakers", numSpeakers));
+        queue.Enqueue(id);
+    }
+
     // ---------- workflow ----------
 
     public async Task UpdateDetailsAsync(User actor, Guid id, DetailsUpdate d)
@@ -383,6 +399,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var ownerOrAdmin = role == ItemRole.Owner || u.IsAdmin;
         var idle = i.Processing == ProcessingState.Idle;
         if (i.Status == ItemStatus.ConversionFailed && ownerOrAdmin) a.Add("retry");
+        if (idle && ownerOrAdmin && i.Status is not (ItemStatus.ConversionFailed or ItemStatus.Completed)) a.Add("rerun");
         if (idle && i.Status == i.Home && PermissionEvaluator.Evaluate(u, i, Capability.Approve).Allowed) a.Add("approve");
         if (idle && i.Status is ItemStatus.WithAuthor or ItemStatus.WithImporter or ItemStatus.AwaitingAssignee or ItemStatus.WithAssignee
             && PermissionEvaluator.Evaluate(u, i, Capability.Reassign).Allowed) a.Add(i.AssignedUserId is null ? "assign" : "reassign");

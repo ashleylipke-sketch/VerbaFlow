@@ -35,6 +35,10 @@ dotnet user-secrets set "Diarization:NumSpeakers" "4"
 - **EmbeddingModel** (default `titanet-small`). The model that recognises voices. Others you can choose: `titanet-large` (bigger, more discriminating, same threshold scale), `wespeaker-resnet34` and `wespeaker-resnet34-lm` (a different family; these need a much **lower** threshold, around 0.3 to 0.4, and give 1 speaker at 0.8). Each model is downloaded on first use and checked against a fixed checksum. Example: `dotnet user-secrets set "Diarization:EmbeddingModel" "titanet-large"`.
 - To switch the feature off: `dotnet user-secrets set "Diarization:Enabled" "false"`.
 
+## Running it again on the same recording
+
+On an item page, **Speakers look wrong?** lets the owner (or an admin) run the conversion again on the same audio, optionally saying how many people spoke (2 to 10). It is offered until the item is approved, and only while the transcript has no human edits (running again would replace them). The History records `processing.rerun_requested` with the count, and the next `processing.completed` line shows `localSpeakersFound`, `localVoiceTurns` and `speakersToldTo`, so it is clear what the local model did. If the local model finds no voices at all, the app keeps Azure's own labels (`speakerSeparation: azure`).
+
 ## How well it works
 
 Checked automatically on a public four-person sample recording (in Chinese), where it finds all four voices at the default threshold. Different threshold values gave 4 to 8 speakers on the same recording, so **the threshold matters and the right value depends on your audio**. It has not been measured on English or French meetings with five people on one microphone. Try it, and tell the developers how many voices it found against how many there were.

@@ -108,7 +108,7 @@ public class SpeakerSeparationTests
     {
         public bool Fail { get; set; }
         public string Name => "fake-diarizer";
-        public Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, CancellationToken ct) =>
+        public Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, CancellationToken ct) =>
             Fail ? throw new InvalidOperationException("model missing") : Task.FromResult<IReadOnlyList<SpeakerTurn>>([new SpeakerTurn(0, 1_000_000, 0)]);
     }
 
@@ -158,7 +158,7 @@ public class SpeakerSeparationTests
         using var d = new SherpaSpeakerDiarizer(new DiarizationOptions(folder, null), http);
         try { await d.EnsureModelsAsync(); } catch (HttpRequestException) { return; } // offline machine
         await using var audio = File.OpenRead(wav);
-        var turns = await d.DiarizeAsync(audio, default);
+        var turns = await d.DiarizeAsync(audio, null, default);
         Assert.Equal(4, turns.Select(t => t.Speaker).Distinct().Count());
         Assert.All(turns, t => Assert.True(t.EndMs > t.StartMs));
     }

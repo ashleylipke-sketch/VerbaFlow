@@ -51,6 +51,13 @@ public sealed class Item
             .Select(x => x.ToLowerInvariant()).Where(x => x is "en" or "fr" or "auto").Distinct().ToList();
         SpokenLanguages = parts.Contains("auto") ? "auto" : parts.Count == 0 ? "en" : string.Join(",", parts);
     }
+    /// <summary>How many people were speaking, if the owner said so when running the conversion again. Null means work it out.</summary>
+    [JsonInclude] public int? NumSpeakers { get; private set; }
+    public void SetNumSpeakers(int? value)
+    {
+        if (value is < 2 or > 20) throw new DomainException("The number of speakers must be between 2 and 20.");
+        NumSpeakers = value;
+    }
     [JsonInclude] public bool ObjectionFlag { get; private set; }
     [JsonInclude] public DateTimeOffset? ApprovedAt { get; private set; }
     [JsonInclude] public Guid? ApprovedBy { get; private set; }
@@ -138,6 +145,15 @@ public sealed class Item
         Status = StatusBeforeFailure ?? Home;
         StatusBeforeFailure = null;
         FailureReason = null;
+        Processing = ProcessingState.Running;
+    }
+
+    /// <summary>Runs the conversion again on the same audio (for example with a different number of speakers). Not for failed or finished items.</summary>
+    public void Reprocess()
+    {
+        EnsureNotLocked();
+        if (Status == ItemStatus.ConversionFailed) throw new DomainException("Use Retry for a failed conversion.");
+        if (Processing == ProcessingState.Running) throw new DomainException("The item is still being processed.");
         Processing = ProcessingState.Running;
     }
 

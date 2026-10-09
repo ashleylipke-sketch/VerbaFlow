@@ -43,8 +43,8 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
             : throw new InvalidOperationException($"Unknown speaker model '{name}'. Choose one of: {string.Join(", ", EmbeddingModels.Keys)}.");
 
     private readonly SemaphoreSlim gate = new(1, 1);
-    private OfflineSpeakerDiarization? engine;
-    public void Dispose() { engine?.Dispose(); gate.Dispose(); }
+    private readonly Dictionary<int, OfflineSpeakerDiarization> engines = [];
+    public void Dispose() { foreach (var e in engines.Values) e.Dispose(); gate.Dispose(); }
 
     /// <summary>Downloads the models if they are not already in the folder. Safe to call many times.</summary>
     public async Task EnsureModelsAsync(CancellationToken ct = default)
@@ -97,7 +97,7 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
         File.Move(part, target, true);
     }
 
-    public async Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, CancellationToken ct)
+    public async Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, CancellationToken ct)
     {
         await EnsureModelsAsync(ct);
         var samples = await DecodeAsync(audio, ct);
@@ -107,7 +107,8 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
             await gate.WaitAsync(ct); // the native engine handles one recording at a time
             try
             {
-                engine ??= Build();
+                var count = numSpeakers ?? options.NumSpeakers; // -1 means work it out
+                if (!engines.TryGetValue(count, out var engine)) engines[count] = engine = Build(count);
                 return (IReadOnlyList<SpeakerTurn>)engine.Process(samples)
                     .Select(s => new SpeakerTurn((int)(s.Start * 1000), (int)(s.End * 1000), s.Speaker)).ToList();
             }
@@ -115,12 +116,12 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
         }, ct);
     }
 
-    private OfflineSpeakerDiarization Build()
+    private OfflineSpeakerDiarization Build(int numSpeakers)
     {
         var cfg = new OfflineSpeakerDiarizationConfig();
         cfg.Segmentation.Pyannote.Model = Path.Combine(options.ModelFolder, Segmentation.File);
         cfg.Embedding.Model = Path.Combine(options.ModelFolder, Embedding(options.EmbeddingModel).File);
-        cfg.Clustering.NumClusters = options.NumSpeakers;
+        cfg.Clustering.NumClusters = numSpeakers;
         cfg.Clustering.Threshold = options.Threshold;
         cfg.MinDurationOn = 0.2f;
         cfg.MinDurationOff = 0.5f;

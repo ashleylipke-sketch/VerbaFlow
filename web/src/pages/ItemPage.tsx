@@ -13,6 +13,7 @@ export default function ItemPage({ id }: { id: string }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [retryLang, setRetryLang] = useState('');
+  const [rerunSpeakers, setRerunSpeakers] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
@@ -158,6 +159,14 @@ export default function ItemPage({ id }: { id: string }) {
               <button disabled={busy} onClick={() => { setBusy(true); run(() => api.post(`/items/${id}/outputs/regenerate`)).finally(() => setBusy(false)); }}>
                 {busy ? 'Writing…' : o ? 'Regenerate from current transcript' : 'Create summary'}</button></div>}
           </div>}
+          {acts.has('rerun') && t && t.versions.length === 1 && d.processingState !== 'Processing' && <div className="card"><h2>Speakers look wrong?</h2>
+            <p className="note">Run the conversion again on the same recording. If you know how many people spoke, say so and the app will group the voices into exactly that many. This is only possible until the transcript has been edited.</p>
+            <div className="actions">
+              <label className="note">Number of speakers{' '}
+                <select value={rerunSpeakers} onChange={e => setRerunSpeakers(e.target.value)}>
+                  <option value="">Work it out automatically</option>
+                  {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
+              <button disabled={busy} onClick={() => { setBusy(true); run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null })).finally(() => setBusy(false)); }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>
               <b>v{v.no}</b> {v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}

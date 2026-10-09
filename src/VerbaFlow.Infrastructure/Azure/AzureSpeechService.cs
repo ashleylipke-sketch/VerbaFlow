@@ -75,7 +75,8 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                 definition = BuildDefinition(o with { Phrases = null });
                 continue;
             }
-            throw new ProviderException(Services.FailureReporter.ForStatus(res.StatusCode), Describe(res.StatusCode, await res.Content.ReadAsStringAsync(ct)));
+            var body = await res.Content.ReadAsStringAsync(ct);
+            throw new ProviderException(Services.FailureReporter.ForStatus(res.StatusCode), Describe(res.StatusCode, body) + Diagnostics(res, body, attempt + 1));
         }
     }
 
@@ -163,6 +164,15 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
 
     private static string ShortLanguage(string? locale, TranscribeOptions o) =>
         string.IsNullOrWhiteSpace(locale) ? (o.CandidateLanguages.FirstOrDefault() ?? "en") : locale.Split('-')[0].ToLowerInvariant();
+
+    /// <summary>Support-only extra detail: how many tries were made, Azure's own headers and the start of its reply. Never contains our key.</summary>
+    private static string Diagnostics(HttpResponseMessage res, string body, int tries)
+    {
+        var headers = string.Join("; ", res.Headers.Where(h => !h.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
+            .Select(h => $"{h.Key}={string.Join(",", h.Value)}"));
+        var text = body.Length > 600 ? body[..600] : body;
+        return $" [tries={tries}] [headers: {headers}] [body: {(text.Length == 0 ? "(empty)" : text)}]";
+    }
 
     private static string Describe(HttpStatusCode code, string body)
     {

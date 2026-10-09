@@ -21,7 +21,8 @@ label.row { display:flex; gap:8px; align-items:flex-start; margin:10px 0; } .fie
 .low { background:rgba(180,83,9,.12); } .split { display:grid; grid-template-columns:1fr 320px; gap:16px; } @media (max-width:900px) { .split { grid-template-columns:1fr; } }
 .banner { background:rgba(180,83,9,.12); border:1px solid var(--warn); border-radius:8px; padding:10px 12px; margin-bottom:12px; }
 
-.player { position:sticky; top:0; z-index:5; background:var(--card); padding:10px 0; margin-top:6px; border-bottom:1px solid var(--line); }
+.withPlayer { position:relative; }
+.player { position:sticky; top:0; z-index:5; background:var(--card); padding:8px 12px; margin-bottom:12px; border:1px solid var(--line); border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
 .words { margin:0 0 6px; line-height:1.7; }
 .w { border-radius:4px; padding:1px 2px; margin:0 -2px; }
 .w[role=button] { cursor:pointer; } .w[role=button]:hover { background:var(--line); }
@@ -35,3 +36,5 @@ del { text-decoration:line-through; color:var(--del); }
 .changes-bar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; padding:8px 10px; margin-bottom:10px; border:1px solid var(--line); border-radius:8px; }
 .seg.changed { background:rgba(36,87,197,.05); }
 .minutes { white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
+
+.wave { display:block; width:100%; max-width:520px; height:64px; margin:8px 0; background:var(--bg); border:1px solid var(--line); border-radius:8px; }

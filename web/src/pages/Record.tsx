@@ -8,7 +8,7 @@ export default function Record() {
   const [name, setName] = useState('');
   const [state, setState] = useState<'idle' | 'recording' | 'paused' | 'stopped'>('idle');
   const [elapsed, setElapsed] = useState(0);
-  const [level, setLevel] = useState(0);
+  const [quiet, setQuiet] = useState(false);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [pausing, setPausing] = useState(false);
   const [reason, setReason] = useState('');
@@ -25,6 +25,8 @@ export default function Record() {
   const lastTick = useRef(0);
   const audioCtx = useRef<AudioContext | null>(null);
   const raf = useRef(0);
+  const wave = useRef<HTMLCanvasElement>(null);
+  const paused = useRef(false);
 
   useEffect(() => () => { cancelAnimationFrame(raf.current); stream.current?.getTracks().forEach(t => t.stop()); audioCtx.current?.close(); }, []);
 
@@ -43,7 +45,20 @@ export default function Record() {
       const ctx = new AudioContext(); audioCtx.current = ctx;
       const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(s).connect(an);
       const buf = new Uint8Array(an.fftSize);
-      const loop = () => { an.getByteTimeDomainData(buf); let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128)); setLevel(Math.min(1, peak / 80)); raf.current = requestAnimationFrame(loop); };
+      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const bars: number[] = []; let lastBar = 0, lastHeard = performance.now(), isQuiet = false;
+      const loop = (now = performance.now()) => {
+        raf.current = requestAnimationFrame(loop);
+        if (now - lastBar < (calm ? 150 : 40)) return; // a new bar every 40 ms (150 ms if the person prefers less motion)
+        lastBar = now;
+        an.getByteTimeDomainData(buf);
+        let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+        const level = paused.current ? 0 : Math.min(1, peak / 64);
+        if (level > 0.04) lastHeard = now;
+        const nowQuiet = !paused.current && now - lastHeard > 4000; // nothing heard for four seconds
+        if (nowQuiet !== isQuiet) { isQuiet = nowQuiet; setQuiet(nowQuiet); }
+        drawWave(wave.current, bars, level);
+      };
       loop();
       const r = new MediaRecorder(s); rec.current = r; chunks.current = [];
       r.ondataavailable = e => e.data.size && chunks.current.push(e.data);
@@ -57,11 +72,11 @@ export default function Record() {
   const confirmPause = () => {
     if (!reason.trim()) return;
     setMarkers(m => [...m, { type: 'Pause', offsetMs: at(), note: reason.trim() }]);
-    rec.current?.pause(); setState('paused'); setPausing(false); setReason('');
+    rec.current?.pause(); paused.current = true; setState('paused'); setPausing(false); setReason('');
   };
-  const resume = () => { setMarkers(m => [...m, { type: 'Resume', offsetMs: at(), note: null }]); rec.current?.resume(); setState('recording'); };
+  const resume = () => { setMarkers(m => [...m, { type: 'Resume', offsetMs: at(), note: null }]); rec.current?.resume(); paused.current = false; setState('recording'); };
   const stop = () => {
-    rec.current?.stop(); stream.current?.getTracks().forEach(t => t.stop()); cancelAnimationFrame(raf.current); setLevel(0); setState('stopped');
+    rec.current?.stop(); stream.current?.getTracks().forEach(t => t.stop()); cancelAnimationFrame(raf.current); setQuiet(false); setState('stopped');
   };
 
   // Once recording has stopped the audio exists only in this browser tab, so offer a preview and warn before it is lost.
@@ -110,7 +125,9 @@ export default function Record() {
       </>}
       {state !== 'idle' && <>
         <div className="timer" aria-live="off">{fmtLen(elapsed)} {state === 'paused' && <span className="tag warn">Paused</span>}</div>
-        <div className="meter" aria-label="Microphone level"><div style={{ width: `${level * 100}%` }} /></div>
+        {state !== 'stopped' && <>
+          <canvas ref={wave} className="wave" role="img" aria-label="Live sound wave from your microphone" />
+          {quiet && <div className="banner" role="status">We cannot hear anything yet. Check that the right microphone is selected and that it is not muted.</div>}</>}
         <div className="actions" style={{ margin: '12px 0' }}>
           {state === 'recording' && <><button onClick={() => setPausing(true)} disabled={pausing}>Pause</button><button onClick={objection}>Log objection</button><button className="danger" onClick={stop}>Stop</button></>}
           {state === 'paused' && <><button className="primary" onClick={resume}>Resume</button><button className="danger" onClick={stop}>Stop</button></>}
@@ -132,4 +149,20 @@ export default function Record() {
       {error && <div className="error">{error}</div>}
     </div>
   );
+}
+
+/** Draws a scrolling row of bars, newest on the right, tall when the microphone hears something. */
+function drawWave(canvas: HTMLCanvasElement | null, bars: number[], level: number) {
+  if (!canvas) return;
+  const ratio = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.floor(canvas.clientWidth * ratio)), h = Math.max(1, Math.floor(canvas.clientHeight * ratio));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  const ctx = canvas.getContext('2d'); if (!ctx) return;
+  const bar = 3 * ratio, gap = 2 * ratio, fit = Math.max(1, Math.floor(w / (bar + gap)));
+  bars.push(level); while (bars.length > fit) bars.shift();
+  const css = getComputedStyle(canvas);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = css.getPropertyValue('--ok').trim() || '#157347';
+  const x0 = w - bars.length * (bar + gap);
+  bars.forEach((v, i) => { const bh = Math.max(2 * ratio, v * h); ctx.fillRect(x0 + i * (bar + gap), (h - bh) / 2, bar, bh); });
 }

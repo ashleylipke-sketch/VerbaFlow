@@ -102,8 +102,7 @@ export default function ItemPage({ id }: { id: string }) {
             <span className="note">The recording is safe. Retrying starts the conversion again from the original audio.</span></div>}</div>}
         {d.markers.length > 0 && <div className="note">Markers: {d.markers.map(m => `${fmtLen(m.offsetMs)} ${m.type}${m.note ? ` (${m.note})` : ''}`).join(' · ')}</div>}
         {d.chain.length > 1 && <div className="note">Versions: {d.chain.map(c => <span key={c.id}>{c.isCurrent ? <b>v{c.versionNo}</b> : <a href={`#/items/${c.id}`}>v{c.versionNo}</a>} ({c.status}){' '}</span>)}</div>}
-        {audioUrl && <div className="player"><audio ref={player} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} />
-          {d.canDownloadAudio && <button onClick={download}>Download original audio</button>}</div>}
+        {audioUrl && d.canDownloadAudio && <div className="actions" style={{ marginTop: 8 }}><button onClick={download}>Download original audio</button></div>}
         {error && <div className="error">{error}</div>}
         <div className="actions" style={{ marginTop: 12, flexWrap: 'wrap' }}>
           {acts.has('accept') && <button className="primary" onClick={() => run(() => api.post(`/items/${id}/accept`))}>Accept</button>}
@@ -127,6 +126,8 @@ export default function ItemPage({ id }: { id: string }) {
           <div className="note">Needs approval from two different administrators.</div></div>}
       </div>
 
+      <div className="withPlayer">
+      {audioUrl && <div className="player"><audio ref={player} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} /></div>}
       <div className="split">
         <div className="card">
           <h2>Transcript {t && <span className="note">version {t.versionNo} · {t.engine}</span>}</h2>
@@ -176,6 +177,7 @@ export default function ItemPage({ id }: { id: string }) {
             {showAudit && <ul className="note">{audit.map(a => <li key={a.seq}>{new Date(a.at).toLocaleString('en-GB')} — {describeAudit(a)} · {users.find(u => u.id === a.actorId)?.name ?? 'system'}</li>)}</ul>}
             {d.originalSha256 && <p className="note">Original file fingerprint (SHA-256): {d.originalSha256.slice(0, 16)}…</p>}</div>
         </div>
+      </div>
       </div>
     </>
   );

@@ -40,9 +40,9 @@ Verified only on a public four-speaker sample (Chinese, finds 4 at threshold 0.8
 ## Languages
 Record and Import have a **Language spoken** choice (English, French, English and French, or "Not sure: detect automatically", which sends no locales so Azure uses its multilingual model; Azure says specifying the locale is faster and more accurate). It is stored on the item (`SpokenLanguages`, default for pre-existing items is both) and sent to Azure as the locale list. One language is faster and more accurate than two; the old behaviour of always sending both likely contributed to Azure 408 timeouts on a 3:48 recording. A failed item's Retry has the same choice. Summary language follows (French only gives a French summary, otherwise British English).
 
-## Requested by the owner, for the next release
-1. **Live sound wave while recording** (Record page) so the user can see the app is hearing them. Use the Web Audio analyser on the microphone stream; keep it light and respect reduced-motion.
-2. **Pinned play/pause bar** on the item page, so the player stays visible (sticky top or bottom) while following the transcript during playback.
+## Recently added, awaiting the owner's confirmation
+- **Live sound wave** on the Record page (canvas bars from the Web Audio analyser; flat while paused; a "we cannot hear anything yet" notice after 4 s of silence; slower redraw under reduced-motion).
+- **Pinned player** on the item page: the player now sits above the transcript in its own container, so it stays at the top of the window while scrolling (it used to sit inside the top card, so it scrolled away). "Download original audio" moved to the top card.
 
 ## Not built yet (parked)
 Dictate and Speech modes, Meet, Widget, telephony bridge (ADR-15), purge/retention, attachments, export/signing, noise filtering, Entra ID sign-in, Azure SQL/Blob/Service Bus/Defender adapters, automatic voice-to-person matching.

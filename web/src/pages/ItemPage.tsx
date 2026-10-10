@@ -16,6 +16,7 @@ export default function ItemPage({ id }: { id: string }) {
   const [retryLang, setRetryLang] = useState('');
   const [rerunSpeakers, setRerunSpeakers] = useState('');
   const [rerunMethod, setRerunMethod] = useState('');
+  const [rerunAudio, setRerunAudio] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
@@ -161,7 +162,7 @@ export default function ItemPage({ id }: { id: string }) {
                 {busy ? 'Writing…' : o ? 'Regenerate from current transcript' : 'Create summary'}</button></div>}
           </div>}
           {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>Speakers look wrong?</h2>
-            <p className="note">Run the conversion again on the same recording. If you know how many people spoke, say so and the app will group the voices into exactly that many.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>
+            <p className="note">Run the conversion again on the same recording. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>
             <div className="actions">
               <label className="note">Number of speakers{' '}
                 <select value={rerunSpeakers} onChange={e => setRerunSpeakers(e.target.value)}>
@@ -172,11 +173,15 @@ export default function ItemPage({ id }: { id: string }) {
                   <option value="">Standard</option>
                   <option value="windowed">Short-window (try this if voices are mixed up)</option>
                   <option value="azure">Speech service only (uses the number of speakers you pick)</option></select></label>
+              <label className="note">Audio to use{' '}
+                <select value={rerunAudio} onChange={e => setRerunAudio(e.target.value)}>
+                  <option value="">Cleaned up (normal)</option>
+                  <option value="original">Original recording, no clean-up (to compare)</option></select></label>
               <button disabled={busy} onClick={() => {
                 const edited = t.versions.length > 1;
                 if (edited && !confirm(`This replaces your ${t.versions.length - 1} correction${t.versions.length > 2 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;
                 setBusy(true);
-                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null })).finally(() => setBusy(false));
+                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null, audio: rerunAudio || null })).finally(() => setBusy(false));
               }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>

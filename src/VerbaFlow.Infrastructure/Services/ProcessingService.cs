@@ -25,7 +25,10 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 ?? throw new InvalidOperationException("The original recording is missing.");
             await using var original = stores.Media.OpenRead(asset);
             var notices = new List<string>(); // plain, customer-safe notes recorded in the history
-            var enhanced = await enhancer.EnhanceAsync(original, ct);
+            // The owner can ask for a run on the untouched recording, to compare it with the cleaned-up copy.
+            var useOriginal = item.SpeechAudio == "original";
+            var enhanced = useOriginal ? new EnhancedAudio(stores.Media.OpenRead(asset), "none (original recording chosen)")
+                : await enhancer.EnhanceAsync(original, ct);
             if (enhanced.Warning is not null)
             {
                 var rep = await reporter.ReportAsync("audio-preparation", itemId, new InvalidOperationException(enhanced.Warning));
@@ -44,7 +47,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 try
                 {
                     // Normally the levelled copy; with Diarization:Audio=original, the untouched recording.
-                    await using var untouched = diarization?.UseOriginalAudio == true ? stores.Media.OpenRead(asset) : null;
+                    await using var untouched = diarization?.UseOriginalAudio == true && !useOriginal ? stores.Media.OpenRead(asset) : null;
                     Stream heard = untouched ?? copy;
                     if (heard.CanSeek) heard.Position = 0;
                     var turns = await diarizer.DiarizeAsync(heard, item.NumSpeakers, item.SpeakerMethod, ct);
@@ -91,7 +94,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
-                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("voicesHeardFrom", localTurns is null ? null : diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("vocabularyTerms", phrases.Count), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

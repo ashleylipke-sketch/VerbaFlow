@@ -91,7 +91,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     }
 
     /// <summary>Runs the conversion again on the same audio, optionally telling it how many people spoke. Only while the transcript has no human edits.</summary>
-    public async Task RerunAsync(User actor, Guid id, int? numSpeakers, string? spokenLanguages = null, bool discardEdits = false, string? method = null)
+    public async Task RerunAsync(User actor, Guid id, int? numSpeakers, string? spokenLanguages = null, bool discardEdits = false, string? method = null, string? audio = null)
     {
         var item = await stores.RequireItemAsync(id);
         RequireOwnerOrAdmin(actor, item);
@@ -102,9 +102,10 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         item.Reprocess();
         item.SetNumSpeakers(numSpeakers);
         item.SetSpeakerMethod(method);
+        item.SetSpeechAudio(audio);
         if (!string.IsNullOrWhiteSpace(spokenLanguages)) item.SetSpokenLanguages(spokenLanguages);
         await stores.Items.UpsertAsync(id, item);
-        await Audit(actor, CapacityOf(actor, item), id, "processing.rerun_requested", ("numSpeakers", numSpeakers), ("method", item.SpeakerMethod), ("replacedEdits", edits));
+        await Audit(actor, CapacityOf(actor, item), id, "processing.rerun_requested", ("numSpeakers", numSpeakers), ("method", item.SpeakerMethod), ("audio", item.SpeechAudio ?? "prepared"), ("replacedEdits", edits));
         queue.Enqueue(id);
     }
 

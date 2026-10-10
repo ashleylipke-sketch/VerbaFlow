@@ -63,6 +63,10 @@ public sealed class Item
     [JsonInclude] public string? SpeakerMethod { get; private set; }
     public void SetSpeakerMethod(string? value) =>
         SpeakerMethod = value?.ToLowerInvariant() is "windowed" or "azure" ? value.ToLowerInvariant() : null;
+    /// <summary>Which audio the speech service hears when the conversion is run again: "original" (the untouched recording, no clean-up) or null for the cleaned-up copy.</summary>
+    [JsonInclude] public string? SpeechAudio { get; private set; }
+    public void SetSpeechAudio(string? value) =>
+        SpeechAudio = value?.ToLowerInvariant() == "original" ? "original" : null;
     [JsonInclude] public bool ObjectionFlag { get; private set; }
     [JsonInclude] public DateTimeOffset? ApprovedAt { get; private set; }
     [JsonInclude] public Guid? ApprovedBy { get; private set; }

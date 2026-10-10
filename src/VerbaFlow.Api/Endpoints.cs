@@ -75,7 +75,7 @@ public static class Endpoints
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 
-        api.MapPost("/items/{id:guid}/rerun", async (HttpContext h, MeetingService s, Guid id, RerunRequest? body) => { await s.RerunAsync(h.Current(), id, body?.NumSpeakers, body?.SpokenLanguages, body?.DiscardEdits ?? false, body?.Method); return Results.NoContent(); });
+        api.MapPost("/items/{id:guid}/rerun", async (HttpContext h, MeetingService s, Guid id, RerunRequest? body) => { await s.RerunAsync(h.Current(), id, body?.NumSpeakers, body?.SpokenLanguages, body?.DiscardEdits ?? false, body?.Method, body?.Audio); return Results.NoContent(); });
         api.MapPost("/items/{id:guid}/retry", async (HttpContext h, MeetingService s, Guid id, RetryRequest? body) => { await s.RetryAsync(h.Current(), id, body?.SpokenLanguages); return Results.NoContent(); });
 
         api.MapPut("/items/{id:guid}/details", async (HttpContext h, MeetingService s, Guid id, DetailsUpdate d) =>

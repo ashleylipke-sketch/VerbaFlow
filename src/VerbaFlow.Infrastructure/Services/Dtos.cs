@@ -13,7 +13,7 @@ public sealed record ImportUpload(Stream File, string FileName, string ContentTy
     string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null, int? NumSpeakers = null);
 
 public sealed record RetryRequest(string? SpokenLanguages);
-public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null);
+public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null, string? Audio = null);
 
 public sealed record DetailsUpdate(string? Name, string? ClientReference, string? Description, Priority? Priority,
     DateOnly? DueDate, bool ClearDueDate);

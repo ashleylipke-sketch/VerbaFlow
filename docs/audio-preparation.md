@@ -36,4 +36,10 @@ The startup log says one of:
 - `Audio: ffmpeg found, so recordings are made mono, 16 kHz and levelled before transcription`
 - `Audio: ffmpeg NOT found, so recordings are sent as they are.`
 
+## Comparing with the original recording
+
+On an item page, the **Speakers look wrong?** card has **Audio to use**. Choose **Original recording, no clean-up** and press **Run again** to have the speech service (and the local speaker model) hear the untouched recording for that run. Run again with **Cleaned up (normal)** to go back. This is how to check whether the clean-up helps or hurts on your own audio. Running again replaces any saved corrections on that transcript (the page asks first), so compare on a recording you have not corrected.
+
+The History shows `audio: original` on the run request and `audioSentToSpeech: original` on the finished run.
+
 Each finished item records `audioPrep` in its history ("mono 16 kHz, levelled" or "none"). If the clean-up was skipped, `audioPrepWarning` says why. A skipped clean-up never stops transcription.

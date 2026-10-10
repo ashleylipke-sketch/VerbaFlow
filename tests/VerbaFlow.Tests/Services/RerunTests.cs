@@ -20,6 +20,44 @@ public class RerunTests
         }
     }
 
+    /// <summary>Counts how often the clean-up was asked for and leaves the audio as it is.</summary>
+    private sealed class CountingEnhancer : IAudioEnhancer
+    {
+        public int Calls { get; private set; }
+        public string Name => "counting";
+        public Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct) { Calls++; return Task.FromResult(new EnhancedAudio(original, "levelled")); }
+    }
+
+    [Fact]
+    public async Task Running_again_on_the_original_recording_skips_the_clean_up_and_says_so_in_the_history()
+    {
+        var env = new Env();
+        using var _ = env;
+        var enhancer = new CountingEnhancer();
+        var processing = new ProcessingService(env.Stores, env.Speech, env.Ai, enhancer, env.Clock, env.Reporter, new SpyDiarizer());
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Recording());
+        await processing.ProcessAsync(id);
+        Assert.Equal(1, enhancer.Calls);
+
+        await env.Meeting.RerunAsync(env.Alice, id, null, audio: "original");
+        await processing.ProcessAsync(id);
+        Assert.Equal(1, enhancer.Calls); // not cleaned up this time
+        Assert.Equal("original", (await env.Item(id)).SpeechAudio);
+        var events = await env.Stores.Audit.ListAsync(id);
+        Assert.Contains("\"audio\":\"original\"", events.Last(a => a.Type == "processing.rerun_requested").Details);
+        var done = events.Last(a => a.Type == "processing.completed");
+        Assert.Contains("\"audioSentToSpeech\":\"original\"", done.Details);
+        Assert.Contains("\"voicesHeardFrom\":\"original\"", done.Details);
+        Assert.Contains("original recording chosen", done.Details);
+
+        // Running again without the choice goes back to the cleaned-up copy; unknown values mean the normal way.
+        await env.Meeting.RerunAsync(env.Alice, id, null, audio: "something-else");
+        await processing.ProcessAsync(id);
+        Assert.Equal(2, enhancer.Calls);
+        Assert.Null((await env.Item(id)).SpeechAudio);
+        Assert.Contains("\"audioSentToSpeech\":\"prepared\"", (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "processing.completed").Details);
+    }
+
     private static async Task<(Env env, SpyDiarizer spy, ProcessingService processing, Guid id)> Start()
     {
         var env = new Env();

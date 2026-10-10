@@ -1,6 +1,8 @@
 # Connect Azure AI Speech (real transcription)
 
-VerbaFlow uses placeholder text until it is given an Azure AI Speech resource. With one connected, recordings and imports are transcribed with speaker labels and language detection (English and French candidates for now).
+VerbaFlow uses placeholder text until it is given an Azure AI Speech resource. With one connected, recordings and imports are transcribed with speaker labels in the language or languages chosen on the Record or Import page.
+
+When two or three languages are chosen, Azure would pick only one for the whole recording, so VerbaFlow sends the recording once per language and keeps, for each stretch of speech, the version Azure was more confident about. This uses the speech service (and is billed) once per language. The History line `perLanguage` shows how much each language contributed.
 
 ## 1. Create the resource (about 5 minutes)
 

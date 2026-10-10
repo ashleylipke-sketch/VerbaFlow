@@ -36,6 +36,38 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         if (!options.IsConfigured) throw new ProviderException(FaultKind.Settings, "Azure AI Speech is not configured.");
         var seekable = audio.CanSeek ? audio : await BufferAsync(audio, ct);
         var start = seekable.CanSeek ? seekable.Position : 0;
+        var locales = o.CandidateLanguages.Select(ToLocale).Distinct().ToArray();
+        if (locales.Length < 2)
+        {
+            var (json, warning) = await SendAsync(seekable, start, o, ct);
+            var parsed = Parse(json, o);
+            return warning is null ? parsed : parsed with { Warning = warning };
+        }
+
+        // Given several languages, Azure picks one for the whole recording. So transcribe once per language and keep,
+        // for each stretch of speech, the version Azure was most confident about.
+        var runs = new List<IReadOnlyList<Segment>>();
+        var speakers = new List<Speaker>();
+        string? firstWarning = null;
+        foreach (var locale in locales)
+        {
+            var single = o with { CandidateLanguages = [locale] };
+            var (json, warning) = await SendAsync(seekable, start, single, ct);
+            firstWarning ??= warning;
+            var (runSpeakers, phrases) = ParsePhrases(json, single, speakers);
+            speakers = runSpeakers;
+            runs.Add(phrases);
+        }
+        var (chosen, kept) = CombineLanguages(runs);
+        var used = chosen.Select(x => x.SpeakerId).ToHashSet();
+        var detail = string.Join(", ", locales.Select((l, i) => $"{l}: {kept[i]} kept of {runs[i].Count}"));
+        return new TranscriptionResult(EngineName + "+per-language", speakers.Where(x => used.Contains(x.Id)).ToList(), MergeTurns(chosen),
+            firstWarning, detail);
+    }
+
+    /// <summary>Sends the audio once, retrying when Azure is busy, and without the vocabulary if Azure refuses it.</summary>
+    private async Task<(string Json, string? Warning)> SendAsync(Stream seekable, long start, TranscribeOptions o, CancellationToken ct)
+    {
         var url = $"{options.Endpoint.TrimEnd('/')}/speechtotext/transcriptions:transcribe?api-version={ApiVersion}";
         var definition = BuildDefinition(o);
         string? warning = null;
@@ -52,11 +84,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
             req.Headers.Add("Ocp-Apim-Subscription-Key", options.Key);
 
             using var res = await http.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct);
-            if (res.IsSuccessStatusCode)
-            {
-                var parsed = Parse(await res.Content.ReadAsStringAsync(ct), o);
-                return warning is null ? parsed : parsed with { Warning = warning };
-            }
+            if (res.IsSuccessStatusCode) return (await res.Content.ReadAsStringAsync(ct), warning);
 
             var retriable = res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.RequestTimeout or HttpStatusCode.InternalServerError
                 or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
@@ -80,6 +108,34 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         }
     }
 
+    /// <summary>
+    /// Combines one transcription per language. Phrases from different runs that overlap in time cover the same stretch of
+    /// speech; for each stretch, the run with the highest confidence (weighted by phrase length) wins. A stretch only one run
+    /// heard is kept as it is, so speech one language model dropped can come back from the other. Ties go to the first language.
+    /// Returns the chosen phrases and how many phrases each run contributed.
+    /// </summary>
+    public static (List<Segment> Chosen, int[] Kept) CombineLanguages(IReadOnlyList<IReadOnlyList<Segment>> runs)
+    {
+        var all = runs.SelectMany((r, i) => r.Select(p => (Run: i, P: p))).OrderBy(x => x.P.StartMs).ThenBy(x => x.Run).ToList();
+        var chosen = new List<Segment>();
+        var kept = new int[runs.Count];
+        var i0 = 0;
+        while (i0 < all.Count)
+        {
+            // A stretch: phrases that overlap one another, directly or through a chain.
+            var end = all[i0].P.EndMs;
+            var j = i0 + 1;
+            while (j < all.Count && all[j].P.StartMs < end) { end = Math.Max(end, all[j].P.EndMs); j++; }
+            var stretch = all.GetRange(i0, j - i0);
+            var best = stretch.GroupBy(x => x.Run)
+                .Select(g => (Run: g.Key, Score: g.Sum(x => x.P.Confidence * Math.Max(1, x.P.EndMs - x.P.StartMs)) / g.Sum(x => Math.Max(1, x.P.EndMs - x.P.StartMs))))
+                .OrderByDescending(x => x.Score).ThenBy(x => x.Run).First().Run;
+            foreach (var x in stretch.Where(x => x.Run == best)) { chosen.Add(x.P); kept[best]++; }
+            i0 = j;
+        }
+        return (chosen, kept);
+    }
+
     public static string BuildDefinition(TranscribeOptions o)
     {
         var def = new JsonObject();
@@ -101,7 +157,19 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
 
     public static TranscriptionResult Parse(string json, TranscribeOptions o)
     {
+        var (speakers, phrases) = ParsePhrases(json, o, []);
+        return new TranscriptionResult(EngineName, speakers, MergeTurns(phrases));
+    }
+
+    /// <summary>
+    /// Reads Azure's phrases. Speaker numbers are Azure's own for this request; <paramref name="known"/> carries speakers
+    /// from an earlier request on the same recording, so "Speaker 1" means the same label across runs (Azure's numbering
+    /// usually, though not always, follows who speaks first).
+    /// </summary>
+    public static (List<Speaker> Speakers, List<Segment> Phrases) ParsePhrases(string json, TranscribeOptions o, IReadOnlyList<Speaker> known)
+    {
         using var doc = JsonDocument.Parse(json);
+        var all = known.ToList();
         var speakers = new Dictionary<int, Speaker>();
         var segments = new List<Segment>();
         if (doc.RootElement.TryGetProperty("phrases", out var phrases))
@@ -112,7 +180,12 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                 if (text.Length == 0) continue;
                 var no = p.TryGetProperty("speaker", out var s) && s.TryGetInt32(out var n) ? n : 1;
                 if (!speakers.TryGetValue(no, out var speaker))
-                    speakers[no] = speaker = new Speaker(Guid.NewGuid(), $"Speaker {speakers.Count + 1}");
+                {
+                    var label = $"Speaker {speakers.Count + 1}";
+                    speaker = all.FirstOrDefault(x => x.Label == label);
+                    if (speaker is null) all.Add(speaker = new Speaker(Guid.NewGuid(), label));
+                    speakers[no] = speaker;
+                }
                 var start = p.TryGetProperty("offsetMilliseconds", out var off) ? off.GetInt32() : 0;
                 var len = p.TryGetProperty("durationMilliseconds", out var dur) ? dur.GetInt32() : 0;
                 var locale = p.TryGetProperty("locale", out var loc) ? loc.GetString() : null;
@@ -127,7 +200,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                     conf < LowConfidenceBelow, words is { Count: > 0 } ? words : null));
             }
         }
-        return new TranscriptionResult(EngineName, speakers.Values.ToList(), MergeTurns(segments));
+        return (known.Count > 0 ? all : speakers.Values.ToList(), segments);
     }
 
     /// <summary>A new paragraph starts after this much silence from the same speaker.</summary>

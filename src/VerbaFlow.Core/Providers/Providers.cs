@@ -6,7 +6,8 @@ namespace VerbaFlow.Core.Providers;
 public sealed record TranscribeOptions(string[] CandidateLanguages, int MaxSpeakers, bool Diarize, IReadOnlyList<string>? Phrases = null);
 
 /// <param name="Warning">Set when the service worked but had to skip something, for example it could not use the vocabulary.</param>
-public sealed record TranscriptionResult(string Engine, IReadOnlyList<Speaker> Speakers, IReadOnlyList<Segment> Segments, string? Warning = null);
+/// <param name="Detail">Plain facts for the history, for example how much of each language was kept when a recording was transcribed once per language.</param>
+public sealed record TranscriptionResult(string Engine, IReadOnlyList<Speaker> Speakers, IReadOnlyList<Segment> Segments, string? Warning = null, string? Detail = null);
 
 /// <summary>Speech to text with diarization and per-segment language detection (Azure AI Speech in production).</summary>
 public interface ISpeechService

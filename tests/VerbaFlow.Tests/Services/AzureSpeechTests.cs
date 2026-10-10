@@ -35,7 +35,7 @@ public class AzureSpeechTests
         new(new HttpClient(h), new AzureSpeechOptions("https://demo.cognitiveservices.azure.com/", "secret-key-123"))
         { Delay = (_, _) => Task.CompletedTask };
 
-    private static readonly TranscribeOptions Opts = new(["en", "fr"], 8, true);
+    private static readonly TranscribeOptions Opts = new(["en"], 8, true);
 
     [Fact]
     public async Task Maps_phrases_to_speakers_languages_and_low_confidence()
@@ -63,7 +63,7 @@ public class AzureSpeechTests
         Assert.Equal("secret-key-123", req.Headers.GetValues("Ocp-Apim-Subscription-Key").Single());
         Assert.DoesNotContain("secret-key-123", req.RequestUri.ToString());
         Assert.DoesNotContain("secret-key-123", body);
-        Assert.Contains("\"locales\":[\"en-GB\",\"fr-FR\"]", body);
+        Assert.Contains("\"locales\":[\"en-GB\"]", body);
         Assert.Contains("\"diarization\":{\"enabled\":true,\"maxSpeakers\":8}", body);
         Assert.Contains("\"profanityFilterMode\":\"None\"", body);
     }
@@ -270,5 +270,40 @@ public class AzureSpeechTests
         var def = JsonDocument.Parse(AzureSpeechService.BuildDefinition(new TranscribeOptions([], 8, true))).RootElement;
         Assert.False(def.TryGetProperty("locales", out _));
         Assert.True(def.GetProperty("diarization").GetProperty("enabled").GetBoolean());
+    }
+
+    private static string Phrase(int speaker, int start, int len, string text, string locale, double conf) =>
+        $$"""{ "speaker": {{speaker}}, "offsetMilliseconds": {{start}}, "durationMilliseconds": {{len}}, "text": "{{text}}", "locale": "{{locale}}", "confidence": {{conf.ToString(System.Globalization.CultureInfo.InvariantCulture)}} }""";
+
+    [Fact]
+    public async Task Two_languages_are_transcribed_separately_and_each_stretch_keeps_the_more_confident_version()
+    {
+        // English model: good on the English, weak on the Afrikaans, and it drops the last stretch entirely.
+        var en = $$"""{ "phrases": [ {{Phrase(1, 0, 2000, "Good morning everyone.", "en-ZA", 0.93)}}, {{Phrase(2, 2500, 2000, "Gear more ah", "en-ZA", 0.41)}} ] }""";
+        // Afrikaans model: weak on the English, good on the Afrikaans, and hears the last stretch.
+        var af = $$"""{ "phrases": [ {{Phrase(1, 0, 2000, "Goeie more almal.", "af-ZA", 0.52)}}, {{Phrase(2, 2400, 2100, "Goeie more, hoe gaan dit?", "af-ZA", 0.9)}}, {{Phrase(1, 6000, 1000, "Baie dankie.", "af-ZA", 0.88)}} ] }""";
+        var h = new Handler((_, body) => Json(HttpStatusCode.OK, body.Contains("\"af-ZA\"") ? af : en));
+        var r = await Make(h).TranscribeAsync(new MemoryStream([1, 2, 3]), new(["en-ZA", "af-ZA"], 2, true), default);
+
+        Assert.Equal(2, h.Calls.Count);
+        Assert.Contains("\"locales\":[\"en-ZA\"]", h.Calls[0].Body);
+        Assert.Contains("\"locales\":[\"af-ZA\"]", h.Calls[1].Body);
+        Assert.Equal(["Good morning everyone.", "Goeie more, hoe gaan dit?", "Baie dankie."], r.Segments.Select(s => s.Text));
+        Assert.Equal(["en", "af", "af"], r.Segments.Select(s => s.Language));
+        Assert.Equal(r.Segments[0].SpeakerId, r.Segments[2].SpeakerId); // Speaker 1 is the same label in both runs
+        Assert.NotEqual(r.Segments[0].SpeakerId, r.Segments[1].SpeakerId);
+        Assert.Equal(2, r.Speakers.Count);
+        Assert.EndsWith("+per-language", r.Engine);
+        Assert.Equal("en-ZA: 1 kept of 2, af-ZA: 2 kept of 3", r.Detail);
+    }
+
+    [Fact]
+    public void A_stretch_goes_to_the_first_language_when_confidence_is_equal()
+    {
+        var s1 = new VerbaFlow.Core.Transcripts.Segment(Guid.NewGuid(), Guid.NewGuid(), "en", 0, 1000, "One", 0.8, false);
+        var s2 = s1 with { Id = Guid.NewGuid(), Language = "af", Text = "Een" };
+        var (chosen, kept) = AzureSpeechService.CombineLanguages([[s1], [s2]]);
+        Assert.Equal("One", Assert.Single(chosen).Text);
+        Assert.Equal([1, 0], kept);
     }
 }

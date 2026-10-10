@@ -324,9 +324,13 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         var now = clock.GetUtcNow();
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
-        var removedFiles = 0;
+        int removedFiles = 0, stuckFiles = 0;
         foreach (var source in chain.Select(i => i.MediaSourceItemId).Distinct())
-            removedFiles += await stores.Media.DeleteContentAsync(source);
+        {
+            var (removed, failed) = await stores.Media.DeleteContentAsync(source);
+            removedFiles += removed;
+            stuckFiles += failed;
+        }
         foreach (var i in chain)
         {
             i.Purge(actor.Id, reason, now);
@@ -335,7 +339,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             await stores.Outputs.DeleteAsync(i.Id);
             await Audit(actor, CapacityOf(actor, i), i.Id, "item.deleted", ("reason", reason), ("requestId", requestId),
                 ("agreedBy", string.Join(", ", agreedBy.Select(a => users.GetValueOrDefault(a, "?")))), ("versions", chain.Count),
-                ("audioFilesRemoved", removedFiles));
+                ("audioFilesRemoved", removedFiles), ("audioFilesNotRemoved", stuckFiles == 0 ? null : stuckFiles));
         }
     }
 

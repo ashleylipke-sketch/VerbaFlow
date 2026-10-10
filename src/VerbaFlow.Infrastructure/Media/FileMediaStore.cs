@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using VerbaFlow.Core.Domain;
 using VerbaFlow.Infrastructure.Persistence;
 
 namespace VerbaFlow.Infrastructure.Media;
@@ -60,8 +61,13 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
     public async Task<MediaAsset?> FindOriginalAsync(Guid itemId) =>
         (await table.ListAsync()).FirstOrDefault(a => a.ItemId == itemId && a.Kind == "original");
 
-    public Stream OpenRead(MediaAsset a) =>
-        new FileStream(PathFor(a), FileMode.Open, FileAccess.Read, FileShare.Read);
+    /// <summary>Opens a stored file. FileShare.Delete lets a deletion go ahead while someone is still playing it.</summary>
+    public Stream OpenRead(MediaAsset a)
+    {
+        var path = PathFor(a);
+        if (!File.Exists(path)) throw new NotFoundException("The recording is missing.");
+        return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+    }
 
     /// <summary>Recomputes the hash of the stored file and compares it with the hash recorded at capture.</summary>
     public async Task<bool> VerifyAsync(MediaAsset a)
@@ -75,20 +81,42 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
     /// Deletes the stored audio files of an item when the recording is deleted. The media records (hash, size, when stored)
     /// stay as the tombstone; only the content goes.
     /// </summary>
-    public async Task<int> DeleteContentAsync(Guid itemId)
+    /// <remarks>
+    /// Never throws for a file that cannot be removed (for example one a sync tool such as OneDrive is holding): it tries
+    /// again a few times, then reports it in <c>Failed</c> so the deletion itself still completes and is recorded.
+    /// </remarks>
+    public async Task<(int Removed, int Failed)> DeleteContentAsync(Guid itemId)
     {
-        var removed = 0;
+        int removed = 0, failed = 0;
         foreach (var a in (await table.ListAsync()).Where(a => a.ItemId == itemId))
         {
             var path = PathFor(a);
-            if (!File.Exists(path)) continue;
-            File.SetAttributes(path, FileAttributes.Normal);
-            File.Delete(path);
-            removed++;
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        File.SetAttributes(path, FileAttributes.Normal);
+                        File.Delete(path);
+                        removed++;
+                    }
+                    break;
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    if (attempt >= 4) { failed++; break; }
+                    await Task.Delay(250 * (attempt + 1));
+                }
+            }
         }
-        var dir = Path.Combine(root, itemId.ToString("N"));
-        if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any()) Directory.Delete(dir);
-        return removed;
+        try
+        {
+            var dir = Path.Combine(root, itemId.ToString("N"));
+            if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any()) Directory.Delete(dir);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* an empty folder left behind is harmless */ }
+        return (removed, failed);
     }
 
     private string PathFor(MediaAsset a) => Path.Combine(root, a.ItemId.ToString("N"), a.Id.ToString("N") + ".bin");

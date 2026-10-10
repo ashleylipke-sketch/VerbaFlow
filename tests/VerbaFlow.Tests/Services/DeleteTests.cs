@@ -135,4 +135,32 @@ public class DeleteTests
         Assert.Throws<SqliteException>(() => env.Execute($"UPDATE doc_items SET json = json_set(json, '$.status', 'WithAuthor') WHERE id = '{id}'"));
         Assert.Throws<SqliteException>(() => env.Execute($"DELETE FROM doc_items WHERE id = '{id}'"));
     }
+
+    [Fact]
+    public async Task A_deletion_that_was_cut_short_after_the_audio_went_can_be_finished_and_the_player_says_missing_not_crash()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        foreach (var f in AudioFiles(env)) { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); }
+
+        var ex = await Assert.ThrowsAsync<NotFoundException>(() => env.Meeting.OpenAudioAsync(env.Alice, id, false));
+        Assert.Equal("The recording is missing.", ex.Message);
+
+        await env.Meeting.DeleteAsync(env.Alice, id, "Try again");
+        Assert.Equal(ItemStatus.Purged, (await env.Item(id)).Status);
+    }
+
+    [Fact]
+    public async Task A_file_still_open_in_the_player_does_not_stop_the_deletion()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var playing = await env.Meeting.OpenAudioAsync(env.Alice, id, false);
+        await using (playing.Content)
+        {
+            await env.Meeting.DeleteAsync(env.Alice, id, "Deleted while playing");
+        }
+        Assert.Equal(ItemStatus.Purged, (await env.Item(id)).Status);
+        Assert.Empty(AudioFiles(env));
+    }
 }

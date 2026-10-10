@@ -6,6 +6,7 @@ const VIEWS: [string, string][] = [
   ['WithAssignee', 'With Assignee'], ['ConversionFailed', 'Conversion Failed'], ['Completed', 'Completed'], ['Purged', 'Deleted'],
 ];
 const DEFAULT_ON = new Set(['WithAuthor', 'WithImporter', 'AwaitingAssignee', 'WithAssignee', 'ConversionFailed']);
+// Only these show in the list. Others (run again, delete) need choices or a reason, so they live on the item page.
 const ACTION_LABEL: Record<string, string> = { open: 'Open', retry: 'Retry', approve: 'Approve', assign: 'Assign', reassign: 'Reassign', accept: 'Accept', return: 'Return', 'request-reopen': 'Reopen' };
 
 export default function Dashboard() {
@@ -60,7 +61,7 @@ export default function Dashboard() {
                 <td>{r.assignedTo ?? ''}</td>
                 <td>{fmtDate(r.createdOn)}</td>
                 <td className={r.overdue ? 'overdue' : ''}>{r.dueDate ? fmtDate(r.dueDate) : ''}{r.overdue ? ' (overdue)' : ''}</td>
-                <td><div className="actions">{r.actions.map(a => <button key={a} onClick={() => act(r, a)}>{ACTION_LABEL[a] ?? a}</button>)}</div></td>
+                <td><div className="actions">{r.actions.filter(a => a in ACTION_LABEL).map(a => <button key={a} onClick={() => act(r, a)}>{ACTION_LABEL[a]}</button>)}</div></td>
               </tr>
             ))}
           </tbody>

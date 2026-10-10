@@ -45,6 +45,20 @@ public class RerunTests
     }
 
     [Fact]
+    public async Task The_speech_service_only_method_skips_the_local_model_and_gives_azure_the_count()
+    {
+        var (env, spy, processing, id) = await Start();
+        using var _ = env;
+        await env.Meeting.RerunAsync(env.Alice, id, 4, method: "azure");
+        await processing.ProcessAsync(id);
+        Assert.Equal(4, env.Speech.LastOptions!.MaxSpeakers);
+        Assert.Single(spy.Asked); // only the first run used the local model
+        var done = (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "processing.completed");
+        Assert.Contains("\"groupingMethod\":\"azure\"", done.Details);
+        Assert.Contains("\"speakerSeparation\":\"azure\"", done.Details);
+    }
+
+    [Fact]
     public async Task Running_again_passes_the_speaker_count_and_records_it_in_the_history()
     {
         var (env, spy, processing, id) = await Start();

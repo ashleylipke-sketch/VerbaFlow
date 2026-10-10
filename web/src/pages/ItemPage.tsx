@@ -171,7 +171,8 @@ export default function ItemPage({ id }: { id: string }) {
               <label className="note">Way of telling voices apart{' '}
                 <select value={rerunMethod} onChange={e => setRerunMethod(e.target.value)}>
                   <option value="">Standard</option>
-                  <option value="windowed">Short-window (try this if voices are mixed up)</option></select></label>
+                  <option value="windowed">Short-window (try this if voices are mixed up)</option>
+                  <option value="azure">Speech service only (uses the number of speakers you pick)</option></select></label>
               <button disabled={busy} onClick={() => {
                 const edited = t.versions.length > 1;
                 if (edited && !confirm(`This replaces your ${t.versions.length - 1} correction${t.versions.length > 2 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;

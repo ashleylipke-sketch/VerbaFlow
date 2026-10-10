@@ -47,6 +47,10 @@ The model's own grouping can give one label to several voices. **Way of telling 
 
 Tested: the grouping logic with unit tests, and on the public four-speaker sample, where told 4 it agrees with the normal method on over 90% of the speech. **Not yet tested on the owner's English meetings.**
 
+## Speech service only
+
+**Way of telling voices apart: Speech service only** skips the local model for that run. The number of speakers you pick is sent to Azure as its speaker limit (it is an upper limit, not an exact count; with automatic it is 8, as before), and Azure's own labels are used as they come back. History shows `groupingMethod: azure`. Added because the local model put almost all speech in one group on the owner's one-microphone meeting. **Untested against real Azure.**
+
 ## How well it works
 
 Checked automatically on a public four-person sample recording (in Chinese), where it finds all four voices at the default threshold. Different threshold values gave 4 to 8 speakers on the same recording, so **the threshold matters and the right value depends on your audio**. It has not been measured on English or French meetings with five people on one microphone. Try it, and tell the developers how many voices it found against how many there were.

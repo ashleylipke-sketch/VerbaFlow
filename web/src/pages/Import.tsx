@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
+import LanguagePicker from '../LanguagePicker';
+import { summaryLanguage } from '../languages';
 
 export default function Import() {
   const [file, setFile] = useState<File | null>(null);
@@ -7,7 +9,7 @@ export default function Import() {
   const [note, setNote] = useState('');
   const [rights, setRights] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [spoken, setSpoken] = useState('en');
+  const [spoken, setSpoken] = useState('en-GB');
   const [speakers, setSpeakers] = useState('');
   const [error, setError] = useState('');
 
@@ -16,7 +18,7 @@ export default function Import() {
     setBusy(true); setError('');
     try {
       const f = new FormData();
-      f.append('file', file); f.append('name', name); f.append('sourceNote', note); f.append('rightsConfirmed', String(rights)); f.append('language', spoken === 'fr' ? 'fr' : 'en'); f.append('spokenLanguages', spoken); if (speakers) f.append('numSpeakers', speakers);
+      f.append('file', file); f.append('name', name); f.append('sourceNote', note); f.append('rightsConfirmed', String(rights)); f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken); if (speakers) f.append('numSpeakers', speakers);
       f.append('lengthMs', '0');
       const { id } = await api.form('/items/imports', f);
       location.hash = `#/items/${id}`;
@@ -29,10 +31,7 @@ export default function Import() {
       <p className="note">Audio and video files only. The original is kept untouched, scanned for malware and stored read-only.</p>
       <div className="field"><label>File<br /><input type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.mp4,.webm,.ogg,.opus,.mov,.aac,.flac,.mkv,.wma" onChange={e => setFile(e.target.files?.[0] ?? null)} /></label></div>
       <div className="field"><label>Name (optional)<br /><input value={name} onChange={e => setName(e.target.value)} /></label></div>
-      <div className="field"><label>Language spoken<br />
-        <select value={spoken} onChange={e => setSpoken(e.target.value)}>
-          <option value="en">English</option><option value="fr">French</option><option value="en,fr">English and French (mixed)</option><option value="auto">Not sure: detect automatically</option></select></label>
-        <div className="note">One language is transcribed faster and more accurately. Choose mixed only if both are spoken in the same meeting. If you are not sure what is spoken, let it detect automatically, which is a little less accurate and slower.</div></div>
+      <LanguagePicker value={spoken} onChange={setSpoken} />
       <div className="field"><label>Number of speakers (optional)<br />
           <select value={speakers} onChange={e => setSpeakers(e.target.value)}>
             <option value="">Not sure</option>{[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>

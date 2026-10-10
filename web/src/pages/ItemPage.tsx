@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import LanguagePicker from '../LanguagePicker';
 import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
@@ -96,9 +97,7 @@ export default function ItemPage({ id }: { id: string }) {
         {d.processingState === 'Processing' && <div className="banner">Transcribing… this page updates itself when it is ready.</div>}
         {d.failureReason && <div className="banner">Conversion failed: {d.failureReason}
           {acts.has('retry') && <div className="actions" style={{ marginTop: 8 }}>
-            <label className="note">Language spoken{' '}
-              <select value={retryLang || (d.spokenLanguages === 'en,fr' ? 'en,fr' : d.spokenLanguages)} onChange={e => setRetryLang(e.target.value)}>
-                <option value="en">English</option><option value="fr">French</option><option value="en,fr">English and French (mixed)</option><option value="auto">Not sure: detect automatically</option></select></label>
+            <LanguagePicker value={retryLang || d.spokenLanguages} onChange={setRetryLang} />
             <button className="primary" onClick={() => run(() => api.post(`/items/${id}/retry`, { spokenLanguages: retryLang || d.spokenLanguages }))}>Retry conversion</button>
             <span className="note">The recording is safe. Retrying starts the conversion again from the original audio.</span></div>}</div>}
         {d.markers.length > 0 && <div className="note">Markers: {d.markers.map(m => `${fmtLen(m.offsetMs)} ${m.type}${m.note ? ` (${m.note})` : ''}`).join(' · ')}</div>}

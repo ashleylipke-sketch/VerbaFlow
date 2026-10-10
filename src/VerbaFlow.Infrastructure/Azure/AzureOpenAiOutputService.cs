@@ -54,7 +54,8 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
     internal static string LanguageName(string code) => code.Split('-')[0].ToLowerInvariant() switch
     {
         "en" => "British English", "fr" => "French", "es" => "Spanish", "de" => "German", "it" => "Italian",
-        "pt" => "Portuguese", "nl" => "Dutch", _ => code,
+        "pt" => "Portuguese", "nl" => "Dutch", "af" => "Afrikaans", "zu" => "isiZulu", "pl" => "Polish", "uk" => "Ukrainian",
+        "ru" => "Russian", "mt" => "Maltese", "zh" => "Simplified Chinese", "ja" => "Japanese", "ar" => "Arabic", _ => code,
     };
 
     private const string Rules = """

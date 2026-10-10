@@ -52,6 +52,39 @@ public class SpokenLanguageTests
         var item = System.Text.Json.JsonSerializer.Deserialize<VerbaFlow.Core.Domain.Item>("{}", new System.Text.Json.JsonSerializerOptions { IncludeFields = false });
         Assert.Equal("en,fr", item!.SpokenLanguages);
     }
+
+    [Theory]
+    [InlineData("af-ZA", new[] { "af-ZA" })]
+    [InlineData("EN-za,AF-za", new[] { "en-ZA", "af-ZA" })]
+    [InlineData("de-CH", new[] { "de-CH" })]
+    [InlineData("nl-BE,fr-BE,en-GB,de-DE", new[] { "nl-BE", "fr-BE", "en-GB" })] // no more than three
+    public async Task Any_supported_locale_is_sent_to_the_speech_service_as_chosen(string spoken, string[] expected)
+    {
+        using var env = new Env();
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, Rec(env, spoken));
+        await env.Processing.ProcessAsync(id);
+        Assert.Equal(expected, env.Speech.LastOptions!.CandidateLanguages);
+    }
+
+    [Theory]
+    [InlineData("xh-ZA")] [InlineData("st-ZA")] [InlineData("tn-ZA")] [InlineData("nso-ZA")]
+    [InlineData("ts-ZA")] [InlineData("ss-ZA")] [InlineData("ve-ZA")] [InlineData("nr-ZA")]
+    public async Task Languages_the_speech_service_cannot_do_yet_are_refused_with_a_plain_sentence(string spoken)
+    {
+        using var env = new Env();
+        var ex = await Assert.ThrowsAsync<VerbaFlow.Core.Domain.DomainException>(() => env.Meeting.CreateRecordingAsync(env.Alice, Rec(env, spoken)));
+        Assert.Contains("cannot be transcribed yet", ex.Message);
+    }
+
+    [Fact]
+    public void Every_language_asked_for_is_in_the_list()
+    {
+        var wanted = new[] { "en-GB", "fr-FR", "es-ES", "de-DE", "it-IT", "nl-NL", "nl-BE", "mt-MT", "de-CH", "it-CH", "fr-CH", "pl-PL", "uk-UA", "ru-RU",
+            "af-ZA", "zu-ZA", "xh-ZA", "st-ZA", "tn-ZA", "nso-ZA", "ts-ZA", "ss-ZA", "ve-ZA", "nr-ZA", "zh-CN", "ja-JP", "ar-SA" };
+        var codes = VerbaFlow.Core.Domain.SpokenLanguageCatalogue.All.Select(l => l.Code).ToHashSet();
+        Assert.All(wanted, w => Assert.Contains(w, codes));
+        Assert.Equal(8, VerbaFlow.Core.Domain.SpokenLanguageCatalogue.All.Count(l => !l.Supported));
+    }
 }
 
 public class RetryLanguageTests

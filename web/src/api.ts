@@ -32,6 +32,7 @@ export function describeAudit(a: AuditEvent): string {
   if (facts.length > 900) facts = facts.slice(0, 900) + '…';
   return facts ? `${a.type} (${facts})` : a.type;
 }
+export type Lang = { code: string; name: string; supported: boolean };
 export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
 
@@ -56,6 +57,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export const api = {
   users: () => call<UserView[]>('GET', '/users'),
+  languages: () => call<{ max: number; languages: Lang[] }>('GET', '/languages'),
   me: () => call<UserView>('GET', '/me'),
   supportErrors: (reference?: string) => call<SupportError[]>('GET', `/support/errors${reference ? `?reference=${encodeURIComponent(reference)}` : ''}`),
   items: () => call<Row[]>('GET', '/items'),

@@ -43,12 +43,13 @@ public sealed class Item
     [JsonInclude] public DateTimeOffset CreatedAt { get; private set; }
     [JsonInclude] public int LengthMs { get; private set; }
     [JsonInclude] public string OutputLanguage { get; private set; } = "en";
-    /// <summary>Languages spoken in the recording, comma separated ("en", "fr", "en,fr", or "auto" to let the speech service detect the language). One language is faster and more accurate to transcribe than two. Items saved before this existed keep both.</summary>
+    /// <summary>Languages spoken in the recording, comma separated (locales such as "en-GB" or "af-ZA", older short codes such as "en" and "fr", or "auto" to let the speech service detect the language). One language is faster and more accurate to transcribe than two. Items saved before this existed keep both.</summary>
     [JsonInclude] public string SpokenLanguages { get; private set; } = "en,fr";
     public void SetSpokenLanguages(string? value)
     {
         var parts = (value ?? "").Split(new[] { ',', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(x => x.ToLowerInvariant()).Where(x => x is "en" or "fr" or "auto").Distinct().ToList();
+            .Select(SpokenLanguageCatalogue.Normalise).Where(x => x is not null).Select(x => x!).Distinct()
+            .Take(SpokenLanguageCatalogue.MaxPerRecording).ToList();
         SpokenLanguages = parts.Contains("auto") ? "auto" : parts.Count == 0 ? "en" : string.Join(",", parts);
     }
     /// <summary>How many people were speaking, if the owner said so when running the conversion again. Null means work it out.</summary>

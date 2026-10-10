@@ -12,7 +12,8 @@ namespace VerbaFlow.Infrastructure.Services;
 /// 1. One pass over the whole recording in the first language, used only for who spoke when and for where the pauses are.
 /// 2. The audio is cut at pauses into pieces of a few seconds, covering the whole recording, so nothing is skipped.
 /// 3. Each piece is transcribed on its own with all the chosen languages; its times are moved back to the full recording.
-/// 4. Speakers from step 1 are put back on the words (SpeakerAligner).
+/// 4. Speakers are put back on the words (SpeakerAligner): from step 1, or, if most of the meeting turned out to be in
+/// another chosen language, from one more full pass in that language (speakers are told apart better in the main language).
 /// One language: the recording goes straight through, unchanged.
 /// </summary>
 public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegPath) : ISpeechService
@@ -90,37 +91,71 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
         foreach (var (start, end) in pieces) await PieceAsync(start, end, 0);
         segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
 
+        // Speakers are told apart best in the language most of the meeting is in. If that is not the first language
+        // chosen, the whole recording is heard once more in that language just to work out who spoke when.
+        var speakerPass = first;
+        var main = MainLanguage(segments, o.CandidateLanguages);
+        if (main is not null && main != o.CandidateLanguages[0])
+            speakerPass = await inner.TranscribeAsync(Wav(pcm, 0, pcm.Length), o with { CandidateLanguages = [main] }, ct);
+        warning ??= speakerPass.Warning;
+
         var detail = $"{pieces.Count} pieces; " + string.Join(", ", perLanguage.OrderByDescending(x => x.Value).Select(x => $"{x.Key} in {x.Value}"))
             + (split > 0 ? $"; {split} cut again for mixed languages" : "")
-            + (kept > 0 ? $"; {kept} too mixed, kept from the first-language pass" : "");
+            + (kept > 0 ? $"; {kept} too mixed, kept from the first-language pass" : "")
+            + $"; speakers worked out in {(speakerPass == first ? o.CandidateLanguages[0] : main)}";
         var combined = new TranscriptionResult(first.Engine + "+language-per-piece", [everyone], AzureSpeechService.MergeTurns(segments), warning, detail);
 
         // Who spoke when comes from the full pass, which heard the whole conversation at once.
-        var numbers = first.Speakers.Select((sp, i) => (sp.Id, i)).ToDictionary(x => x.Id, x => x.i);
-        var turns = first.Segments.Select(s => new SpeakerTurn(s.StartMs, s.EndMs, numbers.GetValueOrDefault(s.SpeakerId))).ToList();
+        var numbers = speakerPass.Speakers.Select((sp, i) => (sp.Id, i)).ToDictionary(x => x.Id, x => x.i);
+        var turns = speakerPass.Segments.Select(s => new SpeakerTurn(s.StartMs, s.EndMs, numbers.GetValueOrDefault(s.SpeakerId))).ToList();
         return turns.Count == 0 ? combined : SpeakerAligner.Relabel(combined, turns);
     }
 
+    /// <summary>The chosen language heard for the most time across the pieces, or null if none was recognised.</summary>
+    public static string? MainLanguage(IEnumerable<Segment> heard, string[] chosen)
+    {
+        static string Base(string l) => l.Split('-')[0].ToLowerInvariant();
+        return heard.GroupBy(s => Base(s.Language))
+            .Select(g => (Lang: chosen.FirstOrDefault(c => Base(c) == g.Key), Ms: g.Sum(s => s.EndMs - s.StartMs)))
+            .Where(x => x.Lang is not null).OrderByDescending(x => x.Ms).Select(x => x.Lang).FirstOrDefault();
+    }
+
     /// <summary>
-    /// Cuts the timeline into pieces that cover all of it. A piece ends at the first pause after it is at least
-    /// <see cref="MinPieceMs"/> long, or at <see cref="MaxPieceMs"/> if there is no pause. Pauses come from the gaps
-    /// between the words of the full pass, and between its phrases.
+    /// Cuts the timeline into pieces that cover all of it. A piece is at least <see cref="MinPieceMs"/> and at most
+    /// <see cref="MaxPieceMs"/> long. It ends, by preference, where the full pass ended a phrase (the end of a sentence
+    /// or a change of speaker), so a sentence is not cut in half; only when there is no such place in range does it end
+    /// at a pause between words, and only with no pause at all is it cut at the limit.
     /// </summary>
     public static List<(int Start, int End)> Pieces(IReadOnlyList<Segment> heard, int totalMs)
     {
-        var cuts = Pauses(heard);
+        var phraseEnds = PhraseEnds(heard);
+        var pauses = Pauses(heard);
         var pieces = new List<(int, int)>();
         var start = 0;
-        var next = 0;
         while (start < totalMs)
         {
-            while (next < cuts.Count && cuts[next] - start < MinPieceMs) next++;
-            var end = next < cuts.Count && cuts[next] - start <= MaxPieceMs ? cuts[next] : Math.Min(totalMs, start + MaxPieceMs);
-            if (totalMs - end < MinPieceMs / 2) end = totalMs; // do not leave a scrap at the end
-            pieces.Add((start, end));
-            start = end;
+            bool InRange(int c) => c - start >= MinPieceMs && c - start <= MaxPieceMs;
+            int? end = phraseEnds.Where(InRange).Cast<int?>().FirstOrDefault() ?? pauses.Where(InRange).Cast<int?>().FirstOrDefault();
+            var e = end ?? Math.Min(totalMs, start + MaxPieceMs);
+            if (totalMs - e < MinPieceMs / 2) e = totalMs; // do not leave a scrap at the end
+            pieces.Add((start, e));
+            start = e;
         }
         return pieces;
+    }
+
+    /// <summary>The middle of the gap between one phrase of the full pass and the next, in order.</summary>
+    public static List<int> PhraseEnds(IReadOnlyList<Segment> heard)
+    {
+        var phrases = heard.OrderBy(s => s.StartMs).ToList();
+        var ends = new List<int>();
+        for (var i = 1; i < phrases.Count; i++)
+        {
+            var end = Math.Max(phrases[i - 1].EndMs, phrases[i - 1].Words?.LastOrDefault()?.EndMs ?? 0);
+            var next = phrases[i].Words?.FirstOrDefault()?.StartMs ?? phrases[i].StartMs;
+            ends.Add(next > end ? end + (next - end) / 2 : next);
+        }
+        return ends;
     }
 
     /// <summary>The middle of every pause (a gap between words of at least <see cref="PauseMs"/>), in order.</summary>

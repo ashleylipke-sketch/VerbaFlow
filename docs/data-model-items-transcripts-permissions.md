@@ -463,6 +463,8 @@ Widget has no item, transcript or media tables. It writes `AUDIT_EVENT` rows wit
 
 A `RETENTION_POLICY` per scope and media type (original audio, video, filtered copy, transcript, attachments) drives lifecycle rules. A purge deletes content, keeps the item row as a tombstone (reference, dates, who, why), and writes an audit event.
 
+Built so far (manual delete, no retention policy yet): a recording that was never approved can be deleted by its author or importer or an administrator. One that was approved must be reopened first, and deleting it then needs two different administrators (an administrator who asks counts as one). Deleting removes the audio, transcripts and summaries of every version, marks every version `Purged` (shown as Deleted) with who, when and why, and keeps the media fingerprints and the audit trail. The database allows an approved item to change only to `Purged`, and never allows a purged item to change.
+
 ## Open points
 
 1. **Multiple authors or organisers.** Meet items with several attendees are modelled as one item plus shares. Confirm that is enough.

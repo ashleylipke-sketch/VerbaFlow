@@ -58,6 +58,19 @@ public class RerunTests
         Assert.Contains("\"audioSentToSpeech\":\"prepared\"", (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "processing.completed").Details);
     }
 
+    [Fact]
+    public async Task Running_again_with_a_different_language_sends_it_and_the_history_records_what_was_sent()
+    {
+        var (env, _, processing, id) = await Start();
+        using var _e = env;
+        await env.Meeting.RerunAsync(env.Alice, id, null, "af-ZA");
+        await processing.ProcessAsync(id);
+        Assert.Equal(["af-ZA"], env.Speech.LastOptions!.CandidateLanguages);
+        var done = (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "processing.completed");
+        Assert.Contains("\"languagesSent\":\"af-ZA\"", done.Details);
+        Assert.Contains("languagesHeard", done.Details);
+    }
+
     private static async Task<(Env env, SpyDiarizer spy, ProcessingService processing, Guid id)> Start()
     {
         var env = new Env();

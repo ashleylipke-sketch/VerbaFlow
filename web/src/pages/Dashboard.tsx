@@ -3,7 +3,7 @@ import { api, fmtDate, fmtLen, type Row } from '../api';
 
 const VIEWS: [string, string][] = [
   ['WithAuthor', 'With Author'], ['WithImporter', 'Imported'], ['AwaitingAssignee', 'Awaiting Assignee'],
-  ['WithAssignee', 'With Assignee'], ['ConversionFailed', 'Conversion Failed'], ['Completed', 'Completed'], ['Purged', 'Purged'],
+  ['WithAssignee', 'With Assignee'], ['ConversionFailed', 'Conversion Failed'], ['Completed', 'Completed'], ['Purged', 'Deleted'],
 ];
 const DEFAULT_ON = new Set(['WithAuthor', 'WithImporter', 'AwaitingAssignee', 'WithAssignee', 'ConversionFailed']);
 const ACTION_LABEL: Record<string, string> = { open: 'Open', retry: 'Retry', approve: 'Approve', assign: 'Assign', reassign: 'Reassign', accept: 'Accept', return: 'Return', 'request-reopen': 'Reopen' };

@@ -38,7 +38,7 @@ The startup log says one of:
 
 ## Comparing with the original recording
 
-On an item page, the **Speakers look wrong?** card has **Audio to use**. Choose **Original recording, no clean-up** and press **Run again** to have the speech service (and the local speaker model) hear the untouched recording for that run. Run again with **Cleaned up (normal)** to go back. This is how to check whether the clean-up helps or hurts on your own audio. Running again replaces any saved corrections on that transcript (the page asks first), so compare on a recording you have not corrected.
+On an item page, the **Speakers or language look wrong?** card has **Audio to use**. Choose **Original recording, no clean-up** and press **Run again** to have the speech service (and the local speaker model) hear the untouched recording for that run. Run again with **Cleaned up (normal)** to go back. This is how to check whether the clean-up helps or hurts on your own audio. Running again replaces any saved corrections on that transcript (the page asks first), so compare on a recording you have not corrected.
 
 The History shows `audio: original` on the run request and `audioSentToSpeech: original` on the finished run.
 

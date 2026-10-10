@@ -231,6 +231,114 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             r.RejectedBy is not null ? $"Rejected: {r.RejectionReason}" : r.NewItemId is not null ? "Reopened" : null, r.NewItemId)).ToList();
     }
 
+    // ---------- delete ----------
+
+    /// <summary>
+    /// Deletes a recording that has never been approved: the author, importer or an administrator can do it at once.
+    /// Its audio, transcript and summary are removed; the item stays as a tombstone in the Deleted view and its history is kept.
+    /// </summary>
+    public async Task DeleteAsync(User actor, Guid id, string reason)
+    {
+        var item = await stores.RequireItemAsync(id);
+        RequireOwnerOrAdmin(actor, item);
+        if (string.IsNullOrWhiteSpace(reason)) throw new DomainException("A reason is required to delete a recording.");
+        var chain = await RequireDeletableAsync(item);
+        if (chain.Any(i => i.ApprovedAt is not null))
+            throw new DomainException("This recording was approved before, so two administrators must agree to delete it. Use Ask to delete instead.");
+        await PurgeChainAsync(actor, chain, reason.Trim(), null, [actor.Id]);
+    }
+
+    /// <summary>Asks to delete a recording that was approved before and has since been reopened. Two different administrators must agree.</summary>
+    public async Task<Guid> RequestDeleteAsync(User actor, Guid id, string reason)
+    {
+        var item = await stores.RequireItemAsync(id);
+        RequireOwnerOrAdmin(actor, item);
+        var chain = await RequireDeletableAsync(item);
+        if (chain.All(i => i.ApprovedAt is null))
+            throw new DomainException("This recording has never been approved, so it can be deleted straight away.");
+        var ids = chain.Select(i => i.Id).ToHashSet();
+        if ((await stores.Deletes.ListAsync()).Any(r => ids.Contains(r.ItemId) && r.IsOpen))
+            throw new DomainException("A request to delete this recording is already waiting for approval.");
+        var req = DeleteRequest.Create(Guid.NewGuid(), id, actor, reason, clock.GetUtcNow());
+        await stores.Deletes.UpsertAsync(req.Id, req);
+        await Audit(actor, CapacityOf(actor, item), id, "delete.requested", ("requestId", req.Id), ("reason", req.Reason),
+            ("approvals", req.Approvals.Count));
+        return req.Id;
+    }
+
+    /// <summary>Records an administrator's agreement. The second different administrator's agreement deletes the recording.</summary>
+    public async Task<bool> ApproveDeleteAsync(User admin, Guid requestId)
+    {
+        var req = await stores.Deletes.GetAsync(requestId) ?? throw new NotFoundException("That request does not exist.");
+        req.Approve(admin);
+        if (req.IsApproved)
+        {
+            var item = await stores.RequireItemAsync(req.ItemId);
+            var chain = await RequireDeletableAsync(item); // still the newest version, not approved again, not processing
+            await stores.Deletes.UpsertAsync(requestId, req);
+            await Audit(admin, "admin", req.ItemId, "delete.approved", ("requestId", requestId));
+            await PurgeChainAsync(admin, chain, req.Reason, requestId, req.Approvals);
+            req.DeletedAt = clock.GetUtcNow();
+            await stores.Deletes.UpsertAsync(requestId, req);
+            return true;
+        }
+        await stores.Deletes.UpsertAsync(requestId, req);
+        await Audit(admin, "admin", req.ItemId, "delete.approved", ("requestId", requestId));
+        return false;
+    }
+
+    public async Task RejectDeleteAsync(User admin, Guid requestId, string reason)
+    {
+        var req = await stores.Deletes.GetAsync(requestId) ?? throw new NotFoundException("That request does not exist.");
+        req.Reject(admin, reason);
+        await stores.Deletes.UpsertAsync(requestId, req);
+        await Audit(admin, "admin", req.ItemId, "delete.rejected", ("requestId", requestId), ("reason", req.RejectionReason));
+    }
+
+    public async Task<IReadOnlyList<DeleteRequestView>> ListDeleteRequestsAsync(User actor)
+    {
+        if (!actor.IsAdmin) throw new ForbiddenException("Only administrators can see delete requests.");
+        var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id);
+        var items = (await stores.Items.ListAsync()).ToDictionary(i => i.Id);
+        return (await stores.Deletes.ListAsync()).OrderByDescending(r => r.CreatedAt).Select(r => new DeleteRequestView(
+            r.Id, r.ItemId, items.GetValueOrDefault(r.ItemId)?.Name ?? "?", r.Reason,
+            users.GetValueOrDefault(r.RequestedBy)?.Name ?? "?", r.Approvals.Count,
+            r.Approvals.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), r.IsOpen,
+            r.RejectedBy is not null ? $"Rejected: {r.RejectionReason}" : r.DeletedAt is not null ? "Deleted" : null)).ToList();
+    }
+
+    /// <summary>The checks every deletion makes. Returns every version of the recording, oldest first.</summary>
+    private async Task<List<Item>> RequireDeletableAsync(Item item)
+    {
+        var all = await stores.Items.ListAsync();
+        if (item.Status == ItemStatus.Purged) throw new DomainException("This recording has already been deleted.");
+        if (all.Any(i => i.SupersedesItemId == item.Id)) throw new DomainException("A newer version of this recording exists. Delete it from the newest version.");
+        if (item.Status == ItemStatus.Completed)
+            throw new DomainException("This recording is approved and locked. Ask for it to be reopened first, then delete the reopened version.");
+        if (item.Processing == ProcessingState.Running) throw new DomainException("The item is still being processed. Wait for it to finish, then delete it.");
+        return all.Where(i => i.ChainId == item.ChainId).OrderBy(i => i.VersionNo).ToList();
+    }
+
+    /// <summary>Deletes the audio, transcripts and summaries of every version and marks each version deleted. The history is kept.</summary>
+    private async Task PurgeChainAsync(User actor, List<Item> chain, string reason, Guid? requestId, IReadOnlyList<Guid> agreedBy)
+    {
+        var now = clock.GetUtcNow();
+        var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
+        var removedFiles = 0;
+        foreach (var source in chain.Select(i => i.MediaSourceItemId).Distinct())
+            removedFiles += await stores.Media.DeleteContentAsync(source);
+        foreach (var i in chain)
+        {
+            i.Purge(actor.Id, reason, now);
+            await stores.Items.UpsertAsync(i.Id, i);
+            await stores.Transcripts.DeleteAsync(i.Id);
+            await stores.Outputs.DeleteAsync(i.Id);
+            await Audit(actor, CapacityOf(actor, i), i.Id, "item.deleted", ("reason", reason), ("requestId", requestId),
+                ("agreedBy", string.Join(", ", agreedBy.Select(a => users.GetValueOrDefault(a, "?")))), ("versions", chain.Count),
+                ("audioFilesRemoved", removedFiles));
+        }
+    }
+
     // ---------- transcript ----------
 
     public async Task<TranscriptView> GetTranscriptAsync(User actor, Guid id, int? versionNo = null)
@@ -323,6 +431,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, download ? Capability.ExportAudio : Capability.Read);
+        if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
         var asset = await stores.Media.FindOriginalAsync(item.MediaSourceItemId) ?? throw new NotFoundException("The recording is missing.");
         await Audit(actor, CapacityOf(actor, item), id, download ? "audio.downloaded" : "audio.played", ("sha256", asset.Sha256));
         return new AudioHandle(stores.Media.OpenRead(asset), asset.ContentType, asset.FileName);
@@ -368,7 +477,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             actor.IsAdmin && role == ItemRole.None ? "Admin" : role.ToString(), item.OutputLanguage, item.ApprovedAt,
             item.ApprovedBy is { } a ? users.GetValueOrDefault(a)?.Name : null, item.ChainId,
             chain.Select(c => new ChainEntry(c.Id, c.VersionNo, StatusLabels.For(c.Mode, c.Status), !all.Any(x => x.SupersedesItemId == c.Id))).ToList(),
-            item.Source == SourceKind.Imported ? "Imported (external source)" : "Recorded in app", item.SpokenLanguages);
+            item.Source == SourceKind.Imported ? "Imported (external source)" : "Recorded in app", item.SpokenLanguages,
+            item.DeletedAt, item.DeletedBy is { } db ? users.GetValueOrDefault(db)?.Name : null, item.DeleteReason);
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)
@@ -419,6 +529,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (i.Status == ItemStatus.AwaitingAssignee && i.AssignedUserId == u.Id) a.Add("accept");
         if (i.Status == ItemStatus.WithAssignee && i.AssignedUserId == u.Id) a.Add("return");
         if (i.Status == ItemStatus.Completed && !superseded && ownerOrAdmin) a.Add("request-reopen");
+        if (idle && !superseded && ownerOrAdmin && i.Status is not (ItemStatus.Completed or ItemStatus.Purged))
+            a.Add(i.VersionNo > 1 ? "request-delete" : "delete");
         return a;
     }
 

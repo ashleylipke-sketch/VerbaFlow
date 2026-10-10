@@ -16,6 +16,7 @@ public sealed class Stores
     public DocTable<Transcript> Transcripts { get; }
     public DocTable<StoredOutputs> Outputs { get; }
     public DocTable<ReopenRequest> Reopen { get; }
+    public DocTable<DeleteRequest> Deletes { get; }
     public DocTable<MediaAsset> MediaAssets { get; }
     public DocTable<VocabularyTerm> Vocabulary { get; }
     public DocTable<SupportError> SupportErrors { get; }
@@ -29,6 +30,7 @@ public sealed class Stores
         Transcripts = new(db, "doc_transcripts");
         Outputs = new(db, "doc_outputs");
         Reopen = new(db, "doc_reopen");
+        Deletes = new(db, "doc_delete_requests");
         MediaAssets = new(db, "doc_media");
         Vocabulary = new(db, "doc_vocabulary");
         SupportErrors = new(db, "doc_support_errors");

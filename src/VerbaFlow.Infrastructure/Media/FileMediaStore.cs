@@ -71,6 +71,26 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
         return h == a.Sha256;
     }
 
+    /// <summary>
+    /// Deletes the stored audio files of an item when the recording is deleted. The media records (hash, size, when stored)
+    /// stay as the tombstone; only the content goes.
+    /// </summary>
+    public async Task<int> DeleteContentAsync(Guid itemId)
+    {
+        var removed = 0;
+        foreach (var a in (await table.ListAsync()).Where(a => a.ItemId == itemId))
+        {
+            var path = PathFor(a);
+            if (!File.Exists(path)) continue;
+            File.SetAttributes(path, FileAttributes.Normal);
+            File.Delete(path);
+            removed++;
+        }
+        var dir = Path.Combine(root, itemId.ToString("N"));
+        if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any()) Directory.Delete(dir);
+        return removed;
+    }
+
     private string PathFor(MediaAsset a) => Path.Combine(root, a.ItemId.ToString("N"), a.Id.ToString("N") + ".bin");
 
     private static void TryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { /* best effort */ } }

@@ -6,7 +6,7 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 
 | Area | State |
 |---|---|
-| Speak · Meeting mode | **Built** (record, import, real transcription with speakers, follow-along word highlighting, tracked changes, custom vocabulary, assign / accept / return, approve and lock, two-admin reopen, versioned transcript, audit chain) |
+| Speak · Meeting mode | **Built** (record, import, real transcription with speakers, follow-along word highlighting, tracked changes, custom vocabulary, assign / accept / return, approve and lock, two-admin reopen, delete (two admins once approved), versioned transcript, audit chain) |
 | Speak · Dictate, Speech | Not started |
 | Meet, Widget | Not started |
 | Telephony bridge (ADR-15) | Designed, not built |

@@ -25,5 +25,5 @@ export default function LanguagePicker({ value, onChange }: { value: string; onC
     {chosen[0] !== 'auto' && chosen.length < max &&
       <button type="button" className="link" onClick={() => set([...chosen, langs.find(l => l.supported && !chosen.includes(l.code))?.code ?? 'en-GB'])}>
         + Another language is also spoken</button>}
-    <div className="note">One language is transcribed fastest and most accurately. Add a second or third only if they are spoken in the same recording. If you are not sure what is spoken, choose detect automatically, which is a little less accurate and slower. Some languages, such as isiXhosa and Sesotho, cannot be transcribed yet.</div></div>;
+    <div className="note">One language is transcribed fastest and most accurately. If you add a second or third, the speech service picks the one it hears most and uses it for the whole recording: it does not switch between languages, so the other language may be transcribed wrongly or left out. For a recording that mixes languages, choose the main one. If you are not sure what is spoken, choose detect automatically, which is a little less accurate and slower. Some languages, such as isiXhosa and Sesotho, cannot be transcribed yet.</div></div>;
 }

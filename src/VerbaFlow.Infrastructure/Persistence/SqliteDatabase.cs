@@ -4,7 +4,8 @@ namespace VerbaFlow.Infrastructure.Persistence;
 
 /// <summary>
 /// Stage 1 persistence on SQLite (stand-in for Azure SQL). Integrity rules are enforced by the database itself:
-/// audit events and media records cannot be updated or deleted, and an approved item cannot be changed.
+/// audit events and media records cannot be updated or deleted, and an approved item cannot be changed
+/// except to mark it deleted.
 /// </summary>
 public sealed class SqliteDatabase
 {
@@ -40,6 +41,7 @@ public sealed class SqliteDatabase
             CREATE TABLE IF NOT EXISTS doc_outputs(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_media(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_reopen(id TEXT PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS doc_delete_requests(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_vocabulary(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_support_errors(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS audit_events(
@@ -57,8 +59,11 @@ public sealed class SqliteDatabase
             CREATE TRIGGER IF NOT EXISTS media_no_delete BEFORE DELETE ON doc_media
               BEGIN SELECT RAISE(ABORT, 'media records are write-once'); END;
 
-            CREATE TRIGGER IF NOT EXISTS item_locked_no_update BEFORE UPDATE ON doc_items
-              WHEN json_extract(OLD.json, '$.status') IN ('Completed', 'Purged')
+            -- An approved item can change in one way only: to deleted (two administrators agreed). A deleted item never changes.
+            DROP TRIGGER IF EXISTS item_locked_no_update;
+            CREATE TRIGGER item_locked_no_update BEFORE UPDATE ON doc_items
+              WHEN json_extract(OLD.json, '$.status') = 'Purged'
+                OR (json_extract(OLD.json, '$.status') = 'Completed' AND json_extract(NEW.json, '$.status') IS NOT 'Purged')
               BEGIN SELECT RAISE(ABORT, 'approved items are locked'); END;
             CREATE TRIGGER IF NOT EXISTS item_locked_no_delete BEFORE DELETE ON doc_items
               WHEN json_extract(OLD.json, '$.status') IN ('Completed', 'Purged')

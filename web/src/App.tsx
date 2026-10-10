@@ -35,7 +35,7 @@ export default function App() {
           <a href="#/import" className={path === '/import' ? 'on' : ''}>Import</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
           {support && <a href="#/support" className={path === '/support' ? 'on' : ''}>Support: errors</a>}
-          {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen requests</a>}
+          {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen and delete requests</a>}
         </nav>
         <label className="note" title="Development stand-in for Microsoft Entra ID sign-in">
           Signed in as{' '}

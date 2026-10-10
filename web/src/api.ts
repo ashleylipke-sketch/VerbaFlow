@@ -10,6 +10,7 @@ export type Detail = {
   canEditTranscript: boolean; canEditDetails: boolean; canDownloadAudio: boolean; role: string; outputLanguage: string;
   approvedAt: string | null; approvedBy: string | null; chainId: string;
   chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string; spokenLanguages: string;
+  deletedAt: string | null; deletedBy: string | null; deleteReason: string | null;
 };
 export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null };
 export type Transcript = {
@@ -32,6 +33,7 @@ export function describeAudit(a: AuditEvent): string {
   if (facts.length > 900) facts = facts.slice(0, 900) + '…';
   return facts ? `${a.type} (${facts})` : a.type;
 }
+export type DeleteRequest = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null };
 export type Lang = { code: string; name: string; supported: boolean };
 export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
@@ -74,6 +76,7 @@ export const api = {
   importTerms: (lines: string) => call<{ added: number; skipped: string[] }>('POST', '/vocabulary/import', { lines }),
   removeTerm: (id: string) => call<void>('DELETE', `/vocabulary/${id}`),
   reopenRequests: () => call<Reopen[]>('GET', '/reopen'),
+  deleteRequests: () => call<DeleteRequest[]>('GET', '/delete-requests'),
   async audio(id: string, download = false): Promise<Blob> {
     const res = await fetch(`/api/items/${id}/audio${download ? '?download=true' : ''}`, { headers: { 'X-Dev-User': devUser } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);

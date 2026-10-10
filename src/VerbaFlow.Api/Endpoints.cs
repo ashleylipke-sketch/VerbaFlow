@@ -92,6 +92,15 @@ public static class Endpoints
         api.MapPost("/items/{id:guid}/reopen", async (HttpContext h, MeetingService s, Guid id, ReasonBody b) =>
             Results.Ok(new { id = await s.RequestReopenAsync(h.Current(), id, b.Reason) }));
         api.MapGet("/reopen", (HttpContext h, MeetingService s) => s.ListReopenRequestsAsync(h.Current()));
+        api.MapPost("/items/{id:guid}/delete", async (HttpContext h, MeetingService s, Guid id, ReasonBody b) =>
+        { await s.DeleteAsync(h.Current(), id, b.Reason); return Results.NoContent(); });
+        api.MapPost("/items/{id:guid}/delete-request", async (HttpContext h, MeetingService s, Guid id, ReasonBody b) =>
+            Results.Ok(new { id = await s.RequestDeleteAsync(h.Current(), id, b.Reason) }));
+        api.MapGet("/delete-requests", (HttpContext h, MeetingService s) => s.ListDeleteRequestsAsync(h.Current()));
+        api.MapPost("/delete-requests/{id:guid}/approve", async (HttpContext h, MeetingService s, Guid id) =>
+            Results.Ok(new { deleted = await s.ApproveDeleteAsync(h.Current(), id) }));
+        api.MapPost("/delete-requests/{id:guid}/reject", async (HttpContext h, MeetingService s, Guid id, ReasonBody b) =>
+        { await s.RejectDeleteAsync(h.Current(), id, b.Reason); return Results.NoContent(); });
         api.MapPost("/reopen/{id:guid}/approve", async (HttpContext h, MeetingService s, Guid id) =>
             Results.Ok(new { newItemId = await s.ApproveReopenAsync(h.Current(), id) }));
         api.MapPost("/reopen/{id:guid}/reject", async (HttpContext h, MeetingService s, Guid id, ReasonBody b) =>

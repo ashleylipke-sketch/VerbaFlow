@@ -12,7 +12,7 @@ public static class StatusLabels
         (_, ItemStatus.WithAssignee) => "With Assignee",
         (_, ItemStatus.ConversionFailed) => "Conversion Failed",
         (_, ItemStatus.Completed) => "Completed",
-        (_, ItemStatus.Purged) => "Purged",
+        (_, ItemStatus.Purged) => "Deleted",
         (_, ItemStatus.Draft) => "Draft",
         _ => status.ToString()
     };

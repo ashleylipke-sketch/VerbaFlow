@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
-import { api, type Reopen } from '../api';
+import { api, type DeleteRequest, type Reopen } from '../api';
 
 export default function ReopenPage() {
   const [list, setList] = useState<Reopen[]>([]);
+  const [deletes, setDeletes] = useState<DeleteRequest[]>([]);
   const [error, setError] = useState('');
-  const load = () => api.reopenRequests().then(setList).catch(e => setError(e.message));
+  const load = () => Promise.all([api.reopenRequests().then(setList), api.deleteRequests().then(setDeletes)]).catch(e => setError(e.message));
   useEffect(() => { load(); }, []);
   const run = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await load(); } catch (e: any) { setError(e.message); } };
+  const rejectDelete = (r: DeleteRequest) => { const reason = prompt('Why is this being rejected?'); if (reason) run(() => api.post(`/delete-requests/${r.id}/reject`, { reason })); };
   const reject = (r: Reopen) => { const reason = prompt('Why is this being rejected?'); if (reason) run(() => api.post(`/reopen/${r.id}/reject`, { reason })); };
 
-  return (
+  return (<>
     <div className="card">
       <h2>Reopen requests</h2>
       <p className="note">Reopening needs two different administrators, and neither can be the person who asked. Approval creates a new linked version; the original stays as it was.</p>
@@ -27,5 +29,21 @@ export default function ReopenPage() {
         </div>
       ))}
     </div>
-  );
+    <div className="card">
+      <h2>Delete requests</h2>
+      <p className="note">Deleting a recording that was approved before needs two different administrators. An administrator who asks counts as one of them. Once the second agrees, every version of the recording, its transcripts and summaries are removed for good; the history keeps a record.</p>
+      {deletes.length === 0 && <p className="note">No requests.</p>}
+      {deletes.map(r => (
+        <div key={r.id} className="card">
+          <strong><a href={`#/items/${r.itemId}`}>{r.itemName}</a></strong> · asked by {r.requestedBy}
+          <div>Reason: {r.reason}</div>
+          <div className="note">Agreed: {r.approvals} of 2 {r.approvedBy.length ? `(${r.approvedBy.join(', ')})` : ''}</div>
+          {r.open ? <div className="actions" style={{ marginTop: 8 }}>
+            <button className="danger" onClick={() => { if (confirm('If you are the second administrator to agree, the recording is deleted for good. Continue?')) run(() => api.post(`/delete-requests/${r.id}/approve`)); }}>Agree to delete</button>
+            <button onClick={() => rejectDelete(r)}>Reject</button></div>
+            : <div className="note">{r.outcome}</div>}
+        </div>
+      ))}
+    </div>
+  </>);
 }

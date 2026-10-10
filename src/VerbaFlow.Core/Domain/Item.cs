@@ -70,6 +70,10 @@ public sealed class Item
     [JsonInclude] public bool ObjectionFlag { get; private set; }
     [JsonInclude] public DateTimeOffset? ApprovedAt { get; private set; }
     [JsonInclude] public Guid? ApprovedBy { get; private set; }
+    /// <summary>Set when the recording was deleted. The item stays as a tombstone (who, when, why); its audio, transcript and summary are gone.</summary>
+    [JsonInclude] public DateTimeOffset? DeletedAt { get; private set; }
+    [JsonInclude] public Guid? DeletedBy { get; private set; }
+    [JsonInclude] public string? DeleteReason { get; private set; }
     [JsonInclude] public string? OriginalFileName { get; private set; }
     [JsonInclude] public string? ExternalSourceNote { get; private set; }
     [JsonInclude] public List<TimelineMarker> Markers { get; private set; } = [];
@@ -226,6 +230,20 @@ public sealed class Item
         next.ObjectionFlag = ObjectionFlag;
         next.Processing = ProcessingState.Idle;
         return next;
+    }
+
+    /// <summary>
+    /// Marks the item deleted. Also applies to approved versions in the same chain, so the application must check
+    /// first that the newest version is not approved and that the right people agreed (see MeetingService.DeleteAsync).
+    /// </summary>
+    public void Purge(Guid by, string reason, DateTimeOffset now)
+    {
+        if (Status == ItemStatus.Purged) throw new DomainException("This recording has already been deleted.");
+        if (Processing == ProcessingState.Running) throw new DomainException("The item is still being processed. Wait for it to finish, then delete it.");
+        Status = ItemStatus.Purged;
+        DeletedAt = now;
+        DeletedBy = by;
+        DeleteReason = reason;
     }
 
     private void EnsureNotLocked()

@@ -17,9 +17,11 @@ export default function ItemPage({ id }: { id: string }) {
   const [rerunSpeakers, setRerunSpeakers] = useState('');
   const [rerunMethod, setRerunMethod] = useState('');
   const [rerunAudio, setRerunAudio] = useState('');
+  const [rerunLang, setRerunLang] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
   const [showAudit, setShowAudit] = useState(false);
   const player = useRef<HTMLAudioElement>(null);
   const [pos, setPos] = useState({ seg: -1, word: -1 });
@@ -95,6 +97,7 @@ export default function ItemPage({ id }: { id: string }) {
           {r.assignedTo && <> · Assigned to {r.assignedTo}</>}
           {d.approvedAt && <> · Approved by {d.approvedBy} on {fmtDate(d.approvedAt)}</>}
         </div>
+        {d.deletedAt && <div className="banner">This recording was deleted by {d.deletedBy} on {fmtDate(d.deletedAt)}. Reason: {d.deleteReason}. Its audio, transcript and summary have been removed; the history below is kept.</div>}
         {d.processingState === 'Processing' && <div className="banner">Transcribing… this page updates itself when it is ready.</div>}
         {d.failureReason && <div className="banner">Conversion failed: {d.failureReason}
           {acts.has('retry') && <div className="actions" style={{ marginTop: 8 }}>
@@ -125,6 +128,18 @@ export default function ItemPage({ id }: { id: string }) {
           <div className="actions"><input placeholder="Why does this need reopening?" value={reopenReason} onChange={e => setReopenReason(e.target.value)} style={{ minWidth: 280 }} />
             <button disabled={!reopenReason.trim()} onClick={() => run(async () => { await api.post(`/items/${id}/reopen`, { reason: reopenReason }); setReopenReason(''); })}>Request reopen</button></div>
           <div className="note">Needs approval from two different administrators.</div></div>}
+        {(acts.has('delete') || acts.has('request-delete')) && <div style={{ marginTop: 12 }}>
+          <h3>Delete</h3>
+          <div className="actions"><input placeholder="Why should this be deleted?" value={deleteReason} onChange={e => setDeleteReason(e.target.value)} style={{ minWidth: 280 }} />
+            {acts.has('delete')
+              ? <button className="danger" disabled={!deleteReason.trim()} onClick={() => {
+                  if (confirm('This permanently removes the recording, its transcript and its summary. Only a record that it was deleted, by whom and why, is kept. Continue?'))
+                    run(async () => { await api.post(`/items/${id}/delete`, { reason: deleteReason }); setDeleteReason(''); setAudioUrl(''); });
+                }}>Delete</button>
+              : <button className="danger" disabled={!deleteReason.trim()} onClick={() => run(async () => { await api.post(`/items/${id}/delete-request`, { reason: deleteReason }); setDeleteReason(''); })}>Ask to delete</button>}</div>
+          <div className="note">{acts.has('delete')
+            ? 'Removes the recording, transcript and summary for good. The history keeps a record of the deletion.'
+            : 'This recording was approved before, so two different administrators must agree (an administrator who asks counts as one). Every version, including the approved one, is then removed for good.'}</div></div>}
       </div>
 
       <div className="withPlayer">
@@ -161,8 +176,8 @@ export default function ItemPage({ id }: { id: string }) {
               <button disabled={busy} onClick={() => { setBusy(true); run(() => api.post(`/items/${id}/outputs/regenerate`)).finally(() => setBusy(false)); }}>
                 {busy ? 'Writing…' : o ? 'Regenerate from current transcript' : 'Create summary'}</button></div>}
           </div>}
-          {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>Speakers look wrong?</h2>
-            <p className="note">Run the conversion again on the same recording. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>
+          {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>Speakers or language look wrong?</h2>
+            <p className="note">Run the conversion again on the same recording, for example with a different language. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>
             <div className="actions">
               <label className="note">Number of speakers{' '}
                 <select value={rerunSpeakers} onChange={e => setRerunSpeakers(e.target.value)}>
@@ -173,6 +188,7 @@ export default function ItemPage({ id }: { id: string }) {
                   <option value="">Standard</option>
                   <option value="windowed">Short-window (try this if voices are mixed up)</option>
                   <option value="azure">Speech service only (uses the number of speakers you pick)</option></select></label>
+              <LanguagePicker value={rerunLang || d.spokenLanguages} onChange={setRerunLang} />
               <label className="note">Audio to use{' '}
                 <select value={rerunAudio} onChange={e => setRerunAudio(e.target.value)}>
                   <option value="">Cleaned up (normal)</option>
@@ -181,7 +197,7 @@ export default function ItemPage({ id }: { id: string }) {
                 const edited = t.versions.length > 1;
                 if (edited && !confirm(`This replaces your ${t.versions.length - 1} correction${t.versions.length > 2 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;
                 setBusy(true);
-                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null, audio: rerunAudio || null })).finally(() => setBusy(false));
+                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null, audio: rerunAudio || null, spokenLanguages: rerunLang || null })).finally(() => setBusy(false));
               }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>

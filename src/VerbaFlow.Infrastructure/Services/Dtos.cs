@@ -31,7 +31,8 @@ public sealed record ItemDetail(
     ItemRow Row, string Owner, string OwnerRole, string? ProcessingState, string? FailureReason, string? OriginalFileName,
     string? ExternalSourceNote, string? OriginalSha256, IReadOnlyList<MarkerView> Markers, bool CanEditTranscript,
     bool CanEditDetails, bool CanDownloadAudio, string Role, string OutputLanguage, DateTimeOffset? ApprovedAt,
-    string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en");
+    string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en",
+    DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null);
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 
@@ -59,3 +60,6 @@ public sealed record ReopenView(Guid Id, Guid ItemId, string ItemName, string Re
     IReadOnlyList<string> ApprovedBy, bool Open, string? Outcome, Guid? NewItemId);
 
 public sealed record UserView(Guid Id, string Name, string Email, bool IsAdmin, bool IsSupport = false);
+
+public sealed record DeleteRequestView(Guid Id, Guid ItemId, string ItemName, string Reason, string RequestedBy, int Approvals,
+    IReadOnlyList<string> ApprovedBy, bool Open, string? Outcome);

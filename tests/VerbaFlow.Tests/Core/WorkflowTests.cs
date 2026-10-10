@@ -159,7 +159,7 @@ public class WorkflowTests
     public void Meeting_mode_has_exactly_the_agreed_views()
     {
         var labels = StatusLabels.ViewsFor(ItemMode.Meeting).Select(s => StatusLabels.For(ItemMode.Meeting, s)).ToArray();
-        Assert.Equal(["With Author", "Imported", "Awaiting Assignee", "With Assignee", "Completed", "Conversion Failed", "Purged"], labels);
+        Assert.Equal(["With Author", "Imported", "Awaiting Assignee", "With Assignee", "Completed", "Conversion Failed", "Deleted"], labels);
     }
 
     [Fact]

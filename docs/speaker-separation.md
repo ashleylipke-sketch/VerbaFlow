@@ -49,7 +49,7 @@ Tested: the grouping logic with unit tests, and on the public four-speaker sampl
 
 ## Speech service only
 
-**Way of telling voices apart: Speech service only** skips the local model for that run. The number of speakers you pick is sent to Azure as its speaker limit (it is an upper limit, not an exact count; with automatic it is 8, as before), and Azure's own labels are used as they come back. History shows `groupingMethod: azure`. Added because the local model put almost all speech in one group on the owner's one-microphone meeting. **Untested against real Azure.**
+**Way of telling voices apart: Speech service only** skips the local model for that run. The number of speakers you pick is sent to Azure as its speaker limit (it is an upper limit, not an exact count; with automatic it is 8, as before), and Azure's own labels are used as they come back. History shows `groupingMethod: azure`. Added because the local model put almost all speech in one group on the owner's one-microphone meeting. On the owner's 4-person one-microphone meeting it returned exactly 4 speakers and was mostly right (a few text boxes still mixed people; some quiet background speech was not transcribed at all, which no labelling method can fix). Record and Import have an optional **Number of speakers** box; giving a count there uses this method from the start.
 
 ## How well it works
 

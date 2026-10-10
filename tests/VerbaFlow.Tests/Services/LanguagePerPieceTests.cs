@@ -92,4 +92,48 @@ public class LanguagePerPieceTests
         await new LanguagePerPieceSpeech(fake, null).TranscribeAsync(LanguagePerPieceSpeech.Wav(new byte[3200], 0, 3200), new(["af-ZA"], 2, true), default);
         Assert.Single(fake.Calls);
     }
+
+    /// <summary>Like Azure: refuses a piece longer than <c>mixedAbove</c> ms with "multiple languages identified".</summary>
+    private sealed class MixedSpeech(int mixedAbove) : ISpeechService
+    {
+        public List<int> PieceLengths { get; } = [];
+        private readonly Speaker a = new(Guid.NewGuid(), "Speaker 1");
+        public async Task<TranscriptionResult> TranscribeAsync(Stream audio, TranscribeOptions o, CancellationToken ct)
+        {
+            var ms = new MemoryStream(); await audio.CopyToAsync(ms, ct);
+            var len = (int)((ms.Length - 44) / 32);
+            if (o.Diarize) // the full pass
+                return new("fake", [a], [Seg(a.Id, 200, 5000, "first pass", "en", ("first", 200, 2000), ("pass", 2100, 5000))]);
+            PieceLengths.Add(len);
+            if (len > mixedAbove) throw new MixedLanguagesException("422 MultipleLanguagesIdentified");
+            return new("fake", [a], [Seg(Guid.NewGuid(), 0, len, "piece", "af", ("piece", 0, len))]);
+        }
+    }
+
+    private static async Task<(TranscriptionResult, MixedSpeech)> RunMixedAsync(int mixedAbove)
+    {
+        var fake = new MixedSpeech(mixedAbove);
+        var pcm = new byte[6000 * 32]; // 6 s of silence
+        var r = await new LanguagePerPieceSpeech(fake, null).TranscribeAsync(LanguagePerPieceSpeech.Wav(pcm, 0, pcm.Length), new(["en-ZA", "af-ZA"], 2, true), default);
+        return (r, fake);
+    }
+
+    [Fact]
+    public async Task A_piece_with_both_languages_is_cut_in_two_and_tried_again()
+    {
+        if (!await FfmpegAudioEnhancer.IsAvailableAsync(null)) return;
+        var (r, fake) = await RunMixedAsync(4000);
+        Assert.Equal([6000, 3000, 3000], fake.PieceLengths);
+        Assert.Equal("piece piece", string.Join(" ", r.Segments.Select(s => s.Text)));
+        Assert.Contains("1 cut again for mixed languages", r.Detail);
+    }
+
+    [Fact]
+    public async Task A_piece_too_mixed_to_cut_keeps_what_the_first_pass_heard()
+    {
+        if (!await FfmpegAudioEnhancer.IsAvailableAsync(null)) return;
+        var (r, _) = await RunMixedAsync(0);
+        Assert.Equal("first pass", Assert.Single(r.Segments).Text);
+        Assert.Contains("too mixed, kept from the first-language pass", r.Detail);
+    }
 }

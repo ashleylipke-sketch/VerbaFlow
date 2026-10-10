@@ -9,6 +9,12 @@ public sealed record TranscribeOptions(string[] CandidateLanguages, int MaxSpeak
 /// <param name="Detail">Plain facts for the history, for example how much of each language was kept when a recording was transcribed once per language.</param>
 public sealed record TranscriptionResult(string Engine, IReadOnlyList<Speaker> Speakers, IReadOnlyList<Segment> Segments, string? Warning = null, string? Detail = null);
 
+/// <summary>
+/// The speech service heard more than one language in audio sent with several languages and would not pick one
+/// (Azure: 422 MultipleLanguagesIdentified). Callers that send short pieces split the piece and try again.
+/// </summary>
+public sealed class MixedLanguagesException(string message) : InvalidOperationException(message);
+
 /// <summary>Speech to text with diarization and per-segment language detection (Azure AI Speech in production).</summary>
 public interface ISpeechService
 {

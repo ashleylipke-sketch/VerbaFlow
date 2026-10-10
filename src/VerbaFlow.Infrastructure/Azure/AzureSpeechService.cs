@@ -82,6 +82,8 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                 continue;
             }
             var body = await res.Content.ReadAsStringAsync(ct);
+            if (res.StatusCode == HttpStatusCode.UnprocessableEntity && body.Contains("MultipleLanguagesIdentified", StringComparison.Ordinal))
+                throw new MixedLanguagesException(Describe(res.StatusCode, body) + Diagnostics(res, body, attempt + 1));
             throw new ProviderException(Services.FailureReporter.ForStatus(res.StatusCode), Describe(res.StatusCode, body) + Diagnostics(res, body, attempt + 1));
         }
     }

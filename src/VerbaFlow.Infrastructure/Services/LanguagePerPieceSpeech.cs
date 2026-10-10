@@ -23,6 +23,10 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
     public const int MaxPieceMs = 15000;
     /// <summary>A gap between words at least this long counts as a pause where a piece may end.</summary>
     public const int PauseMs = 350;
+    /// <summary>A piece Azure finds mixed is cut in two, but no half is made shorter than this.</summary>
+    public const int MinSplitMs = 1000;
+    /// <summary>How many times one piece may be cut again.</summary>
+    public const int MaxSplits = 3;
     private const int SampleRate = 16000;
 
     public string Executable { get; } = string.IsNullOrWhiteSpace(ffmpegPath) ? "ffmpeg" : ffmpegPath!;
@@ -36,17 +40,41 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
 
         var first = await inner.TranscribeAsync(Wav(pcm, 0, pcm.Length), o with { CandidateLanguages = [o.CandidateLanguages[0]] }, ct);
         var pieces = Pieces(first.Segments, totalMs);
+        var pauses = Pauses(first.Segments);
 
         var everyone = new Speaker(Guid.NewGuid(), "Speaker 1");
         var segments = new List<Segment>();
         var perLanguage = new Dictionary<string, int>();
         string? warning = first.Warning;
-        foreach (var (start, end) in pieces)
+        var split = 0;
+        var kept = 0;
+
+        async Task PieceAsync(int start, int end, int depth)
         {
             var from = (long)start * SampleRate / 1000 * 2;
             var to = Math.Min(pcm.Length, (long)end * SampleRate / 1000 * 2);
-            if (to - from < SampleRate / 5) continue; // under 0.1 s
-            var r = await inner.TranscribeAsync(Wav(pcm, from, to - from), o with { Diarize = false }, ct);
+            if (to - from < SampleRate / 5) return; // under 0.1 s
+            TranscriptionResult r;
+            try { r = await inner.TranscribeAsync(Wav(pcm, from, to - from), o with { Diarize = false }, ct); }
+            catch (MixedLanguagesException)
+            {
+                // Both languages in one piece: cut it in two at the pause nearest its middle and try each half.
+                if (depth < MaxSplits && end - start >= 2 * MinSplitMs)
+                {
+                    var middle = (start + end) / 2;
+                    var cut = pauses.Where(c => c - start >= MinSplitMs && end - c >= MinSplitMs)
+                        .OrderBy(c => Math.Abs(c - middle)).Cast<int?>().FirstOrDefault() ?? middle;
+                    split++;
+                    await PieceAsync(start, cut, depth + 1);
+                    await PieceAsync(cut, end, depth + 1);
+                    return;
+                }
+                // Too short to cut again: keep what the full pass heard there, in the first language.
+                kept++;
+                foreach (var s in first.Segments.Where(s => (s.StartMs + s.EndMs) / 2 >= start && (s.StartMs + s.EndMs) / 2 < end))
+                    segments.Add(s with { SpeakerId = everyone.Id });
+                return;
+            }
             warning ??= r.Warning;
             foreach (var s in r.Segments)
             {
@@ -59,7 +87,12 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
             foreach (var lang in r.Segments.Select(s => s.Language).Distinct()) perLanguage[lang] = perLanguage.GetValueOrDefault(lang) + 1;
         }
 
-        var detail = $"{pieces.Count} pieces; " + string.Join(", ", perLanguage.OrderByDescending(x => x.Value).Select(x => $"{x.Key} in {x.Value}"));
+        foreach (var (start, end) in pieces) await PieceAsync(start, end, 0);
+        segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+
+        var detail = $"{pieces.Count} pieces; " + string.Join(", ", perLanguage.OrderByDescending(x => x.Value).Select(x => $"{x.Key} in {x.Value}"))
+            + (split > 0 ? $"; {split} cut again for mixed languages" : "")
+            + (kept > 0 ? $"; {kept} too mixed, kept from the first-language pass" : "");
         var combined = new TranscriptionResult(first.Engine + "+language-per-piece", [everyone], AzureSpeechService.MergeTurns(segments), warning, detail);
 
         // Who spoke when comes from the full pass, which heard the whole conversation at once.
@@ -75,17 +108,7 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
     /// </summary>
     public static List<(int Start, int End)> Pieces(IReadOnlyList<Segment> heard, int totalMs)
     {
-        var words = heard.OrderBy(s => s.StartMs)
-            .SelectMany(s => s.Words is { Count: > 0 } w ? w.Select(x => (x.StartMs, x.EndMs)) : [(s.StartMs, s.EndMs)])
-            .OrderBy(x => x.StartMs).ToList();
-        var cuts = new List<int>();
-        for (var i = 1; i < words.Count; i++)
-        {
-            var gap = words[i].StartMs - words[i - 1].EndMs;
-            if (gap >= PauseMs) cuts.Add(words[i - 1].EndMs + gap / 2);
-        }
-        if (words.Count > 0 && words[0].StartMs >= PauseMs) cuts.Insert(0, words[0].StartMs / 2);
-
+        var cuts = Pauses(heard);
         var pieces = new List<(int, int)>();
         var start = 0;
         var next = 0;
@@ -98,6 +121,22 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
             start = end;
         }
         return pieces;
+    }
+
+    /// <summary>The middle of every pause (a gap between words of at least <see cref="PauseMs"/>), in order.</summary>
+    public static List<int> Pauses(IReadOnlyList<Segment> heard)
+    {
+        var words = heard.OrderBy(s => s.StartMs)
+            .SelectMany(s => s.Words is { Count: > 0 } w ? w.Select(x => (x.StartMs, x.EndMs)) : [(s.StartMs, s.EndMs)])
+            .OrderBy(x => x.StartMs).ToList();
+        var cuts = new List<int>();
+        for (var i = 1; i < words.Count; i++)
+        {
+            var gap = words[i].StartMs - words[i - 1].EndMs;
+            if (gap >= PauseMs) cuts.Add(words[i - 1].EndMs + gap / 2);
+        }
+        if (words.Count > 0 && words[0].StartMs >= PauseMs) cuts.Insert(0, words[0].StartMs / 2);
+        return cuts;
     }
 
     /// <summary>Decodes any audio to raw 16 kHz mono 16-bit samples with ffmpeg.</summary>

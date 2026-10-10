@@ -57,7 +57,7 @@ public static class Endpoints
             var id = await s.CreateRecordingAsync(h.Current(), new RecordingUpload(stream, file.FileName, file.ContentType,
                 f["name"].ToString(), int.TryParse(f["lengthMs"], out var l) ? l : 0,
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
-                f["consentNoticeGiven"] == "true", markers, f["spokenLanguages"].ToString()), ct);
+                f["consentNoticeGiven"] == "true", markers, f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns1) ? ns1 : null), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 
@@ -70,7 +70,7 @@ public static class Endpoints
                 string.IsNullOrWhiteSpace(f["name"]) ? null : f["name"].ToString(),
                 int.TryParse(f["lengthMs"], out var l) ? l : 0,
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
-                f["rightsConfirmed"] == "true", f["sourceNote"].ToString(), f["spokenLanguages"].ToString()), ct);
+                f["rightsConfirmed"] == "true", f["sourceNote"].ToString(), f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns2) ? ns2 : null), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 

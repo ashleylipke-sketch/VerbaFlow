@@ -32,6 +32,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var now = clock.GetUtcNow();
         var item = Item.CreateRecorded(id, actor.Id, up.Name, up.LengthMs, up.OutputLanguage, now);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
+        ApplySpeakerCount(item, up.NumSpeakers);
         item.AddMarker(new TimelineMarker { Type = MarkerType.ConsentNotice, OffsetMs = 0, Note = "Notice given before recording", ActorId = actor.Id, At = now });
         foreach (var m in up.Markers.OrderBy(m => m.OffsetMs))
             item.AddMarker(new TimelineMarker { Type = m.Type, OffsetMs = m.OffsetMs, Note = m.Note, ActorId = actor.Id, At = now });
@@ -60,6 +61,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var name = string.IsNullOrWhiteSpace(up.Name) ? Path.GetFileNameWithoutExtension(up.FileName) : up.Name!;
         var item = Item.CreateImported(id, actor.Id, name, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), SafeName(up.FileName), up.SourceNote);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
+        ApplySpeakerCount(item, up.NumSpeakers);
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Imported");
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, "importer", id, "item.imported", ("source", "Imported (external)"), ("originalFileName", SafeName(up.FileName)),
@@ -78,6 +80,14 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, CapacityOf(actor, item), id, "processing.retry_requested");
         queue.Enqueue(id);
+    }
+
+    /// <summary>When the person says how many people spoke, that count goes to the speech service and its own speaker labels are used.</summary>
+    private static void ApplySpeakerCount(Item item, int? count)
+    {
+        if (count is null) return;
+        item.SetNumSpeakers(count);
+        item.SetSpeakerMethod("azure");
     }
 
     /// <summary>Runs the conversion again on the same audio, optionally telling it how many people spoke. Only while the transcript has no human edits.</summary>

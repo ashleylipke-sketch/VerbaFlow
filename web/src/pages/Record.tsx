@@ -15,6 +15,7 @@ export default function Record() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [spoken, setSpoken] = useState('en');
+  const [speakers, setSpeakers] = useState('');
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const rec = useRef<MediaRecorder | null>(null);
@@ -103,7 +104,7 @@ export default function Record() {
       f.append('audio', blob.current!, 'recording.webm');
       f.append('name', name || `Meeting ${new Date().toLocaleString('en-GB')}`);
       f.append('lengthMs', String(Math.max(1, Math.round(activeMs.current))));
-      f.append('language', spoken === 'fr' ? 'fr' : 'en'); f.append('spokenLanguages', spoken); f.append('consentNoticeGiven', String(consent)); f.append('markers', JSON.stringify(markers));
+      f.append('language', spoken === 'fr' ? 'fr' : 'en'); f.append('spokenLanguages', spoken); if (speakers) f.append('numSpeakers', speakers); f.append('consentNoticeGiven', String(consent)); f.append('markers', JSON.stringify(markers));
       const { id } = await api.form('/items/recordings', f);
       location.hash = `#/items/${id}`;
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
@@ -121,6 +122,10 @@ export default function Record() {
           <select value={spoken} onChange={e => setSpoken(e.target.value)}>
             <option value="en">English</option><option value="fr">French</option><option value="en,fr">English and French (mixed)</option><option value="auto">Not sure: detect automatically</option></select></label>
           <div className="note">One language is transcribed faster and more accurately. Choose mixed only if both are spoken in the same meeting. If you are not sure what is spoken, let it detect automatically, which is a little less accurate and slower.</div></div>
+        <div className="field"><label>Number of speakers (optional)<br />
+          <select value={speakers} onChange={e => setSpeakers(e.target.value)}>
+            <option value="">Not sure</option>{[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
+          <div className="note">If you know how many people will speak, say so. It helps the app tell them apart.</div></div>
         <button className="primary" disabled={!consent} onClick={start}>Start recording</button>
       </>}
       {state !== 'idle' && <>

@@ -143,4 +143,20 @@ public class RerunTests
         var ev = (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "processing.rerun_requested");
         Assert.Contains("replacedEdits", ev.Details);
     }
+
+    [Fact]
+    public async Task A_count_given_when_recording_is_sent_to_the_speech_service_without_the_local_model()
+    {
+        var env = new Env();
+        using var _ = env;
+        var spy = new SpyDiarizer();
+        var processing = new ProcessingService(env.Stores, env.Speech, env.Ai, new StandInAudioEnhancer(), env.Clock, env.Reporter, spy);
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Recording() with { NumSpeakers = 4 });
+        await processing.ProcessAsync(id);
+        var item = await env.Item(id);
+        Assert.Equal(4, item.NumSpeakers); Assert.Equal("azure", item.SpeakerMethod);
+        Assert.Equal(4, env.Speech.LastOptions!.MaxSpeakers);
+        Assert.Empty(spy.Asked);
+        await Assert.ThrowsAsync<DomainException>(() => env.Meeting.CreateRecordingAsync(env.Alice, env.Recording() with { NumSpeakers = 1 }));
+    }
 }

@@ -7,10 +7,10 @@ public sealed record PlatformPolicy(long MaxUploadBytes = 500L * 1024 * 1024, bo
 public sealed record MarkerInput(MarkerType Type, int OffsetMs, string? Note);
 
 public sealed record RecordingUpload(Stream Audio, string FileName, string ContentType, string Name, int LengthMs,
-    string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null);
+    string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null, int? NumSpeakers = null);
 
 public sealed record ImportUpload(Stream File, string FileName, string ContentType, string? Name, int LengthMs,
-    string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null);
+    string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null, int? NumSpeakers = null);
 
 public sealed record RetryRequest(string? SpokenLanguages);
 public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null);

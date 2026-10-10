@@ -9,11 +9,12 @@ namespace VerbaFlow.Infrastructure.Services;
 /// For recordings in two or three languages. Given several languages, Azure picks one for the whole audio, so a mixed
 /// English and Afrikaans meeting comes out all in one language. This sends the recording in short pieces instead, each
 /// with every chosen language, so Azure picks the language piece by piece.
-/// 1. One pass over the whole recording in the first language, used only for who spoke when and for where the pauses are.
-/// 2. The audio is cut at pauses into pieces of a few seconds, covering the whole recording, so nothing is skipped.
+/// 1. One pass over the whole recording in each chosen language, used only for who spoke when and where to cut.
+/// 2. The audio is cut where a speaker changes or a sentence ends (else at a pause) into pieces of a few seconds,
+/// covering the whole recording, so nothing is skipped.
 /// 3. Each piece is transcribed on its own with all the chosen languages; its times are moved back to the full recording.
-/// 4. Speakers are put back on the words (SpeakerAligner): from step 1, or, if most of the meeting turned out to be in
-/// another chosen language, from one more full pass in that language (speakers are told apart better in the main language).
+/// 4. Speakers are put back on the words (SpeakerAligner) from the step-1 pass in the language heard most, because
+/// speakers are told apart better in the main language.
 /// One language: the recording goes straight through, unchanged.
 /// </summary>
 public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegPath) : ISpeechService
@@ -39,8 +40,13 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
         var pcm = await ToPcmAsync(audio, ct);
         var totalMs = (int)(pcm.Length / 2 * 1000L / SampleRate);
 
-        var first = await inner.TranscribeAsync(Wav(pcm, 0, pcm.Length), o with { CandidateLanguages = [o.CandidateLanguages[0]] }, ct);
-        var pieces = Pieces(first.Segments, totalMs);
+        // One full pass per chosen language. Each hears where sentences end and voices change best in its own
+        // language, so together they show where to cut; the pass in the main language later gives the speakers.
+        var passes = new Dictionary<string, TranscriptionResult>();
+        foreach (var lang in o.CandidateLanguages.Distinct())
+            passes[lang] = await inner.TranscribeAsync(Wav(pcm, 0, pcm.Length), o with { CandidateLanguages = [lang] }, ct);
+        var first = passes[o.CandidateLanguages[0]];
+        var pieces = Pieces(passes.Values.Select(p => p.Segments).ToList(), totalMs);
         var pauses = Pauses(first.Segments);
 
         var everyone = new Speaker(Guid.NewGuid(), "Speaker 1");
@@ -91,24 +97,77 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
         foreach (var (start, end) in pieces) await PieceAsync(start, end, 0);
         segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
 
-        // Speakers are told apart best in the language most of the meeting is in. If that is not the first language
-        // chosen, the whole recording is heard once more in that language just to work out who spoke when.
-        var speakerPass = first;
-        var main = MainLanguage(segments, o.CandidateLanguages);
-        if (main is not null && main != o.CandidateLanguages[0])
-            speakerPass = await inner.TranscribeAsync(Wav(pcm, 0, pcm.Length), o with { CandidateLanguages = [main] }, ct);
+        // Speakers are told apart best in the language most of the meeting is in.
+        var main = MainLanguage(segments, o.CandidateLanguages) ?? o.CandidateLanguages[0];
+        var speakerPass = passes[main];
         warning ??= speakerPass.Warning;
+
+        // Speech the full pass heard but no piece returned (Azure sometimes drops words near the edge of a piece):
+        // send that stretch again on its own, and if it still comes back empty keep the full pass's words for it.
+        var refilled = 0;
+        foreach (var (gapStart, gapEnd, heardWords) in Missed(speakerPass.Segments, segments))
+        {
+            var from = (long)gapStart * SampleRate / 1000 * 2;
+            var to = Math.Min(pcm.Length, (long)gapEnd * SampleRate / 1000 * 2);
+            IReadOnlyList<Segment> again = [];
+            try { again = (await inner.TranscribeAsync(Wav(pcm, from, to - from), o with { Diarize = false }, ct)).Segments; }
+            catch (MixedLanguagesException) { }
+            refilled++;
+            if (again.Any(x => !string.IsNullOrWhiteSpace(x.Text)))
+                segments.AddRange(again.Select(x => x with
+                {
+                    SpeakerId = everyone.Id, StartMs = x.StartMs + gapStart, EndMs = x.EndMs + gapStart,
+                    Words = x.Words?.Select(w => w with { StartMs = w.StartMs + gapStart, EndMs = w.EndMs + gapStart }).ToList(),
+                }));
+            else
+                segments.Add(heardWords);
+        }
+        segments.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
 
         var detail = $"{pieces.Count} pieces; " + string.Join(", ", perLanguage.OrderByDescending(x => x.Value).Select(x => $"{x.Key} in {x.Value}"))
             + (split > 0 ? $"; {split} cut again for mixed languages" : "")
             + (kept > 0 ? $"; {kept} too mixed, kept from the first-language pass" : "")
-            + $"; speakers worked out in {(speakerPass == first ? o.CandidateLanguages[0] : main)}";
+            + (refilled > 0 ? $"; {refilled} missed stretches sent again" : "")
+            + $"; speakers worked out in {main}";
         var combined = new TranscriptionResult(first.Engine + "+language-per-piece", [everyone], AzureSpeechService.MergeTurns(segments), warning, detail);
 
         // Who spoke when comes from the full pass, which heard the whole conversation at once.
         var numbers = speakerPass.Speakers.Select((sp, i) => (sp.Id, i)).ToDictionary(x => x.Id, x => x.i);
         var turns = speakerPass.Segments.Select(s => new SpeakerTurn(s.StartMs, s.EndMs, numbers.GetValueOrDefault(s.SpeakerId))).ToList();
         return turns.Count == 0 ? combined : SpeakerAligner.Relabel(combined, turns);
+    }
+
+    /// <summary>
+    /// Stretches where the full pass heard at least <see cref="MissedMinMs"/> of words that no piece returned. Each comes
+    /// with a little margin and with the full pass's own words for it, as one phrase.
+    /// </summary>
+    public static List<(int Start, int End, Segment Heard)> Missed(IReadOnlyList<Segment> full, IReadOnlyList<Segment> pieces)
+    {
+        const int margin = 250;
+        var covered = pieces.SelectMany(s => s.Words is { Count: > 0 } w ? w.Select(x => (x.StartMs, x.EndMs)) : [(s.StartMs, s.EndMs)])
+            .Select(x => (Start: x.StartMs - margin, End: x.EndMs + margin)).ToList();
+        bool Covered(int start, int end) => covered.Any(c => c.Start < end && start < c.End);
+
+        var result = new List<(int, int, Segment)>();
+        foreach (var seg in full.OrderBy(x => x.StartMs))
+        {
+            var words = seg.Words is { Count: > 0 } w ? w : [new WordTiming(seg.Text, seg.StartMs, seg.EndMs)];
+            var run = new List<WordTiming>();
+            void Flush()
+            {
+                if (run.Count > 0 && run[^1].EndMs - run[0].StartMs >= MissedMinMs)
+                    result.Add((Math.Max(0, run[0].StartMs - margin), run[^1].EndMs + margin,
+                        seg with { Id = Guid.NewGuid(), StartMs = run[0].StartMs, EndMs = run[^1].EndMs, Text = string.Join(" ", run.Select(x => x.Text)), Words = run.ToList() }));
+                run.Clear();
+            }
+            foreach (var word in words)
+            {
+                if (Covered(word.StartMs, word.EndMs)) Flush();
+                else run.Add(word);
+            }
+            Flush();
+        }
+        return result;
     }
 
     /// <summary>The chosen language heard for the most time across the pieces, or null if none was recognised.</summary>
@@ -120,28 +179,48 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
             .Where(x => x.Lang is not null).OrderByDescending(x => x.Ms).Select(x => x.Lang).FirstOrDefault();
     }
 
+    /// <summary>A change of speaker may end a piece this short, so a quick question and its answer are kept apart.</summary>
+    public const int MinTurnPieceMs = 1500;
+
+    /// <summary>Speech the full pass heard but the pieces left out is sent again when it is at least this long.</summary>
+    public const int MissedMinMs = 600;
+
+    public static List<(int Start, int End)> Pieces(IReadOnlyList<Segment> heard, int totalMs) => Pieces([heard], totalMs);
+
     /// <summary>
-    /// Cuts the timeline into pieces that cover all of it. A piece is at least <see cref="MinPieceMs"/> and at most
-    /// <see cref="MaxPieceMs"/> long. It ends, by preference, where the full pass ended a phrase (the end of a sentence
-    /// or a change of speaker), so a sentence is not cut in half; only when there is no such place in range does it end
-    /// at a pause between words, and only with no pause at all is it cut at the limit.
+    /// Cuts the timeline into pieces that cover all of it, at most <see cref="MaxPieceMs"/> long. In order of preference
+    /// a piece ends where a full pass heard the speaker change (at least <see cref="MinTurnPieceMs"/> in, because a new
+    /// speaker often means a new language), where a full pass ended a phrase (the end of a sentence; at least
+    /// <see cref="MinPieceMs"/> in), at a pause between words, or at the limit.
     /// </summary>
-    public static List<(int Start, int End)> Pieces(IReadOnlyList<Segment> heard, int totalMs)
+    public static List<(int Start, int End)> Pieces(IReadOnlyList<IReadOnlyList<Segment>> passes, int totalMs)
     {
-        var phraseEnds = PhraseEnds(heard);
-        var pauses = Pauses(heard);
+        var turnChanges = passes.SelectMany(TurnChanges).Order().ToList();
+        var phraseEnds = passes.SelectMany(PhraseEnds).Order().ToList();
+        var pauses = passes.SelectMany(Pauses).Order().ToList();
         var pieces = new List<(int, int)>();
         var start = 0;
         while (start < totalMs)
         {
-            bool InRange(int c) => c - start >= MinPieceMs && c - start <= MaxPieceMs;
-            int? end = phraseEnds.Where(InRange).Cast<int?>().FirstOrDefault() ?? pauses.Where(InRange).Cast<int?>().FirstOrDefault();
+            bool InRange(int c, int min) => c - start >= min && c - start <= MaxPieceMs;
+            int? end = turnChanges.Where(c => InRange(c, MinTurnPieceMs)).Cast<int?>().FirstOrDefault()
+                ?? phraseEnds.Where(c => InRange(c, MinPieceMs)).Cast<int?>().FirstOrDefault()
+                ?? pauses.Where(c => InRange(c, MinPieceMs)).Cast<int?>().FirstOrDefault();
             var e = end ?? Math.Min(totalMs, start + MaxPieceMs);
-            if (totalMs - e < MinPieceMs / 2) e = totalMs; // do not leave a scrap at the end
+            if (totalMs - e < MinTurnPieceMs / 2) e = totalMs; // do not leave a scrap at the end
             pieces.Add((start, e));
             start = e;
         }
         return pieces;
+    }
+
+    /// <summary>The middle of the gap between two phrases of one pass that were given to different speakers.</summary>
+    public static List<int> TurnChanges(IReadOnlyList<Segment> heard)
+    {
+        var phrases = heard.OrderBy(s => s.StartMs).ToList();
+        var ends = PhraseEnds(heard);
+        return Enumerable.Range(1, phrases.Count - 1 < 0 ? 0 : phrases.Count - 1)
+            .Where(i => phrases[i].SpeakerId != phrases[i - 1].SpeakerId).Select(i => ends[i - 1]).ToList();
     }
 
     /// <summary>The middle of the gap between one phrase of the full pass and the next, in order.</summary>

@@ -45,9 +45,31 @@ public class LanguagePerPieceTests
     }
 
     [Fact]
+    public void A_quick_answer_by_someone_else_starts_its_own_piece()
+    {
+        Guid man = Guid.NewGuid(), woman = Guid.NewGuid();
+        var english = new[] { Seg(man, 0, 2000, "Are you married?", "en", ("married", 0, 2000)), Seg(woman, 2200, 9000, "ja", "en", ("ja", 2200, 9000)) };
+        var afrikaans = new[] { Seg(man, 0, 9000, "one phrase", "af", ("x", 0, 2000), ("y", 2200, 9000)) };
+        Assert.Equal([(0, 2100), (2100, 9000)], LanguagePerPieceSpeech.Pieces([english, afrikaans], 9000));
+    }
+
+    [Fact]
+    public void Words_the_full_pass_heard_but_no_piece_returned_are_found()
+    {
+        var s = Guid.NewGuid();
+        var full = new[] { Seg(s, 35000, 44000, "ja ek is getroud 20 jaar oud", "af",
+            ("ja", 35000, 36000), ("getroud", 36000, 39000), ("20", 40000, 41000), ("jaar", 41000, 42000), ("oud", 42000, 44000)) };
+        var pieces = new[] { Seg(s, 35000, 39000, "ja ek is getroud", "af", ("ja", 35000, 36000), ("getroud", 36000, 39000)) };
+        var missed = Assert.Single(LanguagePerPieceSpeech.Missed(full, pieces));
+        Assert.Equal((39750, 44250), (missed.Start, missed.End));
+        Assert.Equal("20 jaar oud", missed.Heard.Text);
+        Assert.Empty(LanguagePerPieceSpeech.Missed(full, full));
+    }
+
+    [Fact]
     public void Silence_with_no_words_is_still_covered()
     {
-        var pieces = LanguagePerPieceSpeech.Pieces([], 40000);
+        var pieces = LanguagePerPieceSpeech.Pieces(Array.Empty<Segment>(), 40000);
         Assert.Equal([(0, 15000), (15000, 30000), (30000, 40000)], pieces);
     }
 
@@ -86,12 +108,11 @@ public class LanguagePerPieceTests
         }
         finally { File.Delete(wav); }
 
+        Assert.Equal(4, fake.Calls.Count); // a full pass per language + pieces 0-5.5 s and 5.5-12 s
         Assert.Equal(["en-ZA"], fake.Calls[0].CandidateLanguages);
-        Assert.True(fake.Calls[0].Diarize);
-        Assert.Equal(4, fake.Calls.Count); // full pass + pieces 0-5.5 s and 5.5-12 s + speaker pass in Afrikaans
-        Assert.Equal(["af-ZA"], fake.Calls[3].CandidateLanguages); // most of it was Afrikaans (6.5 s against 5.5 s)
-        Assert.True(fake.Calls[3].Diarize);
-        Assert.All(fake.Calls.Skip(1).Take(2), c => { Assert.Equal(["en-ZA", "af-ZA"], c.CandidateLanguages); Assert.False(c.Diarize); });
+        Assert.Equal(["af-ZA"], fake.Calls[1].CandidateLanguages);
+        Assert.True(fake.Calls[0].Diarize && fake.Calls[1].Diarize);
+        Assert.All(fake.Calls.Skip(2), c => { Assert.Equal(["en-ZA", "af-ZA"], c.CandidateLanguages); Assert.False(c.Diarize); });
         Assert.Equal(["en", "af"], r.Segments.Select(s => s.Language));
         Assert.Equal(["Hi Lee-Anne", "Goeie more"], r.Segments.Select(s => s.Text));
         Assert.Equal(5600, r.Segments[1].StartMs); // moved back to its place in the full recording (piece starts at 5.5 s)

@@ -36,33 +36,11 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         if (!options.IsConfigured) throw new ProviderException(FaultKind.Settings, "Azure AI Speech is not configured.");
         var seekable = audio.CanSeek ? audio : await BufferAsync(audio, ct);
         var start = seekable.CanSeek ? seekable.Position : 0;
-        var locales = o.CandidateLanguages.Select(ToLocale).Distinct().ToArray();
-        if (locales.Length < 2)
-        {
-            var (json, warning) = await SendAsync(seekable, start, o, ct);
-            var parsed = Parse(json, o);
-            return warning is null ? parsed : parsed with { Warning = warning };
-        }
-
-        // Given several languages, Azure picks one for the whole recording. So transcribe once per language and keep,
-        // for each stretch of speech, the version Azure was most confident about.
-        var runs = new List<IReadOnlyList<Segment>>();
-        var speakers = new List<Speaker>();
-        string? firstWarning = null;
-        foreach (var locale in locales)
-        {
-            var single = o with { CandidateLanguages = [locale] };
-            var (json, warning) = await SendAsync(seekable, start, single, ct);
-            firstWarning ??= warning;
-            var (runSpeakers, phrases) = ParsePhrases(json, single, speakers);
-            speakers = runSpeakers;
-            runs.Add(phrases);
-        }
-        var (chosen, kept) = CombineLanguages(runs);
-        var used = chosen.Select(x => x.SpeakerId).ToHashSet();
-        var detail = string.Join(", ", locales.Select((l, i) => $"{l}: {kept[i]} kept of {runs[i].Count}"));
-        return new TranscriptionResult(EngineName + "+per-language", speakers.Where(x => used.Contains(x.Id)).ToList(), MergeTurns(chosen),
-            firstWarning, detail);
+        // Several languages here means Azure picks one for the whole audio. LanguagePerPieceSpeech sends short pieces
+        // instead, so each piece gets its own language.
+        var (json, warning) = await SendAsync(seekable, start, o, ct);
+        var parsed = Parse(json, o);
+        return warning is null ? parsed : parsed with { Warning = warning };
     }
 
     /// <summary>Sends the audio once, retrying when Azure is busy, and without the vocabulary if Azure refuses it.</summary>
@@ -106,34 +84,6 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
             var body = await res.Content.ReadAsStringAsync(ct);
             throw new ProviderException(Services.FailureReporter.ForStatus(res.StatusCode), Describe(res.StatusCode, body) + Diagnostics(res, body, attempt + 1));
         }
-    }
-
-    /// <summary>
-    /// Combines one transcription per language. Phrases from different runs that overlap in time cover the same stretch of
-    /// speech; for each stretch, the run with the highest confidence (weighted by phrase length) wins. A stretch only one run
-    /// heard is kept as it is, so speech one language model dropped can come back from the other. Ties go to the first language.
-    /// Returns the chosen phrases and how many phrases each run contributed.
-    /// </summary>
-    public static (List<Segment> Chosen, int[] Kept) CombineLanguages(IReadOnlyList<IReadOnlyList<Segment>> runs)
-    {
-        var all = runs.SelectMany((r, i) => r.Select(p => (Run: i, P: p))).OrderBy(x => x.P.StartMs).ThenBy(x => x.Run).ToList();
-        var chosen = new List<Segment>();
-        var kept = new int[runs.Count];
-        var i0 = 0;
-        while (i0 < all.Count)
-        {
-            // A stretch: phrases that overlap one another, directly or through a chain.
-            var end = all[i0].P.EndMs;
-            var j = i0 + 1;
-            while (j < all.Count && all[j].P.StartMs < end) { end = Math.Max(end, all[j].P.EndMs); j++; }
-            var stretch = all.GetRange(i0, j - i0);
-            var best = stretch.GroupBy(x => x.Run)
-                .Select(g => (Run: g.Key, Score: g.Sum(x => x.P.Confidence * Math.Max(1, x.P.EndMs - x.P.StartMs)) / g.Sum(x => Math.Max(1, x.P.EndMs - x.P.StartMs))))
-                .OrderByDescending(x => x.Score).ThenBy(x => x.Run).First().Run;
-            foreach (var x in stretch.Where(x => x.Run == best)) { chosen.Add(x.P); kept[best]++; }
-            i0 = j;
-        }
-        return (chosen, kept);
     }
 
     public static string BuildDefinition(TranscribeOptions o)

@@ -2,7 +2,7 @@
 
 VerbaFlow uses placeholder text until it is given an Azure AI Speech resource. With one connected, recordings and imports are transcribed with speaker labels in the language or languages chosen on the Record or Import page.
 
-When two or three languages are chosen, Azure would pick only one for the whole recording, so VerbaFlow sends the recording once per language and keeps, for each stretch of speech, the version Azure was more confident about. This uses the speech service (and is billed) once per language. The History line `perLanguage` shows how much each language contributed.
+When two or three languages are chosen, Azure would pick only one for the whole recording. So VerbaFlow (with ffmpeg installed) first transcribes the whole recording once to learn who spoke when, then cuts it at pauses into pieces of 3 to 15 seconds and sends each piece on its own with all the chosen languages, so Azure chooses the language piece by piece. This sends many small requests and is billed for about twice the recording's length. The History line `perLanguage` shows how many pieces there were and which languages were heard in them.
 
 ## 1. Create the resource (about 5 minutes)
 

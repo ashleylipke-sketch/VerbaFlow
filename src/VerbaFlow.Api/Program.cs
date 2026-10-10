@@ -33,9 +33,9 @@ var speech = new VerbaFlow.Infrastructure.Azure.AzureSpeechOptions(
 if (speech.IsConfigured)
 {
     builder.Services.AddSingleton(speech);
-    builder.Services.AddHttpClient<ISpeechService, VerbaFlow.Infrastructure.Azure.AzureSpeechService>(c => c.Timeout = TimeSpan.FromMinutes(30));
+    builder.Services.AddHttpClient<VerbaFlow.Infrastructure.Azure.AzureSpeechService>(c => c.Timeout = TimeSpan.FromMinutes(30));
 }
-else builder.Services.AddSingleton<ISpeechService, StandInSpeechService>();
+else builder.Services.AddSingleton<StandInSpeechService>();
 var openAi = new VerbaFlow.Infrastructure.Azure.AzureOpenAiOptions(builder.Configuration["OpenAI:Endpoint"] ?? "",
     builder.Configuration["OpenAI:Key"] ?? "", builder.Configuration["OpenAI:Deployment"] ?? "");
 if (openAi.IsConfigured)
@@ -47,6 +47,12 @@ else builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
 builder.Services.AddSingleton<IMalwareScanner, StandInMalwareScanner>();
 var ffmpegPath = builder.Configuration["Audio:FfmpegPath"];
 var ffmpegFound = await VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer.IsAvailableAsync(ffmpegPath);
+// Recordings in several languages are sent in short pieces so each piece gets its own language (needs ffmpeg).
+builder.Services.AddTransient<ISpeechService>(sp =>
+{
+    ISpeechService basic = speech.IsConfigured ? sp.GetRequiredService<VerbaFlow.Infrastructure.Azure.AzureSpeechService>() : sp.GetRequiredService<StandInSpeechService>();
+    return ffmpegFound ? new VerbaFlow.Infrastructure.Services.LanguagePerPieceSpeech(basic, ffmpegPath) : basic;
+});
 if (ffmpegFound) builder.Services.AddSingleton<IAudioEnhancer>(_ => new VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer(ffmpegPath));
 else builder.Services.AddSingleton<IAudioEnhancer, StandInAudioEnhancer>();
 // Local speaker separation needs ffmpeg to read audio. Models are downloaded once into the data folder.

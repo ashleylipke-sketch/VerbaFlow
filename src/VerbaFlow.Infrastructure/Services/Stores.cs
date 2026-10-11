@@ -20,6 +20,7 @@ public sealed class Stores
     public DocTable<MediaAsset> MediaAssets { get; }
     public DocTable<VocabularyTerm> Vocabulary { get; }
     public DocTable<SupportError> SupportErrors { get; }
+    public DocTable<Export.ExportRecord> Exports { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -34,6 +35,7 @@ public sealed class Stores
         MediaAssets = new(db, "doc_media");
         Vocabulary = new(db, "doc_vocabulary");
         SupportErrors = new(db, "doc_support_errors");
+        Exports = new(db, "doc_exports");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

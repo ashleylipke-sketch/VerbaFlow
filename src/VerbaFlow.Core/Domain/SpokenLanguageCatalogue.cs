@@ -33,6 +33,11 @@ public static class SpokenLanguageCatalogue
         new("ts-ZA", "Xitsonga", false), new("ss-ZA", "siSwati", false), new("ve-ZA", "Tshivenda", false), new("nr-ZA", "isiNdebele", false),
     ];
 
+    /// <summary>A plain name for a stored code, for documents: "en-ZA" becomes "English (South Africa)", "en" becomes "English".</summary>
+    public static string NameOf(string code) =>
+        All.FirstOrDefault(l => l.Code.Equals(code, StringComparison.OrdinalIgnoreCase))?.Name
+        ?? code.ToLowerInvariant() switch { "en" => "English", "fr" => "French", "es" => "Spanish", "de" => "German", "it" => "Italian", "nl" => "Dutch", _ => code };
+
     private static readonly HashSet<string> LegacyShort = new(StringComparer.OrdinalIgnoreCase) { "en", "fr", "es", "de", "it", "nl" };
 
     /// <summary>

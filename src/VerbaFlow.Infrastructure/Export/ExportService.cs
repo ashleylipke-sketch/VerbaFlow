@@ -1,0 +1,129 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using VerbaFlow.Core.Audit;
+using VerbaFlow.Core.Domain;
+using VerbaFlow.Core.Security;
+using VerbaFlow.Infrastructure.Services;
+
+namespace VerbaFlow.Infrastructure.Export;
+
+/// <summary>One file that was exported: its fingerprint, so a copy can later be checked for changes.</summary>
+public sealed record ExportRecord(Guid Id, Guid ItemId, int VersionNo, int TranscriptVersionNo, string Format, string Marker,
+    string Sha256, long SizeBytes, Guid ExportedBy, DateTimeOffset ExportedAt);
+
+public sealed record ExportFile(byte[] Content, string ContentType, string FileName);
+
+/// <summary>The answer to "is this the file VerbaFlow exported?", in plain words.</summary>
+public sealed record ExportCheck(bool Matches, string Message, string Sha256, DateTimeOffset? ExportedAt = null, string? ExportedBy = null,
+    string? Marker = null, string? Format = null);
+
+/// <summary>
+/// Exports a meeting (details, summary, action points, minutes, tone and transcript) as Word or PDF. Every export is
+/// marked Approved, Draft or Superseded, its SHA-256 fingerprint is stored and written to the audit trail, and a file can
+/// be checked later against those fingerprints: any change to the file, even one character, gives a different fingerprint.
+/// Digital signing with the organisation's certificate (decision 13) is not built yet.
+/// </summary>
+public sealed class ExportService(Stores stores, TimeProvider clock)
+{
+    public async Task<ExportFile> ExportAsync(User actor, Guid id, string format)
+    {
+        format = format.ToLowerInvariant() switch { "docx" or "word" => ExportFormats.Word, "pdf" => ExportFormats.Pdf,
+            _ => throw new DomainException("Choose Word or PDF.") };
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Export);
+        if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
+        var transcript = await stores.Transcripts.GetAsync(id) ?? throw new DomainException("There is no transcript to export yet.");
+        var outputs = (await stores.Outputs.GetAsync(id))?.Outputs;
+        var all = await stores.Items.ListAsync();
+        var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
+        var superseded = all.Any(i => i.SupersedesItemId == id);
+        var now = clock.GetUtcNow();
+
+        var marker = superseded ? "Superseded" : item.Status == ItemStatus.Completed ? "Approved" : "Draft";
+        var markerLine = marker switch
+        {
+            "Approved" => $"Approved by {Name(users, item.ApprovedBy)} on {When(item.ApprovedAt!.Value)}.",
+            "Superseded" => "A newer version of this meeting exists. This copy is kept for the record only.",
+            _ => "Not approved yet. The text may still change.",
+        };
+        var ownerLabel = item.Source == SourceKind.Imported ? "Imported by" : "Recorded by";
+        var details = new List<(string, string)>
+        {
+            (item.Source == SourceKind.Imported ? "Imported on" : "Recorded on", When(item.CreatedAt)),
+            ("Length", Length(item.LengthMs)),
+            (ownerLabel, Name(users, item.OwnerId)),
+        };
+        if (!string.IsNullOrWhiteSpace(item.ClientReference)) details.Add(("Client reference", item.ClientReference));
+        if (!string.IsNullOrWhiteSpace(item.Description)) details.Add(("Description", item.Description));
+        details.Add(("Languages", Languages(item.SpokenLanguages)));
+        details.Add(("Version", $"{item.VersionNo} (transcript version {transcript.Current.No})"));
+        details.Add(("Exported", $"{When(now)} by {actor.Name}"));
+
+        var doc = new MinutesDocument(
+            item.Name, marker, markerLine, details,
+            outputs?.Summary, outputs?.ActionPoints ?? [],
+            (outputs?.Minutes ?? "").Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0).ToList(),
+            outputs?.ToneOfMeeting,
+            transcript.Render().Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList(),
+            $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}");
+
+        var bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
+        var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var record = new ExportRecord(Guid.NewGuid(), id, item.VersionNo, transcript.Current.No, format, marker, sha, bytes.LongLength, actor.Id, now);
+        await stores.Exports.UpsertAsync(record.Id, record);
+        await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.exported",
+            AuditChain.Details(("format", format), ("marker", marker), ("transcriptVersion", transcript.Current.No), ("sha256", sha), ("bytes", bytes.LongLength)));
+
+        var safeName = new string(item.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c is '"' ? '_' : c).ToArray()).Trim();
+        if (safeName.Length == 0) safeName = "meeting";
+        if (safeName.Length > 80) safeName = safeName[..80];
+        return new ExportFile(bytes, ExportFormats.ContentType(format), $"{safeName} ({marker.ToLowerInvariant()}).{format}");
+    }
+
+    /// <summary>Checks whether a file is exactly one that was exported from this meeting.</summary>
+    public async Task<ExportCheck> CheckAsync(User actor, Guid id, Stream file)
+    {
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Read);
+        var sha = Convert.ToHexString(await SHA256.HashDataAsync(file)).ToLowerInvariant();
+        var chain = (await stores.Items.ListAsync()).Where(i => i.ChainId == item.ChainId).Select(i => i.Id).ToHashSet();
+        var match = (await stores.Exports.ListAsync()).Where(e => chain.Contains(e.ItemId) && e.Sha256 == sha)
+            .OrderBy(e => e.ExportedAt).FirstOrDefault();
+        await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "export.checked",
+            AuditChain.Details(("sha256", sha), ("matches", match is not null)));
+        if (match is null)
+            return new ExportCheck(false, "This file does not match any file exported from this meeting. It may have been changed, or it comes from a different meeting.", sha);
+        var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
+        var by = Name(users, match.ExportedBy);
+        var version = (await stores.Items.GetAsync(match.ItemId))?.VersionNo;
+        return new ExportCheck(true,
+            $"This file is unchanged. It is the {(match.Format == ExportFormats.Word ? "Word" : "PDF")} file exported by {by} on {When(match.ExportedAt)} ({match.Marker.ToLowerInvariant()}, version {version}).",
+            sha, match.ExportedAt, by, match.Marker, match.Format);
+    }
+
+    private static string Name(Dictionary<Guid, string> users, Guid? id) => id is { } x ? users.GetValueOrDefault(x, "someone") : "someone";
+
+    private static string Capacity(User actor, Item item) => PermissionEvaluator.RoleOn(actor, item) switch
+    {
+        ItemRole.Owner => item.Source == SourceKind.Imported ? "importer" : "author",
+        ItemRole.Assignee => "assignee",
+        _ => actor.IsAdmin ? "admin" : "user"
+    };
+
+    /// <summary>Dates in the computer's own time zone, with the offset so the time is never ambiguous.</summary>
+    private static string When(DateTimeOffset t)
+    {
+        var local = TimeZoneInfo.ConvertTime(t, TimeZoneInfo.Local);
+        var offset = local.Offset;
+        var zone = offset == TimeSpan.Zero ? "UTC" : $"UTC{(offset < TimeSpan.Zero ? "-" : "+")}{offset:hh\\:mm}";
+        return local.ToString("d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture) + " " + zone;
+    }
+
+    private static string Length(int ms) => ms <= 0 ? "unknown" : TimeSpan.FromMilliseconds(ms) is var t && t.TotalHours >= 1
+        ? $"{(int)t.TotalHours} h {t.Minutes} min" : $"{t.Minutes} min {t.Seconds} s";
+
+    private static string Clock(int ms) => TimeSpan.FromMilliseconds(ms) is var t && t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
+
+    private static string Languages(string codes) => codes == "auto" ? "Detected automatically"
+        : string.Join(", ", codes.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => SpokenLanguageCatalogue.NameOf(c.Trim())));
+}

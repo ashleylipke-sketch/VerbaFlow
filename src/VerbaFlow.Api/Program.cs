@@ -72,6 +72,7 @@ if (diarizationOn)
 }
 builder.Services.AddSingleton<VerbaFlow.Infrastructure.Services.FailureReporter>();
 builder.Services.AddSingleton<MeetingService>();
+builder.Services.AddSingleton<VerbaFlow.Infrastructure.Export.ExportService>();
 builder.Services.AddSingleton<VocabularyService>();
 builder.Services.AddSingleton<ProcessingService>();
 builder.Services.AddHostedService<ProcessingWorker>();

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using VerbaFlow.Core.Domain;
+using VerbaFlow.Infrastructure.Export;
 using VerbaFlow.Infrastructure.Services;
 
 namespace VerbaFlow.Api;
@@ -125,6 +126,20 @@ public static class Endpoints
             h.Response.RegisterForDisposeAsync(audio);
             return Results.Stream(audio.Content, audio.ContentType, download == true ? audio.FileName : null, enableRangeProcessing: true);
         });
+
+        // Minutes as Word or PDF. The file's fingerprint is recorded, so a copy can be checked later for changes.
+        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format) =>
+        {
+            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf");
+            return Results.File(file.Content, file.ContentType, file.FileName);
+        });
+        api.MapPost("/items/{id:guid}/export/check", async (HttpContext h, ExportService s, Guid id, CancellationToken ct) =>
+        {
+            var f = await h.Request.ReadFormAsync(ct);
+            var file = f.Files["file"] ?? throw new DomainException("No file was received.");
+            await using var stream = file.OpenReadStream();
+            return await s.CheckAsync(h.Current(), id, stream);
+        }).DisableAntiforgery();
 
         api.MapGet("/items/{id:guid}/audit", (HttpContext h, MeetingService s, Guid id) => s.GetAuditAsync(h.Current(), id));
         api.MapGet("/audit/verify", (HttpContext h, MeetingService s) => s.VerifyAuditAsync(h.Current()));

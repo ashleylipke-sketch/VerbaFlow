@@ -42,6 +42,7 @@ public sealed class SqliteDatabase
             CREATE TABLE IF NOT EXISTS doc_media(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_reopen(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_delete_requests(id TEXT PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS doc_exports(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_vocabulary(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_support_errors(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS audit_events(
@@ -68,6 +69,12 @@ public sealed class SqliteDatabase
             CREATE TRIGGER IF NOT EXISTS item_locked_no_delete BEFORE DELETE ON doc_items
               WHEN json_extract(OLD.json, '$.status') IN ('Completed', 'Purged')
               BEGIN SELECT RAISE(ABORT, 'approved items are locked'); END;
+
+            -- The fingerprint of every exported file is kept as it was recorded: never changed, never removed.
+            CREATE TRIGGER IF NOT EXISTS export_no_update BEFORE UPDATE ON doc_exports
+              BEGIN SELECT RAISE(ABORT, 'export records are append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS export_no_delete BEFORE DELETE ON doc_exports
+              BEGIN SELECT RAISE(ABORT, 'export records are append-only'); END;
             """;
         cmd.ExecuteNonQuery();
     }

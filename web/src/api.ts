@@ -10,7 +10,7 @@ export type Detail = {
   canEditTranscript: boolean; canEditDetails: boolean; canDownloadAudio: boolean; role: string; outputLanguage: string;
   approvedAt: string | null; approvedBy: string | null; chainId: string;
   chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string; spokenLanguages: string;
-  deletedAt: string | null; deletedBy: string | null; deleteReason: string | null;
+  deletedAt: string | null; deletedBy: string | null; deleteReason: string | null; canExport: boolean;
 };
 export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null };
 export type Transcript = {
@@ -77,12 +77,26 @@ export const api = {
   removeTerm: (id: string) => call<void>('DELETE', `/vocabulary/${id}`),
   reopenRequests: () => call<Reopen[]>('GET', '/reopen'),
   deleteRequests: () => call<DeleteRequest[]>('GET', '/delete-requests'),
+  checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },
+  /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
+  async exportMinutes(id: string, format: 'docx' | 'pdf'): Promise<void> {
+    const res = await fetch(`/api/items/${id}/export?format=${format}`, { headers: { 'X-Dev-User': devUser } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
+    const cd = res.headers.get('Content-Disposition') ?? '';
+    const name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? `meeting.${format}`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = decodeURIComponent(name);
+    a.click();
+  },
   async audio(id: string, download = false): Promise<Blob> {
     const res = await fetch(`/api/items/${id}/audio${download ? '?download=true' : ''}`, { headers: { 'X-Dev-User': devUser } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     return res.blob();
   },
 };
+
+export interface ExportCheck { matches: boolean; message: string; sha256: string }
 
 export const fmtLen = (ms: number) => {
   const s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;

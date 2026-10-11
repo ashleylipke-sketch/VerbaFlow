@@ -46,17 +46,23 @@ Record, Import and a failed item's Retry use a **language picker** (`web/src/Lan
 - A delete removes every version in the chain: audio files, transcripts, summaries. Items stay as tombstones (`Status = Purged`, label "Deleted", `DeletedAt/By/DeleteReason`), media records (hash) stay, audit trail stays (`item.deleted`, `delete.requested/approved/rejected`). The DB trigger lets a Completed item change only to Purged; Purged never changes. Speaker names given in renames remain in the audit trail.
 - **Owner's first try (2026-10-10, unapproved item, Windows, repo inside OneDrive) failed half way**: audio files were removed but the item was not marked deleted, so the player then hit FileNotFound. Cause not seen (likely a file or folder held by the open player or OneDrive). Fixed: stored files are opened with FileShare.Delete, `DeleteContentAsync` retries and never throws (returns removed/failed; audit `audioFilesNotRemoved`), the empty-folder removal is best effort, and a missing file gives "The recording is missing." (404) instead of a crash. Running Delete again finishes a half-done deletion. **Owner confirmed the fixed delete of an unapproved item works (2026-10-10).** **Owner confirmed the reopen then two-admin delete of an approved item works (2026-10-11).**
 
+## Exporting minutes (built 2026-10-11, owner chose it as the next piece; not yet tried by the owner)
+- Item page **Export** card: Download Word / Download PDF (`GET /items/{id}/export?format=docx|pdf`), `Infrastructure/Export/`: `ExportService` builds a `MinutesDocument` (title, marker, details, summary, action points, minutes lines, tone, transcript with times and speaker names), `DocxMinutesWriter` (DocumentFormat.OpenXml, MIT) and `PdfMinutesWriter` (PDFsharp-MigraDoc 6, MIT; A4; font found on the computer: Arial on Windows, Liberation/DejaVu on Linux, embedded in the PDF). All text inserted as plain text.
+- Marker: **Approved** (with approver and date), **Draft** (not approved), **Superseded** (a newer version exists). Allowed: owner (author/importer, default picked 2026-10-11), admins, `Export` grant. Not the assignee.
+- Every export stores an `ExportRecord` (`doc_exports`, append-only by DB triggers: no update, no delete) with SHA-256, and audits `item.exported`. **Check an exported file** (`POST /items/{id}/export/check`, form field `file`) says in plain words whether a file is exactly one exported from this meeting's chain; audits `export.checked`.
+- Not built: digital signing with the organisation certificate (decision 13, Key Vault HSM), export templates, headings in the summary language (headings are English). PDF has no glyphs for Arabic, Chinese or Japanese with Arial (Word is fine); untested.
+
 ## Recently added, confirmed by the owner
 - **Live sound wave** on the Record page and **pinned player** on the item page: both confirmed working on the owner's computer (2026-10-10).
 
 ## Not built yet (parked)
-Dictate and Speech modes, Meet, Widget, telephony bridge (ADR-15), retention policies, attachments, export/signing, noise filtering, Entra ID sign-in, Azure SQL/Blob/Service Bus/Defender adapters, automatic voice-to-person matching.
+Dictate and Speech modes, Meet, Widget, telephony bridge (ADR-15), retention policies, attachments, signing of exports, noise filtering, Entra ID sign-in, Azure SQL/Blob/Service Bus/Defender adapters, automatic voice-to-person matching.
 
 ## Running things
 Owner on Windows: `run.cmd` in the repo root (builds web, starts http://localhost:5044). If `dotnet` is not found in a plain Command Prompt: `set PATH=C:\Program Files\dotnet;%PATH%` (a 32-bit dotnet can come first on PATH). Secrets are set with `dotnet user-secrets` from `src\VerbaFlow.Api`: `Speech:Endpoint`, `Speech:Key`, `OpenAI:Endpoint`, `OpenAI:Key`, `OpenAI:Deployment`, optional `Audio:FfmpegPath`. ffmpeg: `winget install Gyan.FFmpeg`. Startup log lines say whether Speech, Summaries and Audio are real or stand-in.
 Dev sign-in is an `X-Dev-User` header (alice, bob, carol (admin), dave (admin), sam (VerbaFlow support: sees the Support: errors page and `/api/support/errors`, and deliberately no customer items)); it stands in for Entra ID.
 
-Tests: `dotnet test` (214 pass) and `cd web && npx vitest run` (17 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
+Tests: `dotnet test` (220 pass) and `cd web && npx vitest run` (17 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
 
 ## Working agreements
 - **Customers never see technical error text, including their administrators.** They get a plain sentence plus a reference code (VF-XXXXXX). Technical detail goes to the support-only error table and the server log under the same code. Pass failures through `FailureReporter` (see `docs/support-and-errors.md`). Do not put `ex.Message`, provider responses or setup advice (keys, pricing tiers) in anything a customer can read.

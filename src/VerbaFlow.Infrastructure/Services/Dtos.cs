@@ -32,7 +32,7 @@ public sealed record ItemDetail(
     string? ExternalSourceNote, string? OriginalSha256, IReadOnlyList<MarkerView> Markers, bool CanEditTranscript,
     bool CanEditDetails, bool CanDownloadAudio, string Role, string OutputLanguage, DateTimeOffset? ApprovedAt,
     string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en",
-    DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null);
+    DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null, bool CanExport = false);
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 

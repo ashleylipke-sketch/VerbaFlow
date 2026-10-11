@@ -482,7 +482,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             item.ApprovedBy is { } a ? users.GetValueOrDefault(a)?.Name : null, item.ChainId,
             chain.Select(c => new ChainEntry(c.Id, c.VersionNo, StatusLabels.For(c.Mode, c.Status), !all.Any(x => x.SupersedesItemId == c.Id))).ToList(),
             item.Source == SourceKind.Imported ? "Imported (external source)" : "Recorded in app", item.SpokenLanguages,
-            item.DeletedAt, item.DeletedBy is { } db ? users.GetValueOrDefault(db)?.Name : null, item.DeleteReason);
+            item.DeletedAt, item.DeletedBy is { } db ? users.GetValueOrDefault(db)?.Name : null, item.DeleteReason,
+            item.Status != ItemStatus.Purged && PermissionEvaluator.Evaluate(actor, item, Capability.Export).Allowed);
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)

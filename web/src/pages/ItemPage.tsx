@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LanguagePicker from '../LanguagePicker';
-import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
+import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type ExportCheck, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
 
@@ -22,6 +22,7 @@ export default function ItemPage({ id }: { id: string }) {
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
+  const [exportCheck, setExportCheck] = useState<ExportCheck | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const player = useRef<HTMLAudioElement>(null);
   const [pos, setPos] = useState({ seg: -1, word: -1 });
@@ -175,6 +176,20 @@ export default function ItemPage({ id }: { id: string }) {
             {d.canEditTranscript && d.processingState !== 'Processing' && <div className="actions">
               <button disabled={busy} onClick={() => { setBusy(true); run(() => api.post(`/items/${id}/outputs/regenerate`)).finally(() => setBusy(false)); }}>
                 {busy ? 'Writing…' : o ? 'Regenerate from current transcript' : 'Create summary'}</button></div>}
+          </div>}
+          {d.canExport && t && <div className="card"><h2>Export</h2>
+            <p className="note">Download the details, summary, action points, minutes and transcript as one document. {approved
+              ? 'It is marked Approved.' : 'It is marked Draft, because the meeting is not approved yet.'} Each file's fingerprint is recorded, so a copy can be checked later for changes.</p>
+            <div className="actions">
+              <button disabled={busy} onClick={() => run(() => api.exportMinutes(id, 'docx'))}>Download Word</button>
+              <button disabled={busy} onClick={() => run(() => api.exportMinutes(id, 'pdf'))}>Download PDF</button></div>
+            <h3>Check an exported file</h3>
+            <p className="note">Choose a Word or PDF file you were sent to see whether it is exactly as VerbaFlow exported it.</p>
+            <input type="file" aria-label="File to check" accept=".pdf,.docx" onChange={e => {
+              const f = e.target.files?.[0]; e.target.value = '';
+              if (f) run(async () => setExportCheck(await api.checkExport(id, f)));
+            }} />
+            {exportCheck && <p className={exportCheck.matches ? 'ok' : 'error'} role="status">{exportCheck.message}</p>}
           </div>}
           {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>Speakers or language look wrong?</h2>
             <p className="note">Run the conversion again on the same recording, for example with a different language. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>

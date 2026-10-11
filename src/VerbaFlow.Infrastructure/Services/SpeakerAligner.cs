@@ -82,7 +82,7 @@ public static class SpeakerAligner
     }
 
     /// <summary>The diarizer speaker with the most overlap, else the nearest turn if it is close enough.</summary>
-    public static int? SpeakerFor(int start, int end, List<SpeakerTurn> turns)
+    private static int? SpeakerFor(int start, int end, List<SpeakerTurn> turns)
     {
         var best = turns.Select(t => (t.Speaker, Overlap: Math.Min(end, t.EndMs) - Math.Max(start, t.StartMs)))
             .Where(x => x.Overlap > 0).GroupBy(x => x.Speaker).Select(g => (Speaker: g.Key, Total: g.Sum(x => x.Overlap)))

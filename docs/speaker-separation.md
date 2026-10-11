@@ -62,6 +62,6 @@ If a phrase arrives from Azure without usable word timings, the words are spread
 Speed: roughly one minute of processing for every ten minutes of audio on a normal laptop CPU.
 
 
-## Splitting mixed boxes (azure-split)
+## Splitting mixed boxes (tried and removed)
 
-Azure gives a whole phrase to one speaker, so a quick interruption with no pause ends up in the previous speaker's box. The re-run choice "Speech service, then split boxes where someone cuts in" keeps Azure's speakers (with the chosen number of speakers) and runs the local voice model only to find stretches of 700 ms or more inside a box where a different voice is heard. Each such stretch becomes its own box and goes to the Azure speaker that local voice overlaps most across the recording. It never renames or adds speakers. History shows `boxesSplit`. Not yet tried on real meetings.
+A re-run choice that kept Azure's speakers and used the local voice model only to split boxes where someone cut in was tried on 2026-10-11. On the owner's Parliament clip the local model heard only 2 of 3 voices and the result was worse (boxes merged), so it was removed. Stay with "Speech service only" and fix the odd mixed box with Edit.

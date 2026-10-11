@@ -35,29 +35,7 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
     const click = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', click); document.addEventListener('keydown', key);
-    // Hands the file to the computer's or phone's share panel (WhatsApp, Teams, Outlook and others, whichever are installed).
-  const share = async (file: File) => {
-    try { await navigator.share({ files: [file], title: file.name }); setPending(null); setInfo(''); }
-    catch (e: any) {
-      if (e?.name === 'AbortError') return; // the person closed the share panel
-      if (e?.name === 'NotAllowedError') { setPending(file); setInfo('The file is ready.'); return; } // took too long: needs one more click
-      throw e;
-    }
-  };
-  const startShare = () => act(async () => {
-    setInfo(''); setPending(null);
-    const file = await api.exportFile(id, format, parts);
-    if (!navigator.canShare?.({ files: [file] })) {
-      saveFile(file);
-      setInfo('This browser cannot pass files to other apps, so the file has been downloaded instead. Attach it in WhatsApp from your Downloads folder.');
-      return;
-    }
-    await share(file);
-  });
-  const formatPicker = <select aria-label="Format" value={format} onChange={e => setFormat(e.target.value as Format)}>
-    <option value="pdf">As PDF</option><option value="docx">As Word</option></select>;
-
-  return () => { document.removeEventListener('mousedown', click); document.removeEventListener('keydown', key); };
+    return () => { document.removeEventListener('mousedown', click); document.removeEventListener('keydown', key); };
   }, [open]);
 
   const none = parts.length === 0;
@@ -79,12 +57,17 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
   };
 
   // Hands the file to the computer's or phone's share panel (WhatsApp, Teams, Outlook and others, whichever are installed).
-  const share = async (file: File) => {
+  // A share request needs a fresh click. If the file took a moment to fetch, the browser may refuse the first request,
+  // so a "Share now" button offers a fresh click; if that is refused too, the file is downloaded instead.
+  const share = async (file: File, retried: boolean) => {
     try { await navigator.share({ files: [file], title: file.name }); setPending(null); setInfo(''); }
     catch (e: any) {
       if (e?.name === 'AbortError') return; // the person closed the share panel
-      if (e?.name === 'NotAllowedError') { setPending(file); setInfo('The file is ready.'); return; } // took too long: needs one more click
-      throw e;
+      if (e?.name === 'NotAllowedError' && !retried) { setPending(file); setInfo('The file is ready. Click Share now to choose an app.'); return; }
+      setPending(null);
+      saveFile(file);
+      setInfo(`Your browser would not hand this ${file.name.endsWith('.docx') ? 'Word file' : 'file'} to other apps, so it has been downloaded instead. ` +
+        `Attach it in WhatsApp from your Downloads folder${file.name.endsWith('.docx') ? ', or try again with As PDF' : ''}.`);
     }
   };
   const startShare = () => act(async () => {
@@ -95,9 +78,9 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
       setInfo('This browser cannot pass files to other apps, so the file has been downloaded instead. Attach it in WhatsApp from your Downloads folder.');
       return;
     }
-    await share(file);
+    await share(file, false);
   });
-  const formatPicker = <select aria-label="Format" value={format} onChange={e => setFormat(e.target.value as Format)}>
+  const formatPicker = <select aria-label="Format" value={format} onChange={e => { setFormat(e.target.value as Format); setPending(null); setInfo(''); }}>
     <option value="pdf">As PDF</option><option value="docx">As Word</option></select>;
 
   return (
@@ -148,7 +131,7 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
           <p className="note">Opens your computer's or phone's share panel. WhatsApp shows there if it is installed.</p>
           <div className="actions">{formatPicker}
             {pending
-              ? <button className="primary" onClick={() => act(() => share(pending))}>Share now</button>
+              ? <button className="primary" onClick={() => act(() => share(pending, true))}>Share now</button>
               : <button disabled={busy || none} onClick={startShare}>Share</button>}</div>
           {info && <p className="ok" role="status">{info}</p>}
         </div>}

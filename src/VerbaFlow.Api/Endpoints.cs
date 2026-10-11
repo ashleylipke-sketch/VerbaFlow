@@ -10,6 +10,7 @@ public static class Endpoints
     public sealed record AssignBody(Guid? UserId, string? Reason);
     public sealed record ReasonBody(string Reason);
     public sealed record TextBody(string Text);
+    public sealed record EmailBody(string? Format, string? To, string? Note);
     public sealed record NameBody(string Name);
     public sealed record TermBody(string Text, string? Note);
     public sealed record LinesBody(string Lines);
@@ -128,11 +129,14 @@ public static class Endpoints
         });
 
         // Minutes as Word or PDF. The file's fingerprint is recorded, so a copy can be checked later for changes.
-        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format) =>
+        // preview=true shows the file in the browser instead of saving it.
+        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format, bool? preview) =>
         {
-            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf");
-            return Results.File(file.Content, file.ContentType, file.FileName);
+            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf", preview == true ? "preview" : "download");
+            return preview == true ? Results.File(file.Content, file.ContentType) : Results.File(file.Content, file.ContentType, file.FileName);
         });
+        api.MapPost("/items/{id:guid}/export/email", async (HttpContext h, ExportService s, Guid id, EmailBody b, CancellationToken ct) =>
+            new { message = await s.EmailAsync(h.Current(), id, b.Format ?? "pdf", b.To ?? "", b.Note, ct) });
         api.MapPost("/items/{id:guid}/export/check", async (HttpContext h, ExportService s, Guid id, CancellationToken ct) =>
         {
             var f = await h.Request.ReadFormAsync(ct);

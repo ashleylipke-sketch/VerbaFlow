@@ -66,3 +66,17 @@ public interface ISpeakerDiarizer
     /// <param name="numSpeakers">The exact number of speakers if it is known, otherwise null to work it out.</param>
     Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, string? method, CancellationToken ct);
 }
+
+public sealed record EmailAttachment(string FileName, string ContentType, byte[] Content);
+
+/// <param name="To">Recipient addresses, already checked.</param>
+/// <param name="ReplyTo">The sender's own address, when known, so replies go to a person and not to the no-reply sender.</param>
+public sealed record EmailMessage(IReadOnlyList<string> To, string Subject, string PlainText, IReadOnlyList<EmailAttachment> Attachments, string? ReplyTo = null);
+
+/// <summary>Sends email with attachments (Azure Communication Services Email in production).</summary>
+public interface IEmailSender
+{
+    string Name { get; }
+    /// <summary>Hands the message to the mail service and returns its reference for the audit trail.</summary>
+    Task<string> SendAsync(EmailMessage message, CancellationToken ct);
+}

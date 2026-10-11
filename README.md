@@ -6,7 +6,7 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 
 | Area | State |
 |---|---|
-| Speak · Meeting mode | **Built** (record, import, real transcription with speakers, follow-along word highlighting, tracked changes, custom vocabulary, assign / accept / return, approve and lock, two-admin reopen, delete (two admins once approved), export to Word and PDF with fingerprint check, versioned transcript, audit chain) |
+| Speak · Meeting mode | **Built** (record, import, real transcription with speakers, follow-along word highlighting, tracked changes, custom vocabulary, assign / accept / return, approve and lock, two-admin reopen, delete (two admins once approved), export to Word and PDF with preview, email and fingerprint check, versioned transcript, audit chain) |
 | Speak · Dictate, Speech | Not started |
 | Meet, Widget | Not started |
 | Telephony bridge (ADR-15) | Designed, not built |
@@ -23,6 +23,7 @@ Everything marked *stand-in* sits behind an interface in `VerbaFlow.Core/Provide
 | Local media folder, read-only files | Blob storage with immutability policy |
 | `StandInSpeechService` (fake text) | **Azure AI Speech: built.** Used automatically when `Speech:Endpoint` and `Speech:Key` are set. See `docs/azure-speech-setup.md` |
 | `StandInAiOutputService` | **Azure OpenAI: built.** Used automatically when `OpenAI:Endpoint`, `OpenAI:Key` and `OpenAI:Deployment` are set. See `docs/azure-openai-setup.md` |
+| `StandInEmailSender` (saves .eml files in `data/outbox`) | **Azure Communication Services Email: built, untested on real Azure.** Used when `Email:ConnectionString` and `Email:Sender` are set. See `docs/azure-email-setup.md` |
 | `StandInAudioEnhancer` (no change) | **ffmpeg clean-up: built.** Used automatically when ffmpeg is installed. See `docs/audio-preparation.md` |
 | Azure's own speaker labels | **Local speaker separation: built** (sherpa-onnx, runs on your PC). See `docs/speaker-separation.md` |
 | `StandInMalwareScanner` (rejects EICAR) | Defender for Storage |

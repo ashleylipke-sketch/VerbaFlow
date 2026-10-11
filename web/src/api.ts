@@ -89,6 +89,14 @@ export const api = {
     a.download = decodeURIComponent(name);
     a.click();
   },
+  /** The PDF as the person would download it, for showing in a browser tab. */
+  async previewMinutes(id: string): Promise<Blob> {
+    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true`, { headers: { 'X-Dev-User': devUser } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
+    return res.blob();
+  },
+  emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string) =>
+    call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null }),
   async audio(id: string, download = false): Promise<Blob> {
     const res = await fetch(`/api/items/${id}/audio${download ? '?download=true' : ''}`, { headers: { 'X-Dev-User': devUser } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);

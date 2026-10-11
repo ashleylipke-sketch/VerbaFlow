@@ -25,7 +25,7 @@ public sealed class FailureReporter(Stores stores, TimeProvider clock, ILogger<F
             await stores.SupportErrors.UpsertAsync(id, new SupportError(id, reference, area, kind.ToString(), itemId, detail, clock.GetUtcNow()));
         }
         catch (Exception storeEx) { log?.LogError(storeEx, "{Reference} could not be written to the support error table", reference); }
-        var service = area switch { "summary" => "summary", "transcription" => "transcription", _ => "VerbaFlow" };
+        var service = area switch { "summary" => "summary", "transcription" => "transcription", "email" => "email", _ => "VerbaFlow" };
         return new ReportedFailure(reference, kind, CustomerMessages.For(kind, service, reference));
     }
 

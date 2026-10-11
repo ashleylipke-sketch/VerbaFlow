@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using VerbaFlow.Core.Audit;
 using VerbaFlow.Core.Domain;
+using VerbaFlow.Core.Providers;
 using VerbaFlow.Core.Security;
 using VerbaFlow.Infrastructure.Services;
 
@@ -23,9 +24,64 @@ public sealed record ExportCheck(bool Matches, string Message, string Sha256, Da
 /// be checked later against those fingerprints: any change to the file, even one character, gives a different fingerprint.
 /// Digital signing with the organisation's certificate (decision 13) is not built yet.
 /// </summary>
-public sealed class ExportService(Stores stores, TimeProvider clock)
+public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSender? email = null, FailureReporter? reporter = null)
 {
-    public async Task<ExportFile> ExportAsync(User actor, Guid id, string format)
+    /// <summary>The most people one email can go to.</summary>
+    public const int MaxRecipients = 10;
+
+    /// <param name="purpose">"download" or "preview"; written to the audit trail.</param>
+    public async Task<ExportFile> ExportAsync(User actor, Guid id, string format, string purpose = "download") =>
+        (await CreateAsync(actor, id, format, purpose)).File;
+
+    /// <summary>
+    /// Emails the exported file as an attachment. The addresses are checked first; nothing is sent if one is not a valid
+    /// address. The recipients, the file's fingerprint and the mail service's reference go into the audit trail.
+    /// </summary>
+    public async Task<string> EmailAsync(User actor, Guid id, string format, string recipients, string? note, CancellationToken ct = default)
+    {
+        if (email is null) throw new DomainException("Email is not available.");
+        var to = ParseRecipients(recipients);
+        if (note is { Length: > 2000 }) throw new DomainException("The message is too long. Keep it under 2,000 characters.");
+        var (file, record, item) = await CreateAsync(actor, id, format, "email");
+        var text = $"Please find attached the minutes of \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
+            + $"Sent by {actor.Name} using VerbaFlow.\r\n"
+            + (string.IsNullOrWhiteSpace(note) ? "" : $"\r\nMessage from {actor.Name}:\r\n{note.Trim()}\r\n")
+            + "\r\nTo confirm this file has not been changed, the sender can check it with \"Check an exported file\" in VerbaFlow.\r\n";
+        var subject = $"Meeting minutes: {item.Name}" + (record.Marker == "Approved" ? "" : $" ({record.Marker.ToUpperInvariant()})");
+        string reference;
+        try
+        {
+            reference = await email.SendAsync(new EmailMessage(to, subject, text, [new EmailAttachment(file.FileName, file.ContentType, file.Content)],
+                string.IsNullOrWhiteSpace(actor.Email) ? null : actor.Email), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && reporter is not null)
+        {
+            // The person sees a plain sentence and a reference; the technical detail goes to support only.
+            var failure = await reporter.ReportAsync("email", id, ex);
+            await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "email.failed",
+                AuditChain.Details(("to", string.Join(", ", to)), ("kind", failure.Kind.ToString()), ("reference", failure.Reference)));
+            throw new DomainException(failure.UserMessage);
+        }
+        await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.emailed",
+            AuditChain.Details(("to", string.Join(", ", to)), ("format", record.Format), ("marker", record.Marker), ("sha256", record.Sha256),
+                ("withMessage", !string.IsNullOrWhiteSpace(note)), ("mailService", email.Name), ("mailReference", reference)));
+        return $"Sent to {string.Join(", ", to)}.";
+    }
+
+    /// <summary>Addresses separated by commas, semicolons, spaces or new lines. Each must be a plain, valid email address.</summary>
+    public static IReadOnlyList<string> ParseRecipients(string? text)
+    {
+        var parts = (text ?? "").Split([',', ';', ' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (parts.Count == 0) throw new DomainException("Type at least one email address.");
+        if (parts.Count > MaxRecipients) throw new DomainException($"Send to at most {MaxRecipients} people at a time.");
+        foreach (var p in parts)
+            if (!System.Net.Mail.MailAddress.TryCreate(p, out var a) || a.Address != p || !p.Contains('.', StringComparison.Ordinal) || p.Length > 254)
+                throw new DomainException($"\"{(p.Length > 60 ? p[..60] + "…" : p)}\" is not a valid email address.");
+        return parts;
+    }
+
+    private async Task<(ExportFile File, ExportRecord Record, Item Item)> CreateAsync(User actor, Guid id, string format, string purpose)
     {
         format = format.ToLowerInvariant() switch { "docx" or "word" => ExportFormats.Word, "pdf" => ExportFormats.Pdf,
             _ => throw new DomainException("Choose Word or PDF.") };
@@ -72,12 +128,13 @@ public sealed class ExportService(Stores stores, TimeProvider clock)
         var record = new ExportRecord(Guid.NewGuid(), id, item.VersionNo, transcript.Current.No, format, marker, sha, bytes.LongLength, actor.Id, now);
         await stores.Exports.UpsertAsync(record.Id, record);
         await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.exported",
-            AuditChain.Details(("format", format), ("marker", marker), ("transcriptVersion", transcript.Current.No), ("sha256", sha), ("bytes", bytes.LongLength)));
+            AuditChain.Details(("format", format), ("marker", marker), ("purpose", purpose), ("transcriptVersion", transcript.Current.No),
+                ("sha256", sha), ("bytes", bytes.LongLength)));
 
         var safeName = new string(item.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c is '"' ? '_' : c).ToArray()).Trim();
         if (safeName.Length == 0) safeName = "meeting";
         if (safeName.Length > 80) safeName = safeName[..80];
-        return new ExportFile(bytes, ExportFormats.ContentType(format), $"{safeName} ({marker.ToLowerInvariant()}).{format}");
+        return (new ExportFile(bytes, ExportFormats.ContentType(format), $"{safeName} ({marker.ToLowerInvariant()}).{format}"), record, item);
     }
 
     /// <summary>Checks whether a file is exactly one that was exported from this meeting.</summary>

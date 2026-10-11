@@ -23,6 +23,12 @@ export default function ItemPage({ id }: { id: string }) {
   const [reopenReason, setReopenReason] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
   const [exportCheck, setExportCheck] = useState<ExportCheck | null>(null);
+  const [mailTo, setMailTo] = useState('');
+  const [mailNote, setMailNote] = useState('');
+  const [mailFormat, setMailFormat] = useState<'docx' | 'pdf'>('pdf');
+  const [mailSent, setMailSent] = useState('');
+  const [mailError, setMailError] = useState('');
+  const [mailBusy, setMailBusy] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const player = useRef<HTMLAudioElement>(null);
   const [pos, setPos] = useState({ seg: -1, word: -1 });
@@ -182,7 +188,33 @@ export default function ItemPage({ id }: { id: string }) {
               ? 'It is marked Approved.' : 'It is marked Draft, because the meeting is not approved yet.'} Each file's fingerprint is recorded, so a copy can be checked later for changes.</p>
             <div className="actions">
               <button disabled={busy} onClick={() => run(() => api.exportMinutes(id, 'docx'))}>Download Word</button>
-              <button disabled={busy} onClick={() => run(() => api.exportMinutes(id, 'pdf'))}>Download PDF</button></div>
+              <button disabled={busy} onClick={() => run(() => api.exportMinutes(id, 'pdf'))}>Download PDF</button>
+              <button disabled={busy} onClick={() => {
+                // The tab is opened straight away (browsers block tabs opened later), then filled once the PDF arrives.
+                const tab = window.open('', '_blank');
+                run(async () => {
+                  try { const url = URL.createObjectURL(await api.previewMinutes(id)); if (tab) tab.location.href = url; else window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60_000); }
+                  catch (e) { tab?.close(); throw e; }
+                });
+              }}>Preview</button></div>
+            <h3>Email it</h3>
+            <p className="note">Sends the document as an attachment. Replies go to you.</p>
+            <div className="field"><label>To (up to 10 addresses, separated by commas)<br />
+              <input type="text" value={mailTo} onChange={e => { setMailTo(e.target.value); setMailSent(''); }} placeholder="name@example.com" /></label></div>
+            <div className="field"><label>Message (optional)<br />
+              <textarea rows={3} maxLength={2000} value={mailNote} onChange={e => setMailNote(e.target.value)} /></label></div>
+            <div className="actions">
+              <select aria-label="Email format" value={mailFormat} onChange={e => setMailFormat(e.target.value as 'docx' | 'pdf')}>
+                <option value="pdf">As PDF</option><option value="docx">As Word</option></select>
+              <button disabled={mailBusy || !mailTo.trim()} onClick={async () => {
+                setMailSent(''); setMailError(''); setMailBusy(true);
+                try {
+                  const r = await api.emailMinutes(id, mailFormat, mailTo, mailNote);
+                  setMailSent(r.message); setMailTo(''); setMailNote(''); await load();
+                } catch (e: any) { setMailError(e.message); } finally { setMailBusy(false); }
+              }}>{mailBusy ? 'Sending…' : 'Send email'}</button></div>
+            {mailSent && <p className="ok" role="status">{mailSent}</p>}
+            {mailError && <p className="error" role="alert">{mailError}</p>}
             <h3>Check an exported file</h3>
             <p className="note">Choose a Word or PDF file you were sent to see whether it is exactly as VerbaFlow exported it.</p>
             <input type="file" aria-label="File to check" accept=".pdf,.docx" onChange={e => {

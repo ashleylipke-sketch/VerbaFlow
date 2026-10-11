@@ -1,7 +1,9 @@
 using DocumentFormat.OpenXml.Packaging;
 using Microsoft.Data.Sqlite;
 using VerbaFlow.Core.Domain;
+using VerbaFlow.Core.Providers;
 using VerbaFlow.Infrastructure.Export;
+using VerbaFlow.Infrastructure.StandIns;
 
 namespace VerbaFlow.Tests.Services;
 
@@ -116,5 +118,85 @@ public class ExportTests
         await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "pdf");
         Assert.Throws<SqliteException>(() => env.Execute("UPDATE doc_exports SET json = json_set(json, '$.sha256', 'x')"));
         Assert.Throws<SqliteException>(() => env.Execute("DELETE FROM doc_exports"));
+    }
+
+    private sealed class BrokenMail : IEmailSender
+    {
+        public string Name => "broken";
+        public Task<string> SendAsync(EmailMessage message, CancellationToken ct) =>
+            throw new ProviderException(FaultKind.Settings, "401 Unauthorized: secret-key-detail");
+    }
+
+    [Fact]
+    public async Task Emailing_attaches_the_exported_file_and_records_who_it_went_to()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var outbox = Path.Combine(env.Dir, "outbox");
+        var exports = new ExportService(env.Stores, env.Clock, new StandInEmailSender(outbox), env.Reporter);
+
+        var message = await exports.EmailAsync(env.Alice, id, "pdf", "board@example.com; chair@example.org", "Please read before Friday.");
+        Assert.Equal("Sent to board@example.com, chair@example.org.", message);
+        var eml = File.ReadAllText(Assert.Single(Directory.GetFiles(outbox, "*.eml")));
+        Assert.Contains("To: board@example.com, chair@example.org", eml);
+        Assert.Contains("application/pdf", eml);
+        Assert.Contains("filename=\"Board meeting (draft).pdf\"", eml);
+        Assert.Contains("Reply-To: " + env.Alice.Email, eml);
+
+        var record = Assert.Single(await env.Stores.Exports.ListAsync());
+        var ev = (await env.Stores.Audit.ListAsync(id)).Last();
+        Assert.Equal("item.emailed", ev.Type);
+        Assert.Contains("board@example.com", ev.Details);
+        Assert.Contains(record.Sha256, ev.Details);
+        Assert.Contains("email", (await env.Stores.Audit.ListAsync(id)).Single(e => e.Type == "item.exported").Details);
+        Assert.True((await env.Stores.Audit.VerifyAsync()).Ok);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-an-address")]
+    [InlineData("Board <board@example.com>")]
+    [InlineData("a@b.com,c@d.com,e@f.com,g@h.com,i@j.com,k@l.com,m@n.com,o@p.com,q@r.com,s@t.com,u@v.com")]
+    public async Task Bad_or_too_many_addresses_send_nothing(string to)
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var outbox = Path.Combine(env.Dir, "outbox");
+        var exports = new ExportService(env.Stores, env.Clock, new StandInEmailSender(outbox), env.Reporter);
+        await Assert.ThrowsAsync<DomainException>(() => exports.EmailAsync(env.Alice, id, "pdf", to, null));
+        Assert.False(Directory.Exists(outbox));
+        Assert.Empty(await env.Stores.Exports.ListAsync());
+    }
+
+    [Fact]
+    public async Task Someone_who_may_not_export_may_not_email_either()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var exports = new ExportService(env.Stores, env.Clock, new StandInEmailSender(Path.Combine(env.Dir, "outbox")), env.Reporter);
+        await Assert.ThrowsAsync<ForbiddenException>(() => exports.EmailAsync(env.Bob, id, "pdf", "x@example.com", null));
+    }
+
+    [Fact]
+    public async Task A_failed_send_shows_a_plain_message_with_a_reference_and_keeps_the_detail_for_support()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var exports = new ExportService(env.Stores, env.Clock, new BrokenMail(), env.Reporter);
+        var ex = await Assert.ThrowsAsync<DomainException>(() => exports.EmailAsync(env.Alice, id, "docx", "board@example.com", null));
+        Assert.Matches("VF-[A-Z0-9]{6}", ex.Message);
+        Assert.DoesNotContain("secret-key-detail", ex.Message);
+        Assert.DoesNotContain("401", ex.Message);
+        Assert.Contains("secret-key-detail", Assert.Single(await env.Stores.SupportErrors.ListAsync()).Detail);
+        Assert.Equal("email.failed", (await env.Stores.Audit.ListAsync(id)).Last().Type);
+    }
+
+    [Fact]
+    public async Task A_preview_is_recorded_as_a_preview()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "pdf", "preview");
+        Assert.Contains("preview", (await env.Stores.Audit.ListAsync(id)).Last().Details);
     }
 }

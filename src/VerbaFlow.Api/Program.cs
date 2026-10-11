@@ -45,6 +45,10 @@ if (openAi.IsConfigured)
 }
 else builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
 builder.Services.AddSingleton<IMalwareScanner, StandInMalwareScanner>();
+var emailOptions = new VerbaFlow.Infrastructure.Azure.AzureEmailOptions(builder.Configuration["Email:ConnectionString"] ?? "", builder.Configuration["Email:Sender"] ?? "");
+var outbox = Path.Combine(dataDir, "outbox");
+if (emailOptions.IsConfigured) builder.Services.AddSingleton<IEmailSender>(new VerbaFlow.Infrastructure.Azure.AzureEmailSender(emailOptions));
+else builder.Services.AddSingleton<IEmailSender>(new StandInEmailSender(outbox));
 var ffmpegPath = builder.Configuration["Audio:FfmpegPath"];
 var ffmpegFound = await VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer.IsAvailableAsync(ffmpegPath);
 // Recordings in several languages are sent in short pieces so each piece gets its own language (needs ffmpeg).
@@ -93,6 +97,10 @@ if (diarizationOn)
         try { await app.Services.GetRequiredService<VerbaFlow.Infrastructure.Services.SherpaSpeakerDiarizer>().EnsureModelsAsync(); app.Logger.LogInformation("Speakers: models are ready"); }
         catch (Exception ex) { app.Logger.LogWarning("Speakers: the models could not be downloaded yet ({Reason}). Azure's labels will be used until they can.", ex.Message); }
     });
+app.Logger.LogInformation(emailOptions.IsConfigured
+    ? "Email: sending through Azure Communication Services as {Sender}"
+    : "Email: STAND-IN. Nothing is sent; emails are saved as .eml files in {Outbox}. Set Email:ConnectionString and Email:Sender to send for real.",
+    emailOptions.IsConfigured ? emailOptions.Sender : outbox);
 app.Logger.LogInformation(openAi.IsConfigured
     ? "Summaries: using Azure OpenAI deployment {Deployment}"
     : "Summaries: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);

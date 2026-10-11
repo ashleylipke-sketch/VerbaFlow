@@ -210,4 +210,26 @@ public class RerunTests
         Assert.Empty(spy.Asked);
         await Assert.ThrowsAsync<DomainException>(() => env.Meeting.CreateRecordingAsync(env.Alice, env.Recording() with { NumSpeakers = 1 }));
     }
+
+    [Fact]
+    public async Task Split_boxes_uses_the_speech_services_speakers_with_the_count_then_asks_the_local_model_for_cut_ins()
+    {
+        var env = new Env();
+        using var _ = env;
+        var spy = new SpyDiarizer();
+        var processing = new ProcessingService(env.Stores, env.Speech, env.Ai, new StandInAudioEnhancer(), env.Clock, env.Reporter, spy);
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Recording());
+        await processing.ProcessAsync(id);
+
+        await env.Meeting.RerunAsync(env.Alice, id, 3, method: "azure-split");
+        await processing.ProcessAsync(id);
+        Assert.Equal("azure-split", (await env.Item(id)).SpeakerMethod);
+        Assert.Equal(3, env.Speech.LastOptions!.MaxSpeakers);
+        Assert.Equal(3, spy.Asked[^1]);
+        Assert.Null(spy.Methods[^1]);
+        var done = (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "processing.completed").Details;
+        Assert.Contains("\"groupingMethod\":\"azure-split\"", done);
+        Assert.Contains("\"boxesSplit\":", done);
+        Assert.Contains("split-by-spy", done);
+    }
 }

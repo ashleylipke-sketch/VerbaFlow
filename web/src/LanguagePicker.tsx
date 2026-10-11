@@ -17,7 +17,7 @@ export default function LanguagePicker({ value, onChange }: { value: string; onC
   </>;
   return <div className="field"><label>Language spoken</label>
     {chosen.map((c, i) => <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-      <select aria-label={i === 0 ? 'Language spoken' : `Another language ${i}`} value={c}
+      <select style={{ minWidth: 0, flex: 1 }} aria-label={i === 0 ? 'Language spoken' : `Another language ${i}`} value={c}
         onChange={e => { const n = [...chosen]; n[i] = e.target.value; set(e.target.value === 'auto' ? ['auto'] : n); }}>
         {options(c)}</select>
       {i > 0 && <button type="button" className="link" onClick={() => set(chosen.filter((_, k) => k !== i))}>Remove</button>}

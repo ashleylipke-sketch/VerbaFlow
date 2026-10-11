@@ -187,7 +187,8 @@ export default function ItemPage({ id }: { id: string }) {
                 <select value={rerunMethod} onChange={e => setRerunMethod(e.target.value)}>
                   <option value="">Standard</option>
                   <option value="windowed">Short-window (try this if voices are mixed up)</option>
-                  <option value="azure">Speech service only (uses the number of speakers you pick)</option></select></label>
+                  <option value="azure">Speech service only (uses the number of speakers you pick)</option>
+                  <option value="azure-split">Speech service, then split boxes where someone cuts in</option></select></label>
               <LanguagePicker value={rerunLang || d.spokenLanguages} onChange={setRerunLang} />
               <label className="note">Audio to use{' '}
                 <select value={rerunAudio} onChange={e => setRerunAudio(e.target.value)}>

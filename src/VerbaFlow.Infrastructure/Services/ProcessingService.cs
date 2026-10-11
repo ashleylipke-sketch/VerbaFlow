@@ -35,14 +35,16 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 notices.Add($"audio clean-up was skipped ({rep.Reference})");
             }
             await using var copy = enhanced.Audio;
-            var azureOnly = item.SpeakerMethod == "azure"; // Azure's own speaker labels, with the speaker limit it was given
+            var splitBoxes = item.SpeakerMethod == "azure-split"; // Azure's labels, plus splits where the local model hears a cut-in
+            var azureOnly = item.SpeakerMethod == "azure" || splitBoxes; // Azure's own speaker labels, with the speaker limit it was given
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
             var result = await speech.TranscribeAsync(copy, new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','), azureOnly ? item.NumSpeakers ?? 8 : 8, true, phrases), ct);
 
             // Azure's own speaker labels can merge or split voices. When a local diarizer is available, its turns decide who spoke each word.
             var separation = "azure";
-            int? localTurns = null, localSpeakers = null, mergedSmall = null; string? voiceSeconds = null;
-            if (diarizer is not null && copy.CanSeek && !azureOnly)
+            if (splitBoxes && diarizer is null) notices.Add("boxes were not split because the local voice model is switched off");
+            int? localTurns = null, localSpeakers = null, mergedSmall = null, boxesSplit = null; string? voiceSeconds = null;
+            if (diarizer is not null && copy.CanSeek && (!azureOnly || splitBoxes))
             {
                 try
                 {
@@ -50,16 +52,22 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     await using var untouched = diarization?.UseOriginalAudio == true && !useOriginal ? stores.Media.OpenRead(asset) : null;
                     Stream heard = untouched ?? copy;
                     if (heard.CanSeek) heard.Position = 0;
-                    var turns = await diarizer.DiarizeAsync(heard, item.NumSpeakers, item.SpeakerMethod, ct);
+                    var turns = await diarizer.DiarizeAsync(heard, item.NumSpeakers, splitBoxes ? null : item.SpeakerMethod, ct);
                     localTurns = turns.Count; localSpeakers = turns.Select(t => t.Speaker).Distinct().Count();
                     voiceSeconds = string.Join(" ", turns.GroupBy(t => t.Speaker).OrderByDescending(g => g.Sum(t => t.EndMs - t.StartMs))
                         .Select(g => $"{g.Sum(t => t.EndMs - t.StartMs) / 1000}s"));
-                    if (item.NumSpeakers is null && diarization is not null) // a count the owner gave is trusted as it is
+                    if (item.NumSpeakers is null && diarization is not null && !splitBoxes) // a count the owner gave is trusted as it is
                     {
                         var cleaned = SpeakerTurnCleaner.AbsorbSmallVoices(turns, (int)(diarization.MinSpeakerSeconds * 1000));
                         turns = cleaned.Turns; mergedSmall = cleaned.Merged;
                     }
-                    if (turns.Count > 0)
+                    if (splitBoxes)
+                    {
+                        (result, var n) = MixedBoxSplitter.Split(result, turns);
+                        boxesSplit = n;
+                        separation = "azure+split-by-" + diarizer.Name;
+                    }
+                    else if (turns.Count > 0)
                     {
                         result = SpeakerAligner.Relabel(result, turns) with { Engine = result.Engine + "+" + diarizer.Name };
                         separation = diarizer.Name;
@@ -94,7 +102,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
-                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("boxesSplit", boxesSplit), ("groupingMethod", splitBoxes ? "azure-split" : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
                     ("vocabularyTerms", phrases.Count), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }

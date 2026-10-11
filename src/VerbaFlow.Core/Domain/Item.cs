@@ -59,10 +59,10 @@ public sealed class Item
         if (value is < 2 or > 20) throw new DomainException("The number of speakers must be between 2 and 20.");
         NumSpeakers = value;
     }
-    /// <summary>How voices are grouped when the conversion is run again: "windowed", "azure" (Azure's own speaker labels, told the number of speakers), or null for the normal way.</summary>
+    /// <summary>How voices are grouped when the conversion is run again: "windowed", "azure" (Azure's own speaker labels, told the number of speakers), "azure-split" (the same, then boxes split where the local voice model hears someone else cut in), or null for the normal way.</summary>
     [JsonInclude] public string? SpeakerMethod { get; private set; }
     public void SetSpeakerMethod(string? value) =>
-        SpeakerMethod = value?.ToLowerInvariant() is "windowed" or "azure" ? value.ToLowerInvariant() : null;
+        SpeakerMethod = value?.ToLowerInvariant() is "windowed" or "azure" or "azure-split" ? value.ToLowerInvariant() : null;
     /// <summary>Which audio the speech service hears when the conversion is run again: "original" (the untouched recording, no clean-up) or null for the cleaned-up copy.</summary>
     [JsonInclude] public string? SpeechAudio { get; private set; }
     public void SetSpeechAudio(string? value) =>

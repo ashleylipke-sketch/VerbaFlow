@@ -57,6 +57,15 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+/** Hands a file to the browser's download. */
+export function saveFile(f: File) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(f);
+  a.download = f.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+}
+
 export const api = {
   users: () => call<UserView[]>('GET', '/users'),
   languages: () => call<{ max: number; languages: Lang[] }>('GET', '/languages'),
@@ -79,15 +88,18 @@ export const api = {
   deleteRequests: () => call<DeleteRequest[]>('GET', '/delete-requests'),
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },
   /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
-  async exportMinutes(id: string, format: 'docx' | 'pdf', parts: string[]): Promise<void> {
-    const res = await fetch(`/api/items/${id}/export?format=${format}&parts=${parts.join(',')}`, { headers: { 'X-Dev-User': devUser } });
+  /** Fetches an export (the file itself, or an unsent email with it attached) with the name the server gives. */
+  async exportFile(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' = 'export'): Promise<File> {
+    const res = await fetch(`/api/items/${id}/${kind === 'draft' ? 'export/draft' : 'export'}?format=${format}&parts=${parts.join(',')}`, { headers: { 'X-Dev-User': devUser } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     const cd = res.headers.get('Content-Disposition') ?? '';
     const name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? `meeting.${format}`;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(await res.blob());
-    a.download = decodeURIComponent(name);
-    a.click();
+    const blob = await res.blob();
+    return new File([blob], decodeURIComponent(name), { type: blob.type });
+  },
+  /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
+  async exportMinutes(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' = 'export'): Promise<void> {
+    saveFile(await api.exportFile(id, format, parts, kind));
   },
   /** The PDF as the person would download it, for showing in a browser tab. */
   async previewMinutes(id: string, parts: string[]): Promise<Blob> {

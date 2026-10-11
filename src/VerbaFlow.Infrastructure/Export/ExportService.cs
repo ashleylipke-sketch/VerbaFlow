@@ -50,7 +50,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             + $"Sent by {actor.Name} using VerbaFlow.\r\n"
             + (string.IsNullOrWhiteSpace(note) ? "" : $"\r\nMessage from {actor.Name}:\r\n{note.Trim()}\r\n")
             + "\r\nTo confirm this file has not been changed, the sender can check it with \"Check an exported file\" in VerbaFlow.\r\n";
-        var subject = $"Meeting minutes: {item.Name}" + (record.Marker == "Approved" ? "" : $" ({record.Marker.ToUpperInvariant()})");
+        var subject = Subject(item, record);
         string reference;
         try
         {
@@ -70,6 +70,23 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 ("withMessage", !string.IsNullOrWhiteSpace(note)), ("mailService", email.Name), ("mailReference", reference)));
         return $"Sent to {string.Join(", ", to)}.";
     }
+
+    /// <summary>
+    /// A new, unsent email with the exported file attached, for the person to open in their own email program (Outlook
+    /// opens it as a draft from their account). They choose the addressees there, so VerbaFlow does not know who it goes to;
+    /// the file's fingerprint is still recorded, so a recipient's copy can be checked.
+    /// </summary>
+    public async Task<ExportFile> DraftAsync(User actor, Guid id, string format, string? parts = null)
+    {
+        var (file, record, item) = await CreateAsync(actor, id, format, "email-draft", ExportParts.Parse(parts));
+        var text = $"Please find attached the minutes of \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
+            + "\r\nTo confirm the file has not been changed, it can be checked with \"Check an exported file\" in VerbaFlow.\r\n";
+        var eml = EmlWriter.Write(new EmailMessage([], Subject(item, record), text, [new EmailAttachment(file.FileName, file.ContentType, file.Content)]), draft: true);
+        return new ExportFile(eml, "message/rfc822", Path.ChangeExtension(file.FileName, ".eml"));
+    }
+
+    private static string Subject(Item item, ExportRecord record) =>
+        $"Meeting minutes: {item.Name}" + (record.Marker == "Approved" ? "" : $" ({record.Marker.ToUpperInvariant()})");
 
     /// <summary>Addresses separated by commas, semicolons, spaces or new lines. Each must be a plain, valid email address.</summary>
     public static IReadOnlyList<string> ParseRecipients(string? text)

@@ -135,6 +135,12 @@ public static class Endpoints
             var file = await s.ExportAsync(h.Current(), id, format ?? "pdf", preview == true ? "preview" : "download", parts);
             return preview == true ? Results.File(file.Content, file.ContentType) : Results.File(file.Content, file.ContentType, file.FileName);
         });
+        // A new, unsent email (.eml) with the file attached, to open in the person's own email program.
+        api.MapGet("/items/{id:guid}/export/draft", async (HttpContext h, ExportService s, Guid id, string? format, string? parts) =>
+        {
+            var file = await s.DraftAsync(h.Current(), id, format ?? "pdf", parts);
+            return Results.File(file.Content, file.ContentType, file.FileName);
+        });
         api.MapPost("/items/{id:guid}/export/email", async (HttpContext h, ExportService s, Guid id, EmailBody b, CancellationToken ct) =>
             new { message = await s.EmailAsync(h.Current(), id, b.Format ?? "pdf", b.To ?? "", b.Note, ct, b.Parts) });
         api.MapPost("/items/{id:guid}/export/check", async (HttpContext h, ExportService s, Guid id, CancellationToken ct) =>

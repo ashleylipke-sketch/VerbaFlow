@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, type ExportCheck } from './api';
+import { api, saveFile, type ExportCheck } from './api';
 
 /** The parts a person can tick. The title, Approved/Draft marker and details are always in the file. */
 export const exportParts = [
@@ -18,10 +18,13 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
   const [parts, setParts] = useState<string[]>(exportParts.map(p => p.key));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [panel, setPanel] = useState<'' | 'email' | 'check'>('');
+  const [panel, setPanel] = useState<'' | 'email' | 'share' | 'check'>('');
+  const [fromApp, setFromApp] = useState(false);
+  const [format, setFormat] = useState<Format>('pdf');
+  const [info, setInfo] = useState('');
+  const [pending, setPending] = useState<File | null>(null);
   const [mailTo, setMailTo] = useState('');
   const [mailNote, setMailNote] = useState('');
-  const [mailFormat, setMailFormat] = useState<Format>('pdf');
   const [mailSent, setMailSent] = useState('');
   const [check, setCheck] = useState<ExportCheck | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -32,7 +35,29 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
     const click = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', click); document.addEventListener('keydown', key);
-    return () => { document.removeEventListener('mousedown', click); document.removeEventListener('keydown', key); };
+    // Hands the file to the computer's or phone's share panel (WhatsApp, Teams, Outlook and others, whichever are installed).
+  const share = async (file: File) => {
+    try { await navigator.share({ files: [file], title: file.name }); setPending(null); setInfo(''); }
+    catch (e: any) {
+      if (e?.name === 'AbortError') return; // the person closed the share panel
+      if (e?.name === 'NotAllowedError') { setPending(file); setInfo('The file is ready.'); return; } // took too long: needs one more click
+      throw e;
+    }
+  };
+  const startShare = () => act(async () => {
+    setInfo(''); setPending(null);
+    const file = await api.exportFile(id, format, parts);
+    if (!navigator.canShare?.({ files: [file] })) {
+      saveFile(file);
+      setInfo('This browser cannot pass files to other apps, so the file has been downloaded instead. Attach it in WhatsApp from your Downloads folder.');
+      return;
+    }
+    await share(file);
+  });
+  const formatPicker = <select aria-label="Format" value={format} onChange={e => setFormat(e.target.value as Format)}>
+    <option value="pdf">As PDF</option><option value="docx">As Word</option></select>;
+
+  return () => { document.removeEventListener('mousedown', click); document.removeEventListener('keydown', key); };
   }, [open]);
 
   const none = parts.length === 0;
@@ -53,6 +78,28 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
     });
   };
 
+  // Hands the file to the computer's or phone's share panel (WhatsApp, Teams, Outlook and others, whichever are installed).
+  const share = async (file: File) => {
+    try { await navigator.share({ files: [file], title: file.name }); setPending(null); setInfo(''); }
+    catch (e: any) {
+      if (e?.name === 'AbortError') return; // the person closed the share panel
+      if (e?.name === 'NotAllowedError') { setPending(file); setInfo('The file is ready.'); return; } // took too long: needs one more click
+      throw e;
+    }
+  };
+  const startShare = () => act(async () => {
+    setInfo(''); setPending(null);
+    const file = await api.exportFile(id, format, parts);
+    if (!navigator.canShare?.({ files: [file] })) {
+      saveFile(file);
+      setInfo('This browser cannot pass files to other apps, so the file has been downloaded instead. Attach it in WhatsApp from your Downloads folder.');
+      return;
+    }
+    await share(file);
+  });
+  const formatPicker = <select aria-label="Format" value={format} onChange={e => setFormat(e.target.value as Format)}>
+    <option value="pdf">As PDF</option><option value="docx">As Word</option></select>;
+
   return (
     <div className="menu" ref={box}>
       <button className="primary" aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(o => !o)}>Export ▾</button>
@@ -68,24 +115,42 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
           <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'docx', parts))}>Download Word</button>
           <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'pdf', parts))}>Download PDF</button>
           <button disabled={busy || none} onClick={preview}>Preview PDF</button>
-          <button disabled={none} aria-expanded={panel === 'email'} onClick={() => setPanel(p => p === 'email' ? '' : 'email')}>Email…</button>
+          <button disabled={none} aria-expanded={panel === 'email'} onClick={() => { setInfo(''); setPanel(p => p === 'email' ? '' : 'email'); }}>Email…</button>
+          <button disabled={none} aria-expanded={panel === 'share'} onClick={() => { setInfo(''); setPending(null); setPanel(p => p === 'share' ? '' : 'share'); }}>Share… (WhatsApp, Teams and more)</button>
           <button aria-expanded={panel === 'check'} onClick={() => setPanel(p => p === 'check' ? '' : 'check')}>Check an exported file…</button>
         </div>
-        {panel === 'email' && <div className="menu-sub">
+        {panel === 'email' && !fromApp && <div className="menu-sub">
+          <p className="note">Opens a new email in your own email program, from your own account, with the minutes attached. Choose the people there.</p>
+          <div className="actions">{formatPicker}
+            <button disabled={busy || none} onClick={() => act(async () => {
+              saveFile(await api.exportFile(id, format, parts, 'draft'));
+              setInfo('An email file has been downloaded. Open it (click it in your browser\'s downloads) and it appears as a new email in Outlook.');
+            })}>Open a new email</button></div>
+          {info && <p className="ok" role="status">{info}</p>}
+          <p className="note"><button className="link" onClick={() => { setInfo(''); setFromApp(true); }}>Or send it from VerbaFlow instead</button></p>
+        </div>}
+        {panel === 'email' && fromApp && <div className="menu-sub">
           <div className="field"><label>To (up to 10 addresses, separated by commas)<br />
             <input type="text" value={mailTo} onChange={e => { setMailTo(e.target.value); setMailSent(''); }} placeholder="name@example.com" /></label></div>
           <div className="field"><label>Message (optional)<br />
             <textarea rows={3} maxLength={2000} value={mailNote} onChange={e => setMailNote(e.target.value)} /></label></div>
-          <div className="actions">
-            <select aria-label="Email format" value={mailFormat} onChange={e => setMailFormat(e.target.value as Format)}>
-              <option value="pdf">As PDF</option><option value="docx">As Word</option></select>
+          <div className="actions">{formatPicker}
             <button disabled={busy || none || !mailTo.trim()} onClick={() => act(async () => {
               setMailSent('');
-              const r = await api.emailMinutes(id, mailFormat, mailTo, mailNote, parts);
+              const r = await api.emailMinutes(id, format, mailTo, mailNote, parts);
               setMailSent(r.message); setMailTo(''); setMailNote('');
             })}>{busy ? 'Sending…' : 'Send email'}</button></div>
-          <p className="note">Sent as an attachment. Replies go to you.</p>
+          <p className="note">Sent by VerbaFlow as an attachment; the history records who it went to. Replies go to you.</p>
           {mailSent && <p className="ok" role="status">{mailSent}</p>}
+          <p className="note"><button className="link" onClick={() => setFromApp(false)}>Use my own email program instead</button></p>
+        </div>}
+        {panel === 'share' && <div className="menu-sub">
+          <p className="note">Opens your computer's or phone's share panel. WhatsApp shows there if it is installed.</p>
+          <div className="actions">{formatPicker}
+            {pending
+              ? <button className="primary" onClick={() => act(() => share(pending))}>Share now</button>
+              : <button disabled={busy || none} onClick={startShare}>Share</button>}</div>
+          {info && <p className="ok" role="status">{info}</p>}
         </div>}
         {panel === 'check' && <div className="menu-sub">
           <p className="note">Choose a Word or PDF file you were sent to see whether it is exactly as VerbaFlow exported it.</p>

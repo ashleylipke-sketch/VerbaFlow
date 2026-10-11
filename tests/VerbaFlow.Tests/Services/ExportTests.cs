@@ -225,4 +225,29 @@ public class ExportTests
         await Assert.ThrowsAsync<DomainException>(() => exports.ExportAsync(env.Alice, id, "pdf", parts: "everything"));
         Assert.DoesNotContain("Contains", WordText((await exports.ExportAsync(env.Alice, id, "docx")).Content));
     }
+
+    [Fact]
+    public async Task A_draft_email_is_an_unsent_message_with_no_addressees_and_the_file_attached()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var exports = new ExportService(env.Stores, env.Clock);
+        var draft = await exports.DraftAsync(env.Alice, id, "docx", "summary,minutes");
+        Assert.Equal("message/rfc822", draft.ContentType);
+        Assert.EndsWith("(draft).eml", draft.FileName);
+        var eml = System.Text.Encoding.ASCII.GetString(draft.Content);
+        Assert.StartsWith("X-Unsent: 1\r\n", eml);
+        Assert.DoesNotContain("\r\nTo:", eml);
+        Assert.DoesNotContain("\r\nFrom:", eml);
+        Assert.Contains("filename=\"Board meeting (draft).docx\"", eml);
+
+        var record = Assert.Single(await env.Stores.Exports.ListAsync());
+        var ev = (await env.Stores.Audit.ListAsync(id)).Last();
+        Assert.Equal("item.exported", ev.Type);
+        Assert.Contains("email-draft", ev.Details);
+        // The attached file is the recorded one, so a recipient's copy checks out.
+        var b64 = eml.Split("Content-Transfer-Encoding: base64\r\n\r\n")[2].Split("\r\n--")[0].Replace("\r\n", "");
+        Assert.True((await exports.CheckAsync(env.Alice, id, new MemoryStream(Convert.FromBase64String(b64)))).Matches);
+        await Assert.ThrowsAsync<ForbiddenException>(() => exports.DraftAsync(env.Bob, id, "pdf"));
+    }
 }

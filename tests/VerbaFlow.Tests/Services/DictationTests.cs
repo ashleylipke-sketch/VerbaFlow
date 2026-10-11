@@ -106,4 +106,16 @@ public class DictationTests
         // A meeting needs neither.
         await env.Meeting.ImportAsync(env.Alice, env.Import());
     }
+
+    [Fact]
+    public async Task Paragraph_breaks_reach_the_item_page()
+    {
+        using var env = new Env();
+        env.Speech.Heard = "First part full stop new paragraph Second part full stop new paragraph Third part";
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await env.Processing.ProcessAsync(id);
+        var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        Assert.Equal(["First part.", "Second part.", "Third part"], t.Segments.Select(s => s.Text));
+        Assert.Equal([true, true, true], t.Segments.Select(s => s.NewParagraph == true));
+    }
 }

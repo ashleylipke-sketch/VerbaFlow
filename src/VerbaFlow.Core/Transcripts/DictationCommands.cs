@@ -98,12 +98,27 @@ public static class DictationCommands
     /// <summary>Stands for a line break the speech service itself put in its text (it may turn "new paragraph" into one).</summary>
     private const string LineBreak = "\uE000";
     private static readonly Command SpeechServiceBreak = new([LineBreak], Kind.Break);
+    /// <summary>Every kind of line or paragraph break a service might write: \n, \r, Unicode line and paragraph separators, vertical tab, form feed, next line.</summary>
+    public static readonly char[] LineBreakChars = ['\n', '\r', '\u2028', '\u2029', '\v', '\f', '\u0085'];
+
+    private static string MarkLineBreaks(string text)
+    {
+        if (text.IndexOfAny(LineBreakChars) < 0) return text;
+        var sb = new System.Text.StringBuilder(text.Length + 8);
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (Array.IndexOf(LineBreakChars, text[i]) < 0) { sb.Append(text[i]); continue; }
+            if (text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+            sb.Append(' ').Append(LineBreak).Append(' ');
+        }
+        return sb.ToString();
+    }
+
     private static string NameOf(Command c) => c == SpeechServiceBreak ? "line break from the speech service" : string.Join(' ', c.Words);
 
     private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard)
     {
-        var raw = s.Text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", $" {LineBreak} ")
-            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var raw = MarkLineBreaks(s.Text).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         // Word timings line up with the spoken words, not with line breaks.
         var wordAt = new int[raw.Length];
         for (int i = 0, n = 0; i < raw.Length; i++) wordAt[i] = raw[i] == LineBreak ? -1 : n++;

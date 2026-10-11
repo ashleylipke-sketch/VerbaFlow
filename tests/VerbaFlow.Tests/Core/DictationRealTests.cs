@@ -53,4 +53,12 @@ public class DictationRealTests
         // A meeting is unchanged: the line-break-only phrase is dropped.
         Assert.Single(AzureSpeechService.Parse(json, dictation with { Diarize = true }).Segments);
     }
+
+    [Theory]
+    [InlineData("\u2029")]
+    [InlineData("\u2028")]
+    [InlineData("\r\n")]
+    [InlineData("\r")]
+    public void Any_kind_of_line_break_starts_a_new_paragraph(string br) =>
+        Assert.Equal(["One.", "Two."], DictationCommands.Apply([Seg($"One.{br}Two.")]).Segments.Select(s => s.Text));
 }

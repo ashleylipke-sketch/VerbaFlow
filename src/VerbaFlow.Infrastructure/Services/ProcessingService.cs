@@ -42,11 +42,12 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
             var result = await speech.TranscribeAsync(copy, new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
                 azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases), ct);
-            int? commands = null;
+            int? commands = null; string? commandsHeard = null;
             if (dictation)
             {
-                var (segments, applied) = DictationCommands.Apply(result.Segments);
+                var (segments, applied, heard) = DictationCommands.ApplyCounted(result.Segments);
                 commands = applied;
+                commandsHeard = heard.Count == 0 ? "none" : string.Join(", ", heard.Select(h => $"{h.Key} {h.Value}"));
                 // The one voice is the person who dictated.
                 var author = (await stores.Users.GetAsync(item.OwnerId))?.Name ?? "Author";
                 var voice = new Speaker(Guid.NewGuid(), author);
@@ -110,7 +111,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
-                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
+                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("commandsHeard", commandsHeard), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -50,13 +50,21 @@ public static class DictationCommands
     /// <summary>Applies the commands to every passage. A passage is split where a paragraph was asked for.</summary>
     public static (IReadOnlyList<Segment> Segments, int Applied) Apply(IReadOnlyList<Segment> segments)
     {
+        var (result, applied, _) = ApplyCounted(segments);
+        return (result, applied);
+    }
+
+    /// <summary>As <see cref="Apply(IReadOnlyList{Segment})"/>, also saying how often each command was heard (command names only, never the dictated words).</summary>
+    public static (IReadOnlyList<Segment> Segments, int Applied, IReadOnlyDictionary<string, int> Heard) ApplyCounted(IReadOnlyList<Segment> segments)
+    {
+        var heard = new SortedDictionary<string, int>();
         var result = new List<Segment>();
         var applied = 0;
         // The speech service splits speech into passages at pauses; in a dictation only "new paragraph" starts a new paragraph.
         var startNext = true;
         foreach (var s in segments)
         {
-            var (parts, n, breakAtStart, breakAtEnd) = Run(s);
+            var (parts, n, breakAtStart, breakAtEnd) = Run(s, heard);
             if (parts.Count > 0)
             {
                 result.Add(parts[0] with { NewParagraph = startNext || breakAtStart });
@@ -66,12 +74,12 @@ public static class DictationCommands
             else startNext = startNext || breakAtStart || breakAtEnd;
             applied += n;
         }
-        return (result, applied);
+        return (result, applied, heard);
     }
 
     public static (IReadOnlyList<Segment> Segments, int Applied) Apply(Segment s)
     {
-        var (parts, n, _, _) = Run(s);
+        var (parts, n, _, _) = Run(s, null);
         return (parts, n);
     }
 
@@ -87,10 +95,19 @@ public static class DictationCommands
         return result;
     }
 
-    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s)
+    /// <summary>Stands for a line break the speech service itself put in its text (it may turn "new paragraph" into one).</summary>
+    private const string LineBreak = "\uE000";
+    private static readonly Command SpeechServiceBreak = new([LineBreak], Kind.Break);
+    private static string NameOf(Command c) => c == SpeechServiceBreak ? "line break from the speech service" : string.Join(' ', c.Words);
+
+    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard)
     {
-        var raw = s.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var timed = s.Words is { } w && w.Count == raw.Length ? w : null;
+        var raw = s.Text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", $" {LineBreak} ")
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        // Word timings line up with the spoken words, not with line breaks.
+        var wordAt = new int[raw.Length];
+        for (int i = 0, n = 0; i < raw.Length; i++) wordAt[i] = raw[i] == LineBreak ? -1 : n++;
+        var timed = s.Words is { } w && w.Count == raw.Count(x => x != LineBreak) ? w : null;
         var paragraphs = new List<List<Token>> { new() };
         var applied = 0;
         var capitalNext = false;
@@ -98,7 +115,7 @@ public static class DictationCommands
         string? openNext = null;
         for (var i = 0; i < raw.Length;)
         {
-            var cmd = Commands.FirstOrDefault(c => Matches(raw, i, c.Words));
+            var cmd = raw[i] == LineBreak ? SpeechServiceBreak : Commands.FirstOrDefault(c => Matches(raw, i, c.Words));
             var current = paragraphs[^1];
             var prev = current.Count > 0 ? current[^1] : null;
             if (cmd is null)
@@ -106,12 +123,13 @@ public static class DictationCommands
                 var text = raw[i];
                 if (openNext is not null) { text = openNext + text; openNext = null; }
                 if (capitalNext) { text = Capitalise(text); capitalNext = false; }
-                current.Add(new Token(text, timed?[i], i));
+                current.Add(new Token(text, timed?[wordAt[i]], i));
                 i++;
                 continue;
             }
             applied++;
             i += cmd.Words.Length;
+            if (heard is not null) heard[NameOf(cmd)] = heard.TryGetValue(NameOf(cmd), out var c) ? c + 1 : 1;
             switch (cmd.Kind)
             {
                 case Kind.Break:
@@ -127,7 +145,8 @@ public static class DictationCommands
                     openNext = cmd.Symbol;
                     break;
                 case Kind.Close:
-                    if (prev is not null) prev.Text = prev.Text.TrimEnd(Trailing.ToCharArray()) + cmd.Symbol;
+                    // Punctuation before a closing quote or bracket stays inside it: "I'm going to," not "I'm going to".
+                    if (prev is not null) prev.Text += cmd.Symbol;
                     break;
             }
         }

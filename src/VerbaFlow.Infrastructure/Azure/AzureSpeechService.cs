@@ -128,7 +128,15 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         {
             foreach (var p in phrases.EnumerateArray())
             {
-                var text = p.TryGetProperty("text", out var t) ? t.GetString()?.Trim() ?? "" : "";
+                var said = p.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
+                var text = said.Trim();
+                // A dictation (no speakers asked for) keeps line breaks the service wrote, which may be how it writes "new paragraph".
+                if (!o.Diarize && said.Contains('\n'))
+                {
+                    if (text.Length == 0) { if (segments.Count > 0) segments[^1] = segments[^1] with { Text = segments[^1].Text + "\n" }; continue; }
+                    if (said.TrimStart(' ', '\t').StartsWith('\n') || said.TrimStart(' ', '\t').StartsWith('\r')) text = "\n" + text;
+                    if (said.TrimEnd(' ', '\t').EndsWith('\n') || said.TrimEnd(' ', '\t').EndsWith('\r')) text += "\n";
+                }
                 if (text.Length == 0) continue;
                 var no = p.TryGetProperty("speaker", out var s) && s.TryGetInt32(out var n) ? n : 1;
                 if (!speakers.TryGetValue(no, out var speaker))

@@ -21,6 +21,16 @@ public interface ISpeechService
     Task<TranscriptionResult> TranscribeAsync(Stream audio, TranscribeOptions options, CancellationToken ct);
 }
 
+/// <summary>
+/// Speech to text for a dictation that hands back the words as spoken, so commands such as "comma" and "new paragraph"
+/// reach VerbaFlow instead of being acted on (or dropped) by the speech service. One voice, one language.
+/// </summary>
+public interface IDictationSpeech
+{
+    string Name { get; }
+    Task<TranscriptionResult> TranscribeAsync(Stream audio, TranscribeOptions options, CancellationToken ct);
+}
+
 public sealed record AiOutputs(string Engine, string Language, string Summary, IReadOnlyList<string> ActionPoints,
     string Minutes, string ToneOfMeeting);
 

@@ -74,6 +74,10 @@ public sealed class Item
         SpeakerMethod = value?.ToLowerInvariant() is "windowed" or "azure" ? value.ToLowerInvariant() : null;
     /// <summary>Which audio the speech service hears when the conversion is run again: "original" (the untouched recording, no clean-up) or null for the cleaned-up copy.</summary>
     [JsonInclude] public string? SpeechAudio { get; private set; }
+    /// <summary>Which speech service a dictation uses when converted again: "fast", or null for word for word (spoken commands reach VerbaFlow).</summary>
+    [JsonInclude] public string? DictationService { get; private set; }
+    public void SetDictationService(string? value) =>
+        DictationService = value?.ToLowerInvariant() == "fast" ? "fast" : null;
     public void SetSpeechAudio(string? value) =>
         SpeechAudio = value?.ToLowerInvariant() == "original" ? "original" : null;
     [JsonInclude] public bool ObjectionFlag { get; private set; }

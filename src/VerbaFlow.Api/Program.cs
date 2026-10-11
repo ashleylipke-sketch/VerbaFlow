@@ -78,7 +78,13 @@ builder.Services.AddSingleton<VerbaFlow.Infrastructure.Services.FailureReporter>
 builder.Services.AddSingleton<MeetingService>();
 builder.Services.AddSingleton<VerbaFlow.Infrastructure.Export.ExportService>();
 builder.Services.AddSingleton<VocabularyService>();
-builder.Services.AddSingleton<ProcessingService>();
+// Dictations go word for word through the Speech SDK when Azure Speech and ffmpeg are both there.
+if (speech.IsConfigured && ffmpegFound)
+    builder.Services.AddSingleton<IDictationSpeech>(_ => new VerbaFlow.Infrastructure.Azure.AzureWordForWordSpeech(speech, ffmpegPath));
+builder.Services.AddSingleton<ProcessingService>(sp => new ProcessingService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<ISpeechService>(),
+    sp.GetRequiredService<IAiOutputService>(), sp.GetRequiredService<IAudioEnhancer>(), sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<VerbaFlow.Infrastructure.Services.FailureReporter>(), sp.GetService<ISpeakerDiarizer>(), sp.GetService<VerbaFlow.Infrastructure.Services.DiarizationOptions>(),
+    sp.GetService<IDictationSpeech>()));
 builder.Services.AddHostedService<ProcessingWorker>();
 
 var app = builder.Build();

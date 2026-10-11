@@ -22,7 +22,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
 {
     public const string EngineName = "azure-ai-speech-fast-transcription-2025-10-15";
     private const string ApiVersion = "2025-10-15";
-    private const double LowConfidenceBelow = 0.6;
+    internal const double LowConfidenceBelow = 0.6;
     /// <summary>When Azure says "too many requests" the quota resets per minute, so wait longer. A Retry-After header, if sent, is obeyed (capped).</summary>
     private static readonly TimeSpan[] BusyDelays = [TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(90)];
     private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(120);

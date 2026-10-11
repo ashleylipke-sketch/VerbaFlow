@@ -148,4 +148,63 @@ public class DictationTests
         Assert.Equal([true, true], t.Render().Select(r => r.Segment.NewParagraph == true));
         Assert.Equal("Two.", t.Render()[1].Segment.Text);
     }
+
+    private sealed class FakeWordForWord(string? heard, bool fail = false) : VerbaFlow.Core.Providers.IDictationSpeech
+    {
+        public string Name => "fake-word-for-word";
+        public int Calls;
+        public Task<VerbaFlow.Core.Providers.TranscriptionResult> TranscribeAsync(Stream audio, VerbaFlow.Core.Providers.TranscribeOptions o, CancellationToken ct)
+        {
+            Calls++;
+            if (fail) throw new InvalidOperationException("SDK said no");
+            var v = new VerbaFlow.Core.Transcripts.Speaker(Guid.NewGuid(), "Speaker 1");
+            return Task.FromResult(new VerbaFlow.Core.Providers.TranscriptionResult(Name, [v],
+                [new VerbaFlow.Core.Transcripts.Segment(Guid.NewGuid(), v.Id, "en", 0, 3000, heard!, 0.9, false)]));
+        }
+    }
+
+    private static ProcessingService With(Env env, VerbaFlow.Core.Providers.IDictationSpeech w) =>
+        new(env.Stores, env.Speech, env.Ai, new VerbaFlow.Infrastructure.StandIns.StandInAudioEnhancer(), env.Clock, env.Reporter, wordForWord: w);
+
+    [Fact]
+    public async Task A_dictation_goes_word_for_word_so_spoken_commands_reach_the_app()
+    {
+        using var env = new Env();
+        env.Speech.Heard = "the fast service lost it";
+        var w = new FakeWordForWord("Dear John comma new paragraph Thanks full stop");
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await With(env, w).ProcessAsync(id);
+        var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        Assert.Equal(["Dear John,", "Thanks."], t.Segments.Select(s => s.Text));
+        Assert.Contains(await env.Stores.Audit.ListAsync(id), a => a.Type == "processing.completed" && a.Details.Contains("\"speechServiceForDictation\":\"word for word\""));
+    }
+
+    [Fact]
+    public async Task If_word_for_word_fails_the_fast_service_is_used_and_the_history_says_so()
+    {
+        using var env = new Env();
+        env.Speech.Heard = "Fallback text full stop";
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await With(env, new FakeWordForWord(null, fail: true)).ProcessAsync(id);
+        Assert.Equal("Fallback text.", (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Segments.Single().Text);
+        var done = (await env.Stores.Audit.ListAsync(id)).Single(a => a.Type == "processing.completed").Details;
+        Assert.Contains("fast (word for word failed)", done);
+        Assert.Contains("VF-", done);
+        Assert.DoesNotContain("SDK said no", done);
+    }
+
+    [Fact]
+    public async Task Converting_again_can_choose_the_fast_service()
+    {
+        using var env = new Env();
+        env.Speech.Heard = "Fast text";
+        var w = new FakeWordForWord("Word text");
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        var p = With(env, w);
+        await p.ProcessAsync(id);
+        await env.Meeting.RerunAsync(env.Alice, id, null, dictationService: "fast");
+        await p.ProcessAsync(id);
+        Assert.Equal(1, w.Calls);
+        Assert.Equal("Fast text", (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Segments.Single().Text);
+    }
 }

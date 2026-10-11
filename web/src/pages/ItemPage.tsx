@@ -21,6 +21,7 @@ export default function ItemPage({ id }: { id: string }) {
   const [rerunMethod, setRerunMethod] = useState('');
   const [rerunAudio, setRerunAudio] = useState('');
   const [rerunLang, setRerunLang] = useState('');
+  const [rerunService, setRerunService] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
@@ -201,6 +202,10 @@ export default function ItemPage({ id }: { id: string }) {
                   <option value="windowed">Short-window (try this if voices are mixed up)</option>
                   <option value="azure">Speech service only (uses the number of speakers you pick)</option></select></label></>}
               <LanguagePicker value={rerunLang || d.spokenLanguages} onChange={setRerunLang} />
+              {dictate && <label className="note">Speech service{' '}
+                <select value={rerunService} onChange={e => setRerunService(e.target.value)}>
+                  <option value="">Word for word (hears your spoken commands; slower)</option>
+                  <option value="fast">Fast (quicker; may drop "new paragraph" and other commands)</option></select></label>}
               <label className="note">Audio to use{' '}
                 <select value={rerunAudio} onChange={e => setRerunAudio(e.target.value)}>
                   <option value="">Cleaned up (normal)</option>
@@ -209,7 +214,7 @@ export default function ItemPage({ id }: { id: string }) {
                 const edited = t.versions.length > 1;
                 if (edited && !confirm(`This replaces your ${t.versions.length - 1} correction${t.versions.length > 2 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;
                 setBusy(true);
-                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null, audio: rerunAudio || null, spokenLanguages: rerunLang || null })).finally(() => setBusy(false));
+                run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null, audio: rerunAudio || null, spokenLanguages: rerunLang || null, dictationService: dictate ? rerunService || null : null })).finally(() => setBusy(false));
               }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>

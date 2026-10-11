@@ -10,7 +10,8 @@ namespace VerbaFlow.Infrastructure.Services;
 /// language detection, then the AI outputs. Transcription uses the filtered copy; the original is never touched.
 /// </summary>
 public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiOutputService ai, IAudioEnhancer enhancer,
-    TimeProvider clock, FailureReporter reporter, ISpeakerDiarizer? diarizer = null, DiarizationOptions? diarization = null)
+    TimeProvider clock, FailureReporter reporter, ISpeakerDiarizer? diarizer = null, DiarizationOptions? diarization = null,
+    IDictationSpeech? wordForWord = null)
 {
 
     public async Task ProcessAsync(Guid itemId, CancellationToken ct = default)
@@ -40,8 +41,24 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             // A dictation is one person: no speaker separation, and spoken commands ("comma", "new paragraph") are applied.
             var dictation = item.Mode == ItemMode.Dictate;
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
-            var result = await speech.TranscribeAsync(copy, new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
-                azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases), ct);
+            var request = new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
+                azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases);
+            // A dictation in one language goes word for word, so spoken commands reach VerbaFlow; the fast service is the fallback.
+            string? dictationService = null;
+            TranscriptionResult? result = null;
+            if (dictation && wordForWord is not null && item.DictationService != "fast" && request.CandidateLanguages.Length == 1)
+            {
+                try { result = await wordForWord.TranscribeAsync(copy, request, ct); dictationService = "word for word"; }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var rep = await reporter.ReportAsync("dictation-speech", itemId, ex);
+                    notices.Add($"the word-for-word speech service could not be used, so the fast one was ({rep.Reference})");
+                    dictationService = "fast (word for word failed)";
+                    if (copy.CanSeek) copy.Position = 0;
+                }
+            }
+            else if (dictation) dictationService = wordForWord is null ? "fast (word for word not available)" : request.CandidateLanguages.Length != 1 ? "fast (more than one language)" : "fast (chosen)";
+            result ??= await speech.TranscribeAsync(copy, request, ct);
             int? commands = null; string? commandsHeard = null, paragraphsMade = null;
             if (dictation)
             {
@@ -49,7 +66,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 commands = applied;
                 commandsHeard = heard.Count == 0 ? "none" : string.Join(", ", heard.Select(h => $"{h.Key} {h.Value}"));
                 // Counts only, never words: how the speech service's passages became paragraphs, to see where a break went missing.
-                paragraphsMade = $"{result.Segments.Count} passages from the speech service, {segments.Count(x => x.NewParagraph == true)} paragraphs";
+                var made = segments.Count(x => x.NewParagraph == true);
+                paragraphsMade = $"{result.Segments.Count} passage{(result.Segments.Count == 1 ? "" : "s")} from the speech service, {made} paragraph{(made == 1 ? "" : "s")}";
                 // The one voice is the person who dictated.
                 var author = (await stores.Users.GetAsync(item.OwnerId))?.Name ?? "Author";
                 var voice = new Speaker(Guid.NewGuid(), author);
@@ -113,7 +131,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
-                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
+                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

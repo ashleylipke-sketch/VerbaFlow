@@ -32,8 +32,19 @@ public sealed class ThrowingSpeech : ISpeechService
 {
     public bool Fail { get; set; } = true;
     public TranscribeOptions? LastOptions { get; private set; }
-    public Task<VerbaFlow.Core.Providers.TranscriptionResult> TranscribeAsync(Stream audio, TranscribeOptions options, CancellationToken ct) =>
-        (LastOptions = options) is null ? throw new InvalidOperationException() : Fail ? throw new InvalidOperationException("speech service unavailable") : new StandInSpeechService().TranscribeAsync(audio, options, ct);
+    /// <summary>When set, the speech service "hears" exactly this text as one passage from one speaker.</summary>
+    public string? Heard { get; set; }
+    public Task<VerbaFlow.Core.Providers.TranscriptionResult> TranscribeAsync(Stream audio, TranscribeOptions options, CancellationToken ct)
+    {
+        if ((LastOptions = options) is null) throw new InvalidOperationException();
+        if (Fail) throw new InvalidOperationException("speech service unavailable");
+        if (Heard is null) return new StandInSpeechService().TranscribeAsync(audio, options, ct);
+        var speaker = new VerbaFlow.Core.Transcripts.Speaker(Guid.NewGuid(), "Speaker 1");
+        var words = Heard.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var seg = new VerbaFlow.Core.Transcripts.Segment(Guid.NewGuid(), speaker.Id, "en", 0, words.Length * 400, Heard, 0.9, false,
+            words.Select((w, i) => new VerbaFlow.Core.Transcripts.WordTiming(w, i * 400, i * 400 + 350)).ToList());
+        return Task.FromResult(new VerbaFlow.Core.Providers.TranscriptionResult("test-speech", [speaker], [seg]));
+    }
 }
 
 /// <summary>A fresh database, media folder and set of services per test.</summary>
@@ -73,6 +84,9 @@ public sealed class Env : IDisposable
     public RecordingUpload Recording(string name = "Board meeting", bool consent = true, string audio = "pretend this is audio",
         IReadOnlyList<MarkerInput>? markers = null) =>
         new(Audio(audio), "meeting.webm", "audio/webm", name, 60_000, "en", consent, markers ?? []);
+
+    public RecordingUpload Dictation(string name = "Letter to the client") =>
+        new(Audio(), "dictation.webm", "audio/webm", name, 30_000, "en", false, [], "en-GB", null, ItemMode.Dictate);
 
     public ImportUpload Import(string fileName = "call.mp4", bool rights = true, string content = "pretend this is video") =>
         new(Audio(content), fileName, "video/mp4", null, 0, "en", rights, "supplied by client");

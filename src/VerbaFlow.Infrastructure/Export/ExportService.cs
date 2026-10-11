@@ -46,7 +46,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         var chosen = ExportParts.Parse(parts);
         if (note is { Length: > 2000 }) throw new DomainException("The message is too long. Keep it under 2,000 characters.");
         var (file, record, item) = await CreateAsync(actor, id, format, "email", chosen);
-        var text = $"Please find attached the minutes of \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
+        var text = $"Please find attached {What(item)} \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
             + $"Sent by {actor.Name} using VerbaFlow.\r\n"
             + (string.IsNullOrWhiteSpace(note) ? "" : $"\r\nMessage from {actor.Name}:\r\n{note.Trim()}\r\n")
             + "\r\nTo confirm this file has not been changed, the sender can check it with \"Check an exported file\" in VerbaFlow.\r\n";
@@ -79,14 +79,16 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     public async Task<ExportFile> DraftAsync(User actor, Guid id, string format, string? parts = null)
     {
         var (file, record, item) = await CreateAsync(actor, id, format, "email-draft", ExportParts.Parse(parts));
-        var text = $"Please find attached the minutes of \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
+        var text = $"Please find attached {What(item)} \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
             + "\r\nTo confirm the file has not been changed, it can be checked with \"Check an exported file\" in VerbaFlow.\r\n";
         var eml = EmlWriter.Write(new EmailMessage([], Subject(item, record), text, [new EmailAttachment(file.FileName, file.ContentType, file.Content)]), draft: true);
         return new ExportFile(eml, "message/rfc822", Path.ChangeExtension(file.FileName, ".eml"));
     }
 
+    private static string What(Item item) => item.Mode == ItemMode.Dictate ? "the dictation" : "the minutes of";
+
     private static string Subject(Item item, ExportRecord record) =>
-        $"Meeting minutes: {item.Name}" + (record.Marker == "Approved" ? "" : $" ({record.Marker.ToUpperInvariant()})");
+        $"{(item.Mode == ItemMode.Dictate ? "Dictation" : "Meeting minutes")}: {item.Name}" + (record.Marker == "Approved" ? "" : $" ({record.Marker.ToUpperInvariant()})");
 
     /// <summary>Addresses separated by commas, semicolons, spaces or new lines. Each must be a plain, valid email address.</summary>
     public static IReadOnlyList<string> ParseRecipients(string? text)
@@ -108,6 +110,9 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             _ => throw new DomainException("Choose Word or PDF.") };
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, Capability.Export);
+        // A dictation is just its text: there is no summary, minutes or tone, and no speakers or times to show.
+        var dictation = item.Mode == ItemMode.Dictate;
+        if (dictation) parts = [ExportParts.Transcript];
         if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
         var transcript = await stores.Transcripts.GetAsync(id) ?? throw new DomainException("There is no transcript to export yet.");
         var outputs = (await stores.Outputs.GetAsync(id))?.Outputs;
@@ -136,7 +141,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         details.Add(("Version", $"{item.VersionNo} (transcript version {transcript.Current.No})"));
         details.Add(("Exported", $"{When(now)} by {actor.Name}"));
         var everything = parts.Count == ExportParts.All.Count;
-        if (!everything) details.Add(("Contains", string.Join(", ", parts.Select(ExportParts.NameOf))));
+        if (!everything && !dictation) details.Add(("Contains", string.Join(", ", parts.Select(ExportParts.NameOf))));
         bool Has(string part) => parts.Contains(part);
 
         var doc = new MinutesDocument(
@@ -146,9 +151,11 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             Has(ExportParts.Minutes) ? (outputs?.Minutes ?? "").Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0).ToList() : [],
             Has(ExportParts.Tone) ? outputs?.ToneOfMeeting : null,
             Has(ExportParts.Transcript)
-                ? transcript.Render().Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
+                ? transcript.Render().Select(r => dictation ? new MinutesPassage("", "", r.Segment.Text)
+                    : new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
                 : [],
-            $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}");
+            $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}",
+            dictation ? "Text" : "Transcript");
 
         var bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();

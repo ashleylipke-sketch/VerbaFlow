@@ -37,13 +37,26 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await using var copy = enhanced.Audio;
             // Azure's own speaker labels, with the speaker limit it was given. "azure-split" was a short-lived trial (removed); items that still carry it run as "azure".
             var azureOnly = item.SpeakerMethod is "azure" or "azure-split";
+            // A dictation is one person: no speaker separation, and spoken commands ("comma", "new paragraph") are applied.
+            var dictation = item.Mode == ItemMode.Dictate;
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
-            var result = await speech.TranscribeAsync(copy, new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','), azureOnly ? item.NumSpeakers ?? 8 : 8, true, phrases), ct);
+            var result = await speech.TranscribeAsync(copy, new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
+                azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases), ct);
+            int? commands = null;
+            if (dictation)
+            {
+                var (segments, applied) = DictationCommands.Apply(result.Segments);
+                commands = applied;
+                // The one voice is the person who dictated.
+                var author = (await stores.Users.GetAsync(item.OwnerId))?.Name ?? "Author";
+                var voice = new Speaker(Guid.NewGuid(), author);
+                result = result with { Speakers = [voice], Segments = segments.Select(x => x with { SpeakerId = voice.Id }).ToList() };
+            }
 
             // Azure's own speaker labels can merge or split voices. When a local diarizer is available, its turns decide who spoke each word.
             var separation = "azure";
             int? localTurns = null, localSpeakers = null, mergedSmall = null; string? voiceSeconds = null;
-            if (diarizer is not null && copy.CanSeek && !azureOnly)
+            if (diarizer is not null && copy.CanSeek && !azureOnly && !dictation)
             {
                 try
                 {
@@ -76,7 +89,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             var transcript = Transcript.CreateMachineV1(itemId, result.Engine, result.Speakers, result.Segments, clock.GetUtcNow());
             await stores.Transcripts.UpsertAsync(itemId, transcript);
             AiOutputs? outputs = null;
-            try
+            if (!dictation) try
             {
                 outputs = await ai.GenerateAsync(transcript.Render(), item.OutputLanguage, ct);
                 await stores.Outputs.UpsertAsync(itemId, new StoredOutputs(itemId, outputs));
@@ -95,9 +108,9 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
-                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
-                    ("vocabularyTerms", phrases.Count), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
+                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

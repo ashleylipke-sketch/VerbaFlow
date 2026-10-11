@@ -13,7 +13,7 @@ export const exportParts = [
 type Format = 'docx' | 'pdf';
 
 /** The Export button at the top of a meeting: opens a menu to pick what goes in, then download, preview or email it. */
-export function ExportMenu({ id, approved, onDone }: { id: string; approved: boolean; onDone: () => void }) {
+export function ExportMenu({ id, approved, dictate = false, onDone }: { id: string; approved: boolean; dictate?: boolean; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [parts, setParts] = useState<string[]>(exportParts.map(p => p.key));
   const [busy, setBusy] = useState(false);
@@ -87,12 +87,12 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
     <div className="menu" ref={box}>
       <button className="primary" aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(o => !o)}>Export ▾</button>
       {open && <div className="menu-panel" role="dialog" aria-label="Export">
-        <fieldset>
+        {dictate ? <p className="note">Exports the text of the dictation, with its details and {approved ? 'Approved' : 'Draft'} marker.</p> : <><fieldset>
           <legend>Include</legend>
           {exportParts.map(p => <label key={p.key} className="check">
             <input type="checkbox" checked={parts.includes(p.key)} onChange={() => toggle(p.key)} /> {p.label}</label>)}
         </fieldset>
-        <p className="note">The title, details and {approved ? 'Approved' : 'Draft'} marker are always included. Each file's fingerprint is recorded, so a copy can be checked later.</p>
+        <p className="note">The title, details and {approved ? 'Approved' : 'Draft'} marker are always included. Each file's fingerprint is recorded, so a copy can be checked later.</p></>}
         {none && <p className="error">Tick at least one part.</p>}
         <div className="menu-items">
           <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'docx', parts))}>Download Word</button>
@@ -103,7 +103,7 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
           <button aria-expanded={panel === 'check'} onClick={() => setPanel(p => p === 'check' ? '' : 'check')}>Check an exported file…</button>
         </div>
         {panel === 'email' && !fromApp && <div className="menu-sub">
-          <p className="note">Opens a new email in your own email program, from your own account, with the minutes attached. Choose the people there.</p>
+          <p className="note">Opens a new email in your own email program, from your own account, with the {dictate ? 'dictation' : 'minutes'} attached. Choose the people there.</p>
           <div className="actions">{formatPicker}
             <button disabled={busy || none} onClick={() => act(async () => {
               saveFile(await api.exportFile(id, format, parts, 'draft'));

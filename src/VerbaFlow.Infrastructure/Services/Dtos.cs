@@ -7,10 +7,12 @@ public sealed record PlatformPolicy(long MaxUploadBytes = 500L * 1024 * 1024, bo
 public sealed record MarkerInput(MarkerType Type, int OffsetMs, string? Note);
 
 public sealed record RecordingUpload(Stream Audio, string FileName, string ContentType, string Name, int LengthMs,
-    string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null, int? NumSpeakers = null);
+    string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null, int? NumSpeakers = null,
+    ItemMode Mode = ItemMode.Meeting);
 
 public sealed record ImportUpload(Stream File, string FileName, string ContentType, string? Name, int LengthMs,
-    string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null, int? NumSpeakers = null);
+    string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null, int? NumSpeakers = null,
+    ItemMode Mode = ItemMode.Meeting);
 
 public sealed record RetryRequest(string? SpokenLanguages);
 public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null, string? Audio = null);
@@ -18,7 +20,7 @@ public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = nu
 public sealed record DetailsUpdate(string? Name, string? ClientReference, string? Description, Priority? Priority,
     DateOnly? DueDate, bool ClearDueDate);
 
-public sealed record ListQuery(IReadOnlySet<ItemStatus>? Statuses, bool? SelfAssigned, string? Search);
+public sealed record ListQuery(IReadOnlySet<ItemStatus>? Statuses, bool? SelfAssigned, string? Search, ItemMode? Mode = null);
 
 public sealed record ItemRow(
     Guid Id, string Name, string Priority, string Status, ItemStatus StatusCode, int LengthMs, string? ClientReference,
@@ -32,7 +34,8 @@ public sealed record ItemDetail(
     string? ExternalSourceNote, string? OriginalSha256, IReadOnlyList<MarkerView> Markers, bool CanEditTranscript,
     bool CanEditDetails, bool CanDownloadAudio, string Role, string OutputLanguage, DateTimeOffset? ApprovedAt,
     string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en",
-    DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null, bool CanExport = false);
+    DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null, bool CanExport = false,
+    string Mode = "Meeting");
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 

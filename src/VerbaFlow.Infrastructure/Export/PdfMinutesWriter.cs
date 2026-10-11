@@ -70,14 +70,17 @@ public static class PdfMinutesWriter
         }
         if (!string.IsNullOrWhiteSpace(d.Tone)) { Heading(section, "Tone of the meeting"); Text(section, d.Tone); }
 
-        if (d.Transcript.Count > 0) Heading(section, "Transcript");
+        if (d.Transcript.Count > 0) Heading(section, d.TranscriptHeading);
         foreach (var p in d.Transcript)
         {
             var para = section.AddParagraph();
             para.Format.SpaceAfter = Unit.FromPoint(6);
-            var time = para.AddFormattedText(p.Time + "  ");
-            time.Font.Size = 8; time.Font.Color = Colors.Gray;
-            para.AddFormattedText(Clean(p.Speaker) + ": ", TextFormat.Bold);
+            if (p.Time.Length > 0)
+            {
+                var time = para.AddFormattedText(p.Time + "  ");
+                time.Font.Size = 8; time.Font.Color = Colors.Gray;
+            }
+            if (p.Speaker.Length > 0) para.AddFormattedText(Clean(p.Speaker) + ": ", TextFormat.Bold);
             para.AddText(Clean(p.Text));
         }
 

@@ -60,3 +60,4 @@ del { text-decoration:line-through; color:var(--del); }
 .menu-sub { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
 .menu-sub .field input, .menu-sub textarea { width:100%; box-sizing:border-box; }
 @media (max-width: 600px) { .menu-panel { position:fixed; left:16px; right:16px; top:auto; bottom:16px; width:auto; max-height:80vh; overflow:auto; } }
+.btn.primary { background:var(--brand); color:var(--brand-ink); border-color:var(--brand); }

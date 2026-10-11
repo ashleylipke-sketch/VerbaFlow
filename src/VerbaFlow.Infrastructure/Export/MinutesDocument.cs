@@ -8,6 +8,7 @@ namespace VerbaFlow.Infrastructure.Export;
 /// <param name="MarkerLine">The line under the marker, for example "Approved by Carol Admin on 11 October 2026 17:22".</param>
 /// <param name="MinutesLines">The minutes as lines: a heading ends with a colon, a bullet starts with "- ".</param>
 /// <param name="Footer">Printed at the foot of every page.</param>
+/// <param name="TranscriptHeading">"Transcript" for a meeting, "Text" for a dictation (whose passages have no time or speaker).</param>
 public sealed record MinutesDocument(
     string Title,
     string Marker,
@@ -18,7 +19,8 @@ public sealed record MinutesDocument(
     IReadOnlyList<string> MinutesLines,
     string? Tone,
     IReadOnlyList<MinutesPassage> Transcript,
-    string Footer);
+    string Footer,
+    string TranscriptHeading = "Transcript");
 
 public sealed record MinutesPassage(string Time, string Speaker, string Text);
 

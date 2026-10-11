@@ -11,6 +11,7 @@ export type Detail = {
   approvedAt: string | null; approvedBy: string | null; chainId: string;
   chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string; spokenLanguages: string;
   deletedAt: string | null; deletedBy: string | null; deleteReason: string | null; canExport: boolean;
+  mode: 'Dictate' | 'Meeting';
 };
 export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null };
 export type Transcript = {
@@ -39,6 +40,9 @@ export type Term = { id: string; text: string; note: string | null; addedBy: str
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
 
 let devUser = localStorage.getItem('devUser') ?? '';
+/** Speak's modes that are built so far. */
+export type Mode = 'dictate' | 'meeting';
+
 export const getUser = () => devUser;
 export const setUser = (u: string) => { devUser = u; localStorage.setItem('devUser', u); };
 
@@ -71,7 +75,7 @@ export const api = {
   languages: () => call<{ max: number; languages: Lang[] }>('GET', '/languages'),
   me: () => call<UserView>('GET', '/me'),
   supportErrors: (reference?: string) => call<SupportError[]>('GET', `/support/errors${reference ? `?reference=${encodeURIComponent(reference)}` : ''}`),
-  items: () => call<Row[]>('GET', '/items'),
+  items: (mode: Mode = 'meeting') => call<Row[]>('GET', `/items?mode=${mode}`),
   item: (id: string) => call<Detail>('GET', `/items/${id}`),
   transcript: (id: string, v?: number) => call<Transcript>('GET', `/items/${id}/transcript${v ? `?version=${v}` : ''}`),
   outputs: (id: string) => call<Outputs | null>('GET', `/items/${id}/outputs`),

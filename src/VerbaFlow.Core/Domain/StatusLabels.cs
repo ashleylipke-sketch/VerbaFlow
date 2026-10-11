@@ -24,7 +24,7 @@ public static class StatusLabels
             ItemStatus.WithAssignee, ItemStatus.Completed, ItemStatus.ConversionFailed, ItemStatus.Purged],
         ItemMode.Speech => [ItemStatus.Draft, ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee,
             ItemStatus.WithAssignee, ItemStatus.Completed, ItemStatus.ConversionFailed],
-        _ => [ItemStatus.Draft, ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee, ItemStatus.WithAssignee,
-            ItemStatus.Completed, ItemStatus.ConversionFailed]
+        _ => [ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee, ItemStatus.WithAssignee,
+            ItemStatus.Completed, ItemStatus.ConversionFailed, ItemStatus.Purged]
     };
 }

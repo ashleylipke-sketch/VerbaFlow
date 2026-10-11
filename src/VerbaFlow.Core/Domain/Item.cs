@@ -79,25 +79,29 @@ public sealed class Item
     [JsonInclude] public List<TimelineMarker> Markers { get; private set; } = [];
 
     /// <summary>The status where the author/importer reviews and approves.</summary>
-    [JsonIgnore] public ItemStatus Home => Source == SourceKind.Imported ? ItemStatus.WithImporter : ItemStatus.WithAuthor;
+    /// <remarks>An imported dictation (from a dictaphone, say) is still the author's own: it goes to With Author.</remarks>
+    [JsonIgnore] public ItemStatus Home => Source == SourceKind.Imported && Mode != ItemMode.Dictate ? ItemStatus.WithImporter : ItemStatus.WithAuthor;
     [JsonIgnore] public bool IsLocked => Status is ItemStatus.Completed or ItemStatus.Purged;
     [JsonIgnore] public bool IsSelfAssigned => AssignedUserId is { } a && a == OwnerId;
 
     public static Item CreateRecorded(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage,
-        DateTimeOffset now) => Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Recorded, null, null);
+        DateTimeOffset now, ItemMode mode = ItemMode.Meeting) =>
+        Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Recorded, null, null, mode);
 
     public static Item CreateImported(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage,
-        DateTimeOffset now, string originalFileName, string? sourceNote) =>
-        Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Imported, originalFileName, sourceNote);
+        DateTimeOffset now, string originalFileName, string? sourceNote, ItemMode mode = ItemMode.Meeting) =>
+        Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Imported, originalFileName, sourceNote, mode);
 
     private static Item Create(Guid id, Guid chainId, int version, Guid? supersedes, Guid ownerId, string name,
-        int lengthMs, string outputLanguage, DateTimeOffset now, SourceKind source, string? fileName, string? note)
+        int lengthMs, string outputLanguage, DateTimeOffset now, SourceKind source, string? fileName, string? note,
+        ItemMode mode = ItemMode.Meeting)
     {
+        if (mode == ItemMode.Speech) throw new DomainException("Speech mode is not available yet.");
         if (string.IsNullOrWhiteSpace(name)) throw new DomainException("A name is required.");
         var item = new Item
         {
             Id = id, ChainId = chainId, VersionNo = version, SupersedesItemId = supersedes, MediaSourceItemId = id,
-            Mode = ItemMode.Meeting, Source = source, OwnerId = ownerId, Name = name.Trim(), LengthMs = lengthMs,
+            Mode = mode, Source = source, OwnerId = ownerId, Name = name.Trim(), LengthMs = lengthMs,
             OutputLanguage = outputLanguage, CreatedAt = now, OriginalFileName = fileName, ExternalSourceNote = note,
             Processing = ProcessingState.Running
         };
@@ -219,7 +223,7 @@ public sealed class Item
     {
         if (Status != ItemStatus.Completed) throw new DomainException("Only completed items can be reopened.");
         var next = Create(newId, ChainId, VersionNo + 1, Id, OwnerId, Name, LengthMs, OutputLanguage, now, Source,
-            OriginalFileName, ExternalSourceNote);
+            OriginalFileName, ExternalSourceNote, Mode);
         next.MediaSourceItemId = MediaSourceItemId;
         next.SpokenLanguages = SpokenLanguages;
         next.ClientReference = ClientReference;

@@ -55,12 +55,12 @@ public static class DocxMinutesWriter
             }
             if (!string.IsNullOrWhiteSpace(d.Tone)) { body.Append(Heading("Tone of the meeting")); body.Append(Para(d.Tone)); }
 
-            if (d.Transcript.Count > 0) body.Append(Heading("Transcript"));
+            if (d.Transcript.Count > 0) body.Append(Heading(d.TranscriptHeading));
             foreach (var p in d.Transcript)
             {
                 var para = new Paragraph(new ParagraphProperties(new SpacingBetweenLines { After = "120" }));
-                para.Append(Run(p.Time + "  ", size: 18, color: "666666"));
-                para.Append(Run(p.Speaker + ": ", bold: true));
+                if (p.Time.Length > 0) para.Append(Run(p.Time + "  ", size: 18, color: "666666"));
+                if (p.Speaker.Length > 0) para.Append(Run(p.Speaker + ": ", bold: true));
                 para.Append(Run(p.Text));
                 body.Append(para);
             }

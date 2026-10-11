@@ -87,14 +87,16 @@ export default function ItemPage({ id }: { id: string }) {
   if (!d) return <div className="card">{error ? <span className="error">{error}</span> : 'Loading…'}</div>;
   const r = d.row, acts = new Set(r.actions);
   const assignee = users.filter(u => !u.isSupport);
+  // A dictation is one person's text: no speakers to name, no summary, and Export gives the text alone.
+  const dictate = d.mode === 'Dictate';
 
   return (
     <>
-      <p><a href="#/">← Back to Meeting</a></p>
+      <p>{dictate ? <a href="#/dictate">← Back to Dictate</a> : <a href="#/">← Back to Meeting</a>}</p>
       <div className="card">
         <div className="item-head">
           <h2>{r.name} {r.tags.map(x => <span key={x} className="tag">{x}</span>)}</h2>
-          {d.canExport && t && <ExportMenu id={id} approved={approved} onDone={load} />}
+          {d.canExport && t && <ExportMenu id={id} approved={approved} dictate={dictate} onDone={load} />}
         </div>
         <div className="note">
           <span className="pill">{r.status}</span> · {fmtLen(r.lengthMs)} · Owner {d.owner} · You are: {d.role} · Created {fmtDate(r.createdOn)}
@@ -150,9 +152,9 @@ export default function ItemPage({ id }: { id: string }) {
       {audioUrl && <div className="player"><audio ref={player} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} /></div>}
       <div className="split">
         <div className="card">
-          <h2>Transcript {t && <span className="note">version {t.versionNo} · {t.engine}</span>}</h2>
+          <h2>{dictate ? 'Text' : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}</h2>
           {!t && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No transcript.'}</p>}
-          {t && <p className="note">Speakers: {t.speakers.map(s => (
+          {t && !dictate && <p className="note">Speakers: {t.speakers.map(s => (
             <span key={s.id} style={{ marginRight: 10 }}>{s.name}{d.canEditTranscript && <> <button onClick={() => { const n = prompt('Rename speaker', s.name); if (n?.trim()) run(() => api.put(`/items/${id}/speakers/${s.id}`, { name: n.trim() })); }}>Rename</button></>}</span>))}</p>}
           {t && editedCount > 0 && <div className="changes-bar">
             <label><input type="checkbox" checked={showChanges} onChange={e => setChangesChoice(e.target.checked)} /> Show tracked changes</label>
@@ -161,13 +163,13 @@ export default function ItemPage({ id }: { id: string }) {
               {approved && ' · approved version'}</span></div>}
           {audioUrl && t && <p className="note">Press play to follow along. Click any word to jump the audio to it.</p>}
           {t?.segments.map((s, i) => <SegmentRow key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
-            playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript}
+            playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript} hideSpeaker={dictate}
             showChanges={showChanges}
             onSave={text => run(() => api.put(`/items/${id}/segments/${s.id}`, { text }))} />)}
           {!d.canEditTranscript && t && <p className="note">This transcript is read-only for you right now.</p>}
         </div>
         <div>
-          {t && (o || d.canEditTranscript) && <div className="card"><h2>Summary</h2>
+          {t && !dictate && (o || d.canEditTranscript) && <div className="card"><h2>Summary</h2>
             {!o && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No summary yet.'}</p>}
             {o && <>
               <p>{o.summary}</p>
@@ -180,10 +182,11 @@ export default function ItemPage({ id }: { id: string }) {
               <button disabled={busy} onClick={() => { setBusy(true); run(() => api.post(`/items/${id}/outputs/regenerate`)).finally(() => setBusy(false)); }}>
                 {busy ? 'Writing…' : o ? 'Regenerate from current transcript' : 'Create summary'}</button></div>}
           </div>}
-          {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>Speakers or language look wrong?</h2>
-            <p className="note">Run the conversion again on the same recording, for example with a different language. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>
+          {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>{dictate ? 'Language looks wrong?' : 'Speakers or language look wrong?'}</h2>
+            {dictate ? <p className="note">Convert the dictation again on the same recording, for example with a different language.{t.versions.length > 1 && <> <strong>The text has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and converting again replaces them.</strong></>} It is not possible once the dictation has been approved.</p>
+            : <p className="note">Run the conversion again on the same recording, for example with a different language. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>}
             <div className="actions">
-              <label className="note">Number of speakers{' '}
+              {!dictate && <><label className="note">Number of speakers{' '}
                 <select value={rerunSpeakers} onChange={e => setRerunSpeakers(e.target.value)}>
                   <option value="">Work it out automatically</option>
                   {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
@@ -191,7 +194,7 @@ export default function ItemPage({ id }: { id: string }) {
                 <select value={rerunMethod} onChange={e => setRerunMethod(e.target.value)}>
                   <option value="">Standard</option>
                   <option value="windowed">Short-window (try this if voices are mixed up)</option>
-                  <option value="azure">Speech service only (uses the number of speakers you pick)</option></select></label>
+                  <option value="azure">Speech service only (uses the number of speakers you pick)</option></select></label></>}
               <LanguagePicker value={rerunLang || d.spokenLanguages} onChange={setRerunLang} />
               <label className="note">Audio to use{' '}
                 <select value={rerunAudio} onChange={e => setRerunAudio(e.target.value)}>
@@ -220,10 +223,10 @@ export default function ItemPage({ id }: { id: string }) {
 
 type WordT = { text: string; startMs: number; endMs: number };
 
-function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges }: {
+function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, hideSpeaker }: {
   s: Transcript['segments'][number]; words: WordT[]; active: boolean; activeWord: number;
   playing: boolean; canSeek: boolean; onSeek: (ms: number) => void; editable: boolean; onSave: (t: string) => void;
-  showChanges: boolean;
+  showChanges: boolean; hideSpeaker?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(s.text);
@@ -251,7 +254,7 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
 
   return (
     <div ref={row} className={'seg' + (s.lowConfidence ? ' low' : '') + (active ? ' reading' : '') + (marked ? ' changed' : '')} aria-current={active ? 'true' : undefined}>
-      <div className="who">{s.speaker}
+      <div className="who">{!hideSpeaker && s.speaker}
         <div className="t">{canSeek ? <button className="link" onClick={() => onSeek(s.startMs)} title="Play from here">{fmtLen(s.startMs)}</button> : fmtLen(s.startMs)} · {s.language}
           {marked && <> · <span className="tag">Edited</span></>}</div></div>
       <div>

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, fmtLen } from '../api';
+import { api, fmtLen, type Mode } from '../api';
+import { dictationCommands, dictationCommandsAf } from '../dictation';
 import LanguagePicker from '../LanguagePicker';
 import { summaryLanguage } from '../languages';
 
 type Marker = { type: 'Objection' | 'Pause' | 'Resume'; offsetMs: number; note: string | null };
 
-export default function Record() {
+export default function Record({ mode }: { mode: Mode }) {
+  const dictate = mode === 'dictate';
   const [consent, setConsent] = useState(false);
   const [name, setName] = useState('');
   const [state, setState] = useState<'idle' | 'recording' | 'paused' | 'stopped'>('idle');
@@ -77,7 +79,9 @@ export default function Record() {
     setMarkers(m => [...m, { type: 'Pause', offsetMs: at(), note: reason.trim() }]);
     rec.current?.pause(); paused.current = true; setState('paused'); setPausing(false); setReason('');
   };
-  const resume = () => { setMarkers(m => [...m, { type: 'Resume', offsetMs: at(), note: null }]); rec.current?.resume(); paused.current = false; setState('recording'); };
+  // A dictation pauses freely: there is no one else in the room, so no reason is asked for or recorded.
+  const pauseDictation = () => { rec.current?.pause(); paused.current = true; setState('paused'); };
+  const resume = () => { if (!dictate) setMarkers(m => [...m, { type: 'Resume', offsetMs: at(), note: null }]); rec.current?.resume(); paused.current = false; setState('recording'); };
   const stop = () => {
     rec.current?.stop(); stream.current?.getTracks().forEach(t => t.stop()); cancelAnimationFrame(raf.current); setQuiet(false); setState('stopped');
   };
@@ -104,7 +108,8 @@ export default function Record() {
       await new Promise(r => setTimeout(r, 100));
       const f = new FormData();
       f.append('audio', blob.current!, 'recording.webm');
-      f.append('name', name || `Meeting ${new Date().toLocaleString('en-GB')}`);
+      f.append('name', name || `${dictate ? 'Dictation' : 'Meeting'} ${new Date().toLocaleString('en-GB')}`);
+      f.append('mode', mode);
       f.append('lengthMs', String(Math.max(1, Math.round(activeMs.current))));
       f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken); if (speakers) f.append('numSpeakers', speakers); f.append('consentNoticeGiven', String(consent)); f.append('markers', JSON.stringify(markers));
       const { id } = await api.form('/items/recordings', f);
@@ -114,8 +119,13 @@ export default function Record() {
 
   return (
     <div className="card">
-      <h2>Record a meeting</h2>
-      {state === 'idle' && <>
+      <h2>{dictate ? 'New dictation' : 'Record a meeting'}</h2>
+      {state === 'idle' && dictate && <>
+        <div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Letter to Mr Smith" /></label></div>
+        <LanguagePicker value={spoken} onChange={setSpoken} />
+        <CommandHelp />
+      </>}
+      {state === 'idle' && !dictate && <>
         <div className="banner"><strong>Before you start:</strong> tell everyone present that the meeting is being recorded and transcribed.</div>
         <label className="row"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />
           <span>I have told everyone present that this meeting is being recorded.</span></label>
@@ -125,15 +135,18 @@ export default function Record() {
           <select value={speakers} onChange={e => setSpeakers(e.target.value)}>
             <option value="">Not sure</option>{[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
           <div className="note">If you know how many people will speak, say so. It helps the app tell them apart.</div></div>
-        <button className="primary" disabled={!consent} onClick={start}>Start recording</button>
       </>}
+      {state === 'idle' && <button className="primary" disabled={!dictate && !consent} onClick={start}>{dictate ? 'Start dictating' : 'Start recording'}</button>}
       {state !== 'idle' && <>
         <div className="timer" aria-live="off">{fmtLen(elapsed)} {state === 'paused' && <span className="tag warn">Paused</span>}</div>
+        {dictate && state !== 'stopped' && <details className="note"><summary>Spoken commands</summary><CommandHelp /></details>}
         {state !== 'stopped' && <>
           <canvas ref={wave} className="wave" role="img" aria-label="Live sound wave from your microphone" />
           {quiet && <div className="banner" role="status">We cannot hear anything yet. Check that the right microphone is selected and that it is not muted.</div>}</>}
         <div className="actions" style={{ margin: '12px 0' }}>
-          {state === 'recording' && <><button onClick={() => setPausing(true)} disabled={pausing}>Pause</button><button onClick={objection}>Log objection</button><button className="danger" onClick={stop}>Stop</button></>}
+          {state === 'recording' && (dictate
+            ? <><button onClick={pauseDictation}>Pause</button><button className="danger" onClick={stop}>Stop</button></>
+            : <><button onClick={() => setPausing(true)} disabled={pausing}>Pause</button><button onClick={objection}>Log objection</button><button className="danger" onClick={stop}>Stop</button></>)}
           {state === 'paused' && <><button className="primary" onClick={resume}>Resume</button><button className="danger" onClick={stop}>Stop</button></>}
         </div>
         {pausing && <div className="field"><label>Why are you pausing? (required, kept in the record)<br />
@@ -141,16 +154,27 @@ export default function Record() {
           <div className="actions"><button className="primary" disabled={!reason.trim()} onClick={confirmPause}>Pause recording</button><button onClick={() => setPausing(false)}>Cancel</button></div></div>}
         {markers.length > 0 && <ul className="note">{markers.map((m, i) => <li key={i}>{fmtLen(m.offsetMs)} — {m.type}{m.note ? `: ${m.note}` : ''}</li>)}</ul>}
         {state === 'stopped' && <>
-          <p className="note">Recording stopped. It is not saved yet. Listen back if you like, then save it or discard it.</p>
+          <p className="note">{dictate ? 'Dictation stopped. It is not saved yet. Listen back if you like, then send it to be typed or discard it.' : 'Recording stopped. It is not saved yet. Listen back if you like, then save it or discard it.'}</p>
           {previewUrl && <audio controls src={previewUrl} style={{ width: '100%', marginBottom: 12 }} />}
           {!confirmDiscard && <div className="actions">
-            <button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save recording'}</button>
+            <button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : dictate ? 'Save and convert to text' : 'Save recording'}</button>
             <button className="danger" disabled={busy} onClick={() => setConfirmDiscard(true)}>Discard recording</button></div>}
           {confirmDiscard && <div className="banner"><strong>Discard this recording?</strong> Nothing has been saved, so it cannot be recovered.
             <div className="actions" style={{ marginTop: 8 }}><button className="danger" onClick={discard}>Yes, discard it</button><button onClick={() => setConfirmDiscard(false)}>No, keep it</button></div></div>}
         </>}
       </>}
       {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+
+/** The spoken commands, shown before and during a dictation. */
+function CommandHelp() {
+  return (
+    <div className="note" style={{ margin: '8px 0 12px' }}>
+      <strong>Say these while dictating</strong> and they are turned into punctuation:
+      <ul style={{ margin: '4px 0' }}>{dictationCommands.map(([say, gives]) => <li key={say}>"{say}" gives {gives}</li>)}</ul>
+      In Afrikaans: {dictationCommandsAf}.
     </div>
   );
 }

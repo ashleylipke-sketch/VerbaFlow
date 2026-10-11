@@ -10,6 +10,10 @@ public static class Endpoints
     public sealed record AssignBody(Guid? UserId, string? Reason);
     public sealed record ReasonBody(string Reason);
     public sealed record TextBody(string Text);
+    /// <summary>"dictate" or "meeting" (the default when nothing is given).</summary>
+    private static ItemMode ModeOf(string? mode) => string.IsNullOrWhiteSpace(mode) ? ItemMode.Meeting
+        : mode.Trim().ToLowerInvariant() switch { "dictate" => ItemMode.Dictate, "meeting" => ItemMode.Meeting, _ => throw new DomainException("Unknown mode.") };
+
     public sealed record EmailBody(string? Format, string? To, string? Note, string? Parts = null);
     public sealed record NameBody(string Name);
     public sealed record TermBody(string Text, string? Note);
@@ -39,13 +43,14 @@ public static class Endpoints
         api.MapPost("/vocabulary/import", async (HttpContext h, VocabularyService v, LinesBody b) => Results.Ok(await v.ImportAsync(h.Current(), b.Lines)));
         api.MapDelete("/vocabulary/{id:guid}", async (HttpContext h, VocabularyService v, Guid id) => { await v.RemoveAsync(h.Current(), id); return Results.NoContent(); });
 
-        api.MapGet("/items", (HttpContext h, MeetingService s, string? statuses, bool? selfAssigned, string? search) =>
+        api.MapGet("/items", (HttpContext h, MeetingService s, string? statuses, bool? selfAssigned, string? search, string? mode) =>
         {
             HashSet<ItemStatus>? set = null;
             if (!string.IsNullOrWhiteSpace(statuses))
                 set = statuses.Split(',', StringSplitOptions.RemoveEmptyEntries)
                     .Select(x => Enum.Parse<ItemStatus>(x, true)).ToHashSet();
-            return s.ListAsync(h.Current(), new ListQuery(set, selfAssigned, search));
+            ItemMode? m = string.IsNullOrWhiteSpace(mode) ? null : ModeOf(mode);
+            return s.ListAsync(h.Current(), new ListQuery(set, selfAssigned, search, m));
         });
         api.MapGet("/items/{id:guid}", (HttpContext h, MeetingService s, Guid id) => s.GetItemAsync(h.Current(), id));
 
@@ -60,7 +65,8 @@ public static class Endpoints
             var id = await s.CreateRecordingAsync(h.Current(), new RecordingUpload(stream, file.FileName, file.ContentType,
                 f["name"].ToString(), int.TryParse(f["lengthMs"], out var l) ? l : 0,
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
-                f["consentNoticeGiven"] == "true", markers, f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns1) ? ns1 : null), ct);
+                f["consentNoticeGiven"] == "true", markers, f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns1) ? ns1 : null,
+                ModeOf(f["mode"])), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 
@@ -73,7 +79,8 @@ public static class Endpoints
                 string.IsNullOrWhiteSpace(f["name"]) ? null : f["name"].ToString(),
                 int.TryParse(f["lengthMs"], out var l) ? l : 0,
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
-                f["rightsConfirmed"] == "true", f["sourceNote"].ToString(), f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns2) ? ns2 : null), ct);
+                f["rightsConfirmed"] == "true", f["sourceNote"].ToString(), f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns2) ? ns2 : null,
+                ModeOf(f["mode"])), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 

@@ -30,9 +30,8 @@ export default function App() {
       <header className="top">
         <h1>VerbaFlow · Speak</h1>
         <nav>
-          <a href="#/" className={path === '/' ? 'on' : ''}>Meeting</a>
-          <a href="#/record" className={path === '/record' ? 'on' : ''}>Record</a>
-          <a href="#/import" className={path === '/import' ? 'on' : ''}>Import</a>
+          <a href="#/dictate" className={path.startsWith('/dictate') ? 'on' : ''}>Dictate</a>
+          <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
           {support && <a href="#/support" className={path === '/support' ? 'on' : ''}>Support: errors</a>}
           {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen and delete requests</a>}
@@ -48,12 +47,15 @@ export default function App() {
       <main key={me}>
         {!me ? <div className="card">Choose a user at the top right to sign in. (This picker stands in for Entra ID sign-in during development.)</div>
           : item ? <ItemPage id={item[1]} />
-          : path === '/record' ? <Record />
-          : path === '/import' ? <Import />
+          : path === '/record' ? <Record mode="meeting" />
+          : path === '/import' ? <Import mode="meeting" />
+          : path === '/dictate/record' ? <Record key="dictate" mode="dictate" />
+          : path === '/dictate/import' ? <Import key="dictate" mode="dictate" />
+          : path === '/dictate' ? <Dashboard key="dictate" mode="dictate" />
           : path === '/reopen' ? <Reopen />
           : path === '/vocabulary' ? <Vocabulary />
           : path === '/support' ? <Support />
-          : <Dashboard />}
+          : <Dashboard key="meeting" mode="meeting" />}
       </main>
     </>
   );

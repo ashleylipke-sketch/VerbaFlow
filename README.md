@@ -7,7 +7,8 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 | Area | State |
 |---|---|
 | Speak · Meeting mode | **Built** (record, import, real transcription with speakers, follow-along word highlighting, tracked changes, custom vocabulary, assign / accept / return, approve and lock, two-admin reopen, delete (two admins once approved), export to Word and PDF with preview, email and fingerprint check, versioned transcript, audit chain) |
-| Speak · Dictate, Speech | Not started |
+| Speak · Dictate | **Built (first version)**: dictate or import, convert to text as one voice with spoken punctuation ("comma", "full stop", "new paragraph"), edit, assign to a typist, approve, export the text |
+| Speak · Speech | Not started |
 | Meet, Widget | Not started |
 | Telephony bridge (ADR-15) | Designed, not built |
 | Azure services | Speech and OpenAI (summary, action points, minutes, tone) adapters built, each needs your key. ffmpeg audio clean-up built. SQL, Blob, Service Bus, Defender, Entra ID not written |

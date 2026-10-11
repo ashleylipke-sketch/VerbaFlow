@@ -4,7 +4,7 @@ Read this first, then `README.md` and `docs/`. Keep this file current: update it
 
 ## What this is
 One platform made of three apps, built from a blank canvas:
-- **Speak**: Dictate, Speech and Meeting modes in one app. **Meeting mode is built.** Dictate and Speech are not started.
+- **Speak**: Dictate, Speech and Meeting modes in one app. **Meeting mode is built. Dictate mode is built (first version, 2026-10-11).** Speech is not started.
 - **Meet**: calendar-driven recorder. Not started.
 - **Widget**: system-wide dictation overlay. Not started.
 
@@ -56,17 +56,24 @@ Record, Import and a failed item's Retry use a **language picker** (`web/src/Lan
 - **Send from VerbaFlow** (added 2026-10-11, now the secondary email route; not yet tried by the owner): To (1 to 10 addresses, all validated first), optional message (2,000 chars), PDF or Word; `POST /items/{id}/export/email` body `{format, to, note}`; same permission as export. `IEmailSender` in Core/Providers; `StandInEmailSender` writes .eml files to `data/outbox`; `AzureEmailSender` (Azure.Communication.Email, MIT) when `Email:ConnectionString` and `Email:Sender` are set (`docs/azure-email-setup.md`). Every email is an export (purpose `email`, fingerprint recorded) and audits `item.emailed` (to, format, marker, sha256, mailReference); a failure goes through `FailureReporter` (area `email`) and audits `email.failed`. Reply-To is the sender. **Real Azure email untested.**
 - Not built: digital signing with the organisation certificate (decision 13, Key Vault HSM), export templates, headings in the summary language (headings are English). PDF has no glyphs for Arabic, Chinese or Japanese with Arial (Word is fine); untested.
 
+## Dictate mode (built 2026-10-11; not yet tried by the owner)
+Owner chose Dictate as the next piece, then "Record, then typed" (not live typing; live words-as-you-speak is Speech mode, ADR 08). Nav: **Dictate** | **Meeting** | Vocabulary; each list has its own New/Record and Import buttons (`#/dictate`, `#/dictate/record`, `#/dictate/import`; meeting keeps `#/`, `#/record`, `#/import`). `GET /items?mode=dictate|meeting`; record/import form field `mode`; `Item.Mode` (`ItemMode.Dictate`), kept on reopen; `ItemDetail.Mode`.
+- Recording: no consent notice, no speaker count, Pause/Resume with no reason and no markers. Import: no speaker count; an imported dictation goes to **With Author** (not Imported: `Item.Home`).
+- Processing: no diarization and no local speaker model; one voice named after the author; no AI summary/minutes/tone; spoken commands applied by `Core/Transcripts/DictationCommands` (new paragraph/new line start a new passage; full stop, comma, question mark, exclamation mark, colon, semicolon, open/close bracket, open/close quote; Afrikaans nuwe paragraaf, nuwe reël, komma, vraagteken, uitroepteken, dubbelpunt, kommapunt). The command replaces punctuation Azure put next to it; kept words keep their timings. History `dictationCommands` = number applied. Deliberately NOT commands: "period" and "punt" (too common as ordinary words). **Untested on real Azure**: how Azure writes the command words (e.g. "Full stop." vs "."), so commands may need adjusting after the owner's first try.
+- Item page: heading **Text**, no speaker names or rename, no Summary card, re-run card is "Language looks wrong?" (language and audio only). Workflow (assign to typist, accept, return, approve, reopen, delete) is Meeting's, unchanged. Export: text only (no tick boxes), no times or speaker names, heading "Text"; email subject "Dictation: …".
+- Not built: continuing a saved draft later (Draft status), insert/overwrite recording, templates (letterhead), live typing (Speech mode).
+
 ## Recently added, confirmed by the owner
 - **Live sound wave** on the Record page and **pinned player** on the item page: both confirmed working on the owner's computer (2026-10-10).
 
 ## Not built yet (parked)
-Dictate and Speech modes, Meet, Widget, telephony bridge (ADR-15), retention policies, attachments, signing of exports, noise filtering, Entra ID sign-in, Azure SQL/Blob/Service Bus/Defender adapters, automatic voice-to-person matching.
+Speech mode, Meet, Widget, telephony bridge (ADR-15), retention policies, attachments, signing of exports, noise filtering, Entra ID sign-in, Azure SQL/Blob/Service Bus/Defender adapters, automatic voice-to-person matching.
 
 ## Running things
 Owner on Windows: `run.cmd` in the repo root (builds web, starts http://localhost:5044). If `dotnet` is not found in a plain Command Prompt: `set PATH=C:\Program Files\dotnet;%PATH%` (a 32-bit dotnet can come first on PATH). Secrets are set with `dotnet user-secrets` from `src\VerbaFlow.Api`: `Speech:Endpoint`, `Speech:Key`, `OpenAI:Endpoint`, `OpenAI:Key`, `OpenAI:Deployment`, optional `Audio:FfmpegPath`, optional `Email:ConnectionString` and `Email:Sender`. ffmpeg: `winget install Gyan.FFmpeg`. Startup log lines say whether Speech, Summaries and Audio are real or stand-in.
 Dev sign-in is an `X-Dev-User` header (alice, bob, carol (admin), dave (admin), sam (VerbaFlow support: sees the Support: errors page and `/api/support/errors`, and deliberately no customer items)); it stands in for Entra ID.
 
-Tests: `dotnet test` (230 pass) and `cd web && npx vitest run` (17 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
+Tests: `dotnet test` (246 pass) and `cd web && npx vitest run` (17 pass). Always build, run the tests, and check UI changes in a browser (Playwright, Chromium) before committing.
 
 ## Working agreements
 - **Customers never see technical error text, including their administrators.** They get a plain sentence plus a reference code (VF-XXXXXX). Technical detail goes to the support-only error table and the server log under the same code. Pass failures through `FailureReporter` (see `docs/support-and-errors.md`). Do not put `ex.Message`, provider responses or setup advice (keys, pricing tiers) in anything a customer can read.

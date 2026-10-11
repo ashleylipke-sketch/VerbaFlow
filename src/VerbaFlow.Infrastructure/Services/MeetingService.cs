@@ -23,24 +23,29 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
 
     public async Task<Guid> CreateRecordingAsync(User actor, RecordingUpload up, CancellationToken ct = default)
     {
-        if (!up.ConsentNoticeGiven)
+        // A dictation is one person speaking, so there is nobody else to tell and no consent notice or markers.
+        var dictation = up.Mode == ItemMode.Dictate;
+        if (!dictation && !up.ConsentNoticeGiven)
             throw new DomainException("Confirm that everyone was told the meeting is being recorded before saving.");
         if (up.LengthMs <= 0) throw new DomainException("The recording has no length.");
 
         var staged = await StageAndScanAsync(actor, up.Audio, up.FileName, "recording", ct);
         var id = Guid.NewGuid();
         var now = clock.GetUtcNow();
-        var item = Item.CreateRecorded(id, actor.Id, up.Name, up.LengthMs, up.OutputLanguage, now);
+        var item = Item.CreateRecorded(id, actor.Id, up.Name, up.LengthMs, up.OutputLanguage, now, up.Mode);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
-        ApplySpeakerCount(item, up.NumSpeakers);
-        item.AddMarker(new TimelineMarker { Type = MarkerType.ConsentNotice, OffsetMs = 0, Note = "Notice given before recording", ActorId = actor.Id, At = now });
-        foreach (var m in up.Markers.OrderBy(m => m.OffsetMs))
-            item.AddMarker(new TimelineMarker { Type = m.Type, OffsetMs = m.OffsetMs, Note = m.Note, ActorId = actor.Id, At = now });
+        if (!dictation)
+        {
+            ApplySpeakerCount(item, up.NumSpeakers);
+            item.AddMarker(new TimelineMarker { Type = MarkerType.ConsentNotice, OffsetMs = 0, Note = "Notice given before recording", ActorId = actor.Id, At = now });
+            foreach (var m in up.Markers.OrderBy(m => m.OffsetMs))
+                item.AddMarker(new TimelineMarker { Type = m.Type, OffsetMs = m.OffsetMs, Note = m.Note, ActorId = actor.Id, At = now });
+        }
 
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Recorded in app");
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, "author", id, "item.created", ("source", "Recorded in app"), ("sha256", asset.Sha256),
-            ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs), ("consentNoticeConfirmed", true));
+            ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs), ("mode", up.Mode.ToString()), ("consentNoticeConfirmed", dictation ? null : true));
         foreach (var m in item.Markers.Where(m => m.Type is MarkerType.Objection or MarkerType.Pause))
             await Audit(actor, "author", id, m.Type == MarkerType.Objection ? "recording.objection_logged" : "recording.paused",
                 ("offsetMs", m.OffsetMs), ("note", m.Note));
@@ -59,13 +64,13 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var staged = await StageAndScanAsync(actor, up.File, up.FileName, "import", ct);
         var id = Guid.NewGuid();
         var name = string.IsNullOrWhiteSpace(up.Name) ? Path.GetFileNameWithoutExtension(up.FileName) : up.Name!;
-        var item = Item.CreateImported(id, actor.Id, name, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), SafeName(up.FileName), up.SourceNote);
+        var item = Item.CreateImported(id, actor.Id, name, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), SafeName(up.FileName), up.SourceNote, up.Mode);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
-        ApplySpeakerCount(item, up.NumSpeakers);
+        if (up.Mode != ItemMode.Dictate) ApplySpeakerCount(item, up.NumSpeakers);
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Imported");
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, "importer", id, "item.imported", ("source", "Imported (external)"), ("originalFileName", SafeName(up.FileName)),
-            ("claimedContentType", up.ContentType), ("sha256", asset.Sha256), ("sizeBytes", asset.SizeBytes),
+            ("claimedContentType", up.ContentType), ("mode", up.Mode.ToString()), ("sha256", asset.Sha256), ("sizeBytes", asset.SizeBytes),
             ("rightsConfirmed", true), ("sourceNote", up.SourceNote));
         queue.Enqueue(id);
         return id;
@@ -451,6 +456,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var rows = new List<ItemRow>();
         foreach (var i in all.Where(i => PermissionEvaluator.CanSee(actor, i)))
         {
+            if (q.Mode is { } m && i.Mode != m) continue;
             if (q.Statuses is not null && !q.Statuses.Contains(i.Status)) continue;
             if (q.SelfAssigned is { } sa && i.IsSelfAssigned != sa) continue;
             if (!string.IsNullOrWhiteSpace(q.Search) &&
@@ -483,7 +489,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             chain.Select(c => new ChainEntry(c.Id, c.VersionNo, StatusLabels.For(c.Mode, c.Status), !all.Any(x => x.SupersedesItemId == c.Id))).ToList(),
             item.Source == SourceKind.Imported ? "Imported (external source)" : "Recorded in app", item.SpokenLanguages,
             item.DeletedAt, item.DeletedBy is { } db ? users.GetValueOrDefault(db)?.Name : null, item.DeleteReason,
-            item.Status != ItemStatus.Purged && PermissionEvaluator.Evaluate(actor, item, Capability.Export).Allowed);
+            item.Status != ItemStatus.Purged && PermissionEvaluator.Evaluate(actor, item, Capability.Export).Allowed,
+            item.Mode.ToString());
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)

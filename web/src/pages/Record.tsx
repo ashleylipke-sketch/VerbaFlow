@@ -10,6 +10,7 @@ export default function Record({ mode }: { mode: Mode }) {
   const dictate = mode === 'dictate';
   const [consent, setConsent] = useState(false);
   const [name, setName] = useState('');
+  const [clientRef, setClientRef] = useState('');
   const [state, setState] = useState<'idle' | 'recording' | 'paused' | 'stopped'>('idle');
   const [elapsed, setElapsed] = useState(0);
   const [quiet, setQuiet] = useState(false);
@@ -109,7 +110,7 @@ export default function Record({ mode }: { mode: Mode }) {
       const f = new FormData();
       f.append('audio', blob.current!, 'recording.webm');
       f.append('name', name || `${dictate ? 'Dictation' : 'Meeting'} ${new Date().toLocaleString('en-GB')}`);
-      f.append('mode', mode);
+      f.append('mode', mode); if (clientRef.trim()) f.append('clientReference', clientRef.trim());
       f.append('lengthMs', String(Math.max(1, Math.round(activeMs.current))));
       f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken); if (speakers) f.append('numSpeakers', speakers); f.append('consentNoticeGiven', String(consent)); f.append('markers', JSON.stringify(markers));
       const { id } = await api.form('/items/recordings', f);
@@ -121,15 +122,16 @@ export default function Record({ mode }: { mode: Mode }) {
     <div className="card">
       <h2>{dictate ? 'New dictation' : 'Record a meeting'}</h2>
       {state === 'idle' && dictate && <>
-        <div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Letter to Mr Smith" /></label></div>
+        <div className="pair"><div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Letter to Mr Smith" /></label></div>
+          <div className="field"><label>Client reference (optional)<br /><input value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="e.g. ACME-042" /></label></div></div>
         <LanguagePicker value={spoken} onChange={setSpoken} />
-        <CommandHelp />
       </>}
       {state === 'idle' && !dictate && <>
         <div className="banner"><strong>Before you start:</strong> tell everyone present that the meeting is being recorded and transcribed.</div>
         <label className="row"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />
           <span>I have told everyone present that this meeting is being recorded.</span></label>
-        <div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Board meeting" /></label></div>
+        <div className="pair"><div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Board meeting" /></label></div>
+          <div className="field"><label>Client reference (optional)<br /><input value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="e.g. ACME-042" /></label></div></div>
         <LanguagePicker value={spoken} onChange={setSpoken} />
         <div className="field"><label>Number of speakers (optional)<br />
           <select value={speakers} onChange={e => setSpeakers(e.target.value)}>

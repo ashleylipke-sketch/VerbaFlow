@@ -82,4 +82,14 @@ public class DictationTests
         Assert.Null(item.NumSpeakers);
         Assert.Equal("With Author", (await env.Meeting.GetItemAsync(env.Alice, id)).Row.Status);
     }
+
+    [Fact]
+    public async Task A_client_reference_given_when_recording_or_importing_is_kept_on_the_item()
+    {
+        using var env = new Env();
+        var rec = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation() with { ClientReference = " ACME-042 " });
+        var imp = await env.Meeting.ImportAsync(env.Alice, env.Import() with { ClientReference = "B-7" });
+        Assert.Equal("ACME-042", (await env.Item(rec)).ClientReference);
+        Assert.Equal("B-7", (await env.Item(imp)).ClientReference);
+    }
 }

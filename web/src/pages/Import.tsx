@@ -7,6 +7,7 @@ export default function Import({ mode }: { mode: Mode }) {
   const dictate = mode === 'dictate';
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
+  const [clientRef, setClientRef] = useState('');
   const [note, setNote] = useState('');
   const [rights, setRights] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -20,7 +21,7 @@ export default function Import({ mode }: { mode: Mode }) {
     try {
       const f = new FormData();
       f.append('file', file); f.append('name', name); f.append('sourceNote', note); f.append('rightsConfirmed', String(rights)); f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken); if (speakers) f.append('numSpeakers', speakers);
-      f.append('lengthMs', '0'); f.append('mode', mode);
+      f.append('lengthMs', '0'); f.append('mode', mode); if (clientRef.trim()) f.append('clientReference', clientRef.trim());
       const { id } = await api.form('/items/imports', f);
       location.hash = `#/items/${id}`;
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
@@ -31,7 +32,8 @@ export default function Import({ mode }: { mode: Mode }) {
       <h2>{dictate ? 'Import a dictation' : 'Import a recording'}</h2>
       <p className="note">Audio and video files only. The original is kept untouched, scanned for malware and stored read-only.</p>
       <div className="field"><label>File<br /><input type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.mp4,.webm,.ogg,.opus,.mov,.aac,.flac,.mkv,.wma" onChange={e => setFile(e.target.files?.[0] ?? null)} /></label></div>
-      <div className="field"><label>Name (optional)<br /><input value={name} onChange={e => setName(e.target.value)} /></label></div>
+      <div className="pair"><div className="field"><label>Name (optional)<br /><input value={name} onChange={e => setName(e.target.value)} /></label></div>
+        <div className="field"><label>Client reference (optional)<br /><input value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="e.g. ACME-042" /></label></div></div>
       <LanguagePicker value={spoken} onChange={setSpoken} />
       {dictate ? <p className="note">For a dictation made on a dictaphone or phone. Spoken commands such as "comma", "full stop" and "new paragraph" are turned into punctuation.</p>
         : <div className="field"><label>Number of speakers (optional)<br />

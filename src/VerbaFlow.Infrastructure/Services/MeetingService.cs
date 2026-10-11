@@ -33,6 +33,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var id = Guid.NewGuid();
         var now = clock.GetUtcNow();
         var item = Item.CreateRecorded(id, actor.Id, up.Name, up.LengthMs, up.OutputLanguage, now, up.Mode);
+        if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
         if (!dictation)
         {
@@ -65,6 +66,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var id = Guid.NewGuid();
         var name = string.IsNullOrWhiteSpace(up.Name) ? Path.GetFileNameWithoutExtension(up.FileName) : up.Name!;
         var item = Item.CreateImported(id, actor.Id, name, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), SafeName(up.FileName), up.SourceNote, up.Mode);
+        if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
         if (up.Mode != ItemMode.Dictate) ApplySpeakerCount(item, up.NumSpeakers);
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Imported");

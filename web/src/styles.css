@@ -61,3 +61,4 @@ del { text-decoration:line-through; color:var(--del); }
 .menu-sub .field input, .menu-sub textarea { width:100%; box-sizing:border-box; }
 @media (max-width: 600px) { .menu-panel { position:fixed; left:16px; right:16px; top:auto; bottom:16px; width:auto; max-height:80vh; overflow:auto; } }
 .btn.primary { background:var(--brand); color:var(--brand-ink); border-color:var(--brand); }
+.pair { display:flex; gap:12px; flex-wrap:wrap; } .pair > .field { flex:1 1 220px; min-width:0; } .pair input { width:100%; box-sizing:border-box; }

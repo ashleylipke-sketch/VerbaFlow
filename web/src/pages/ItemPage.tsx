@@ -82,6 +82,8 @@ export default function ItemPage({ id }: { id: string }) {
   const approved = d?.row.statusCode === 'Completed' || d?.row.statusCode === 'Purged';
   const showChanges = changesChoice ?? !approved;
   const editedCount = segs.filter(x => x.originalText !== null).length;
+  // A person's saved corrections; the app's own versions (machine text, crossed-out restarts) do not count.
+  const corrections = t ? t.versions.filter(v => v.kind !== 'MachineV1' && v.kind !== 'AutoTidy').length : 0;
   const seek = (ms: number) => { const a = player.current; if (!a) return; a.currentTime = ms / 1000; a.play().catch(() => undefined); };
 
   const run = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await load(); } catch (e: any) { setError(e.message); } };
@@ -189,8 +191,8 @@ export default function ItemPage({ id }: { id: string }) {
                 {busy ? 'Writing…' : o ? 'Regenerate from current transcript' : 'Create summary'}</button></div>}
           </div>}
           {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>{dictate ? 'Language looks wrong?' : 'Speakers or language look wrong?'}</h2>
-            {dictate ? <p className="note">Convert the dictation again on the same recording, for example with a different language.{t.versions.length > 1 && <> <strong>The text has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and converting again replaces them.</strong></>} It is not possible once the dictation has been approved.</p>
-            : <p className="note">Run the conversion again on the same recording, for example with a different language. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>}
+            {dictate ? <p className="note">Convert the dictation again on the same recording, for example with a different language.{corrections > 0 && <> <strong>The text has {corrections} saved correction{corrections > 1 ? 's' : ''}, and converting again replaces them.</strong></>} It is not possible once the dictation has been approved.</p>
+            : <p className="note">Run the conversion again on the same recording, for example with a different language. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{corrections > 0 && <> <strong>This transcript has {corrections} saved correction{corrections > 1 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>}
             <div className="actions">
               {!dictate && <><label className="note">Number of speakers{' '}
                 <select value={rerunSpeakers} onChange={e => setRerunSpeakers(e.target.value)}>
@@ -211,14 +213,14 @@ export default function ItemPage({ id }: { id: string }) {
                   <option value="">Cleaned up (normal)</option>
                   <option value="original">Original recording, no clean-up (to compare)</option></select></label>
               <button disabled={busy} onClick={() => {
-                const edited = t.versions.length > 1;
-                if (edited && !confirm(`This replaces your ${t.versions.length - 1} correction${t.versions.length > 2 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;
+                const edited = corrections > 0;
+                if (edited && !confirm(`This replaces your ${corrections} correction${corrections > 1 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;
                 setBusy(true);
                 run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null, audio: rerunAudio || null, spokenLanguages: rerunLang || null, dictationService: dictate ? rerunService || null : null })).finally(() => setBusy(false));
               }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>
-              <b>v{v.no}</b> {v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}
+              <b>v{v.no}</b> {v.kind === 'AutoTidy' ? 'Restarted sentences crossed out' : v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}
               {d.canEditTranscript && v.no !== t.versionNo && <> <button onClick={() => run(() => api.post(`/items/${id}/versions/${v.no}/restore`))}>Restore</button></>}</div>)}</div>}
           <div className="card"><h2>History</h2>
             <button onClick={() => setShowAudit(!showAudit)}>{showAudit ? 'Hide' : 'Show'} audit trail ({audit.length})</button>

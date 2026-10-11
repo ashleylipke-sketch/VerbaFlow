@@ -207,4 +207,21 @@ public class DictationTests
         Assert.Equal(1, w.Calls);
         Assert.Equal("Fast text", (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Segments.Single().Text);
     }
+
+    [Fact]
+    public async Task A_restarted_sentence_is_crossed_out_as_the_apps_own_correction_and_does_not_count_as_a_persons_edit()
+    {
+        using var env = new Env();
+        env.Speech.Heard = "I will quite get it full stop I will quite clearly say so full stop";
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await env.Processing.ProcessAsync(id);
+        var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        var seg = t.Segments.Single();
+        Assert.Equal("I will quite clearly say so.", seg.Text);
+        Assert.Equal("I will quite get it. I will quite clearly say so.", seg.OriginalText);
+        Assert.Equal("AutoTidy", t.Versions.Last().Kind);
+        Assert.Contains("\"restartedSentencesCrossedOut\":1", (await env.Stores.Audit.ListAsync(id)).Single(a => a.Type == "processing.completed").Details);
+        // Converting again needs no "replace your corrections" confirmation.
+        await env.Meeting.RerunAsync(env.Alice, id, null);
+    }
 }

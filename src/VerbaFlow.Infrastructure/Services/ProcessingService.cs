@@ -108,6 +108,16 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             }
 
             var transcript = Transcript.CreateMachineV1(itemId, result.Engine, result.Speakers, result.Segments, clock.GetUtcNow());
+            int? stumbles = null;
+            if (dictation)
+            {
+                // Sentences the speaker abandoned and started again are crossed out, visibly, as the app's own correction.
+                var tidied = new Dictionary<Guid, Segment>();
+                stumbles = 0;
+                foreach (var s in result.Segments)
+                    if (RestartedSentences.Remove(s) is { } r) { tidied[s.Id] = r.Segment; stumbles += r.Removed; }
+                transcript.AddMachineTidy(tidied, clock.GetUtcNow());
+            }
             await stores.Transcripts.UpsertAsync(itemId, transcript);
             AiOutputs? outputs = null;
             if (!dictation) try
@@ -131,7 +141,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
-                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
+                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

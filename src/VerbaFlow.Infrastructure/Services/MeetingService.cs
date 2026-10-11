@@ -116,7 +116,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var item = await stores.RequireItemAsync(id);
         RequireOwnerOrAdmin(actor, item);
         var transcript = await stores.Transcripts.GetAsync(id);
-        var edits = transcript is null ? 0 : transcript.Versions.Count - 1;
+        var edits = transcript is null ? 0 : transcript.PersonVersions;
         if (edits > 0 && !discardEdits)
             throw new DomainException("This transcript has been edited, and running the conversion again would replace those edits.");
         item.Reprocess();

@@ -13,7 +13,8 @@ public sealed record Segment(Guid Id, Guid SpeakerId, string Language, int Start
 // NewParagraph: in a dictation, true where a paragraph starts and false where the passage carries on the paragraph before it.
 // Null (meetings, and dictations saved before this existed) means every passage stands alone.
 
-public enum VersionKind { MachineV1, HumanEdit, SpeakerCorrection, Restore, ReopenCopy }
+/// <summary>AutoTidy: the app crossed out restarted sentences in a dictation; shown as tracked changes against version 1.</summary>
+public enum VersionKind { MachineV1, HumanEdit, SpeakerCorrection, Restore, ReopenCopy, AutoTidy }
 
 public sealed class TranscriptVersion
 {
@@ -92,6 +93,31 @@ public sealed class Transcript
         ids[index] = replacement.Id;
         return Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, $"Edited passage at {old.StartMs} ms");
     }
+
+    /// <summary>
+    /// The app's own corrections to the machine text (restarted sentences in a dictation), as a version of their own so
+    /// the original stays visible as tracked changes and Restore brings it back. Not counted as a person's correction.
+    /// </summary>
+    public TranscriptVersion? AddMachineTidy(IReadOnlyDictionary<Guid, Segment> replacements, DateTimeOffset now)
+    {
+        if (replacements.Count == 0) return null;
+        var ids = Current.SegmentIds.Select(id =>
+        {
+            if (!replacements.TryGetValue(id, out var r)) return id;
+            Segments[r.Id] = r;
+            return r.Id;
+        }).ToList();
+        var v = new TranscriptVersion
+        {
+            No = Current.No + 1, Kind = VersionKind.AutoTidy, ParentNo = Current.No, CreatedBy = null, Capacity = "machine",
+            CreatedAt = now, SegmentIds = ids, SpeakerNames = new(Current.SpeakerNames), Note = "Restarted sentences crossed out"
+        };
+        Versions.Add(v);
+        return v;
+    }
+
+    /// <summary>How many versions hold a person's work (not the machine's own versions).</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public int PersonVersions => Versions.Count(v => v.Kind is not (VersionKind.MachineV1 or VersionKind.AutoTidy));
 
     /// <summary>
     /// Trims the text. A line break inside it is kept as a paragraph break (one per break, no blank lines, no spaces

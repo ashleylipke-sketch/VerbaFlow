@@ -89,8 +89,9 @@ export const api = {
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },
   /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
   /** Fetches an export (the file itself, or an unsent email with it attached) with the name the server gives. */
-  async exportFile(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' = 'export'): Promise<File> {
-    const res = await fetch(`/api/items/${id}/${kind === 'draft' ? 'export/draft' : 'export'}?format=${format}&parts=${parts.join(',')}`, { headers: { 'X-Dev-User': devUser } });
+  async exportFile(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' | 'share' = 'export'): Promise<File> {
+    const path = kind === 'draft' ? 'export/draft' : 'export';
+    const res = await fetch(`/api/items/${id}/${path}?format=${format}&parts=${parts.join(',')}${kind === 'share' ? '&purpose=share' : ''}`, { headers: { 'X-Dev-User': devUser } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     const cd = res.headers.get('Content-Disposition') ?? '';
     const name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? `meeting.${format}`;

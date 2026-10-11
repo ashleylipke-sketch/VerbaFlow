@@ -72,7 +72,7 @@ export function ExportMenu({ id, approved, onDone }: { id: string; approved: boo
   };
   const startShare = () => act(async () => {
     setInfo(''); setPending(null);
-    const file = await api.exportFile(id, format, parts);
+    const file = await api.exportFile(id, format, parts, 'share');
     if (!navigator.canShare?.({ files: [file] })) {
       saveFile(file);
       setInfo('This browser cannot pass files to other apps, so the file has been downloaded instead. Attach it in WhatsApp from your Downloads folder.');

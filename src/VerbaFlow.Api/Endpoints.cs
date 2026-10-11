@@ -130,9 +130,10 @@ public static class Endpoints
 
         // Minutes as Word or PDF. The file's fingerprint is recorded, so a copy can be checked later for changes.
         // preview=true shows the file in the browser instead of saving it; parts=summary,minutes,actions,transcript,tone picks what goes in.
-        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format, bool? preview, string? parts) =>
+        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format, bool? preview, string? parts, string? purpose) =>
         {
-            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf", preview == true ? "preview" : "download", parts);
+            var why = preview == true ? "preview" : purpose == "share" ? "share" : "download";
+            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf", why, parts);
             return preview == true ? Results.File(file.Content, file.ContentType) : Results.File(file.Content, file.ContentType, file.FileName);
         });
         // A new, unsent email (.eml) with the file attached, to open in the person's own email program.

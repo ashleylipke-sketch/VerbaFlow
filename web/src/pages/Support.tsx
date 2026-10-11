@@ -21,7 +21,7 @@ export default function Support() {
       </div>
       {error && <div className="error">{error}</div>}
       {rows === null && <p className="note">Loading…</p>}
-      {rows !== null && rows.length === 0 && !error && <p className="note">Nothing recorded{ref ? ` for ${ref}` : ''}.</p>}
+      {rows !== null && rows.length === 0 && !error && <p className="note">{ref ? `Nothing recorded for ${ref}.` : 'No technical errors have been recorded. This page lists failures on the server (speech, summaries, email and so on); something a browser refuses on its own, such as a share, never reaches it.'}</p>}
       {rows !== null && rows.length > 0 && <table>
         <thead><tr><th>When</th><th>Reference</th><th>Area</th><th>Kind</th><th>Item</th><th>Detail</th></tr></thead>
         <tbody>{rows.map(r => <tr key={r.id}>

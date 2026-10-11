@@ -199,4 +199,30 @@ public class ExportTests
         await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "pdf", "preview");
         Assert.Contains("preview", (await env.Stores.Audit.ListAsync(id)).Last().Details);
     }
+
+    [Fact]
+    public async Task Only_the_chosen_parts_go_into_the_file_and_the_choice_is_recorded()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var exports = new ExportService(env.Stores, env.Clock);
+        var transcript = (await env.Stores.Transcripts.GetAsync(id))!.Render();
+
+        var text = WordText((await exports.ExportAsync(env.Alice, id, "docx", parts: "summary,actions")).Content);
+        Assert.Contains("Summary for", text);
+        Assert.Contains("A: do it", text);
+        Assert.Contains("ContainsSummary, Action points", text);
+        Assert.DoesNotContain(transcript[0].Segment.Text, text);
+        Assert.DoesNotContain("Transcript", text);
+        Assert.Equal("summary,actions", Assert.Single(await env.Stores.Exports.ListAsync()).Parts);
+        Assert.Contains("summary,actions", (await env.Stores.Audit.ListAsync(id)).Last().Details);
+
+        var onlyTranscript = WordText((await exports.ExportAsync(env.Alice, id, "docx", parts: "transcript")).Content);
+        Assert.Contains(transcript[0].Segment.Text, onlyTranscript);
+        Assert.DoesNotContain("Summary for", onlyTranscript);
+
+        await Assert.ThrowsAsync<DomainException>(() => exports.ExportAsync(env.Alice, id, "pdf", parts: ""));
+        await Assert.ThrowsAsync<DomainException>(() => exports.ExportAsync(env.Alice, id, "pdf", parts: "everything"));
+        Assert.DoesNotContain("Contains", WordText((await exports.ExportAsync(env.Alice, id, "docx")).Content));
+    }
 }

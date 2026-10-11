@@ -55,7 +55,7 @@ public static class DocxMinutesWriter
             }
             if (!string.IsNullOrWhiteSpace(d.Tone)) { body.Append(Heading("Tone of the meeting")); body.Append(Para(d.Tone)); }
 
-            body.Append(Heading("Transcript"));
+            if (d.Transcript.Count > 0) body.Append(Heading("Transcript"));
             foreach (var p in d.Transcript)
             {
                 var para = new Paragraph(new ParagraphProperties(new SpacingBetweenLines { After = "120" }));

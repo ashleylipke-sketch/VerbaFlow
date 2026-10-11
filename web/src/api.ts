@@ -79,8 +79,8 @@ export const api = {
   deleteRequests: () => call<DeleteRequest[]>('GET', '/delete-requests'),
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },
   /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
-  async exportMinutes(id: string, format: 'docx' | 'pdf'): Promise<void> {
-    const res = await fetch(`/api/items/${id}/export?format=${format}`, { headers: { 'X-Dev-User': devUser } });
+  async exportMinutes(id: string, format: 'docx' | 'pdf', parts: string[]): Promise<void> {
+    const res = await fetch(`/api/items/${id}/export?format=${format}&parts=${parts.join(',')}`, { headers: { 'X-Dev-User': devUser } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     const cd = res.headers.get('Content-Disposition') ?? '';
     const name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? `meeting.${format}`;
@@ -90,13 +90,13 @@ export const api = {
     a.click();
   },
   /** The PDF as the person would download it, for showing in a browser tab. */
-  async previewMinutes(id: string): Promise<Blob> {
-    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true`, { headers: { 'X-Dev-User': devUser } });
+  async previewMinutes(id: string, parts: string[]): Promise<Blob> {
+    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true&parts=${parts.join(',')}`, { headers: { 'X-Dev-User': devUser } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     return res.blob();
   },
-  emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string) =>
-    call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null }),
+  emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[]) =>
+    call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(',') }),
   async audio(id: string, download = false): Promise<Blob> {
     const res = await fetch(`/api/items/${id}/audio${download ? '?download=true' : ''}`, { headers: { 'X-Dev-User': devUser } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LanguagePicker from '../LanguagePicker';
-import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type ExportCheck, type Outputs, type Transcript, type UserView } from '../api';
+import { ExportMenu } from '../ExportMenu';
+import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
 
@@ -22,13 +23,6 @@ export default function ItemPage({ id }: { id: string }) {
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
-  const [exportCheck, setExportCheck] = useState<ExportCheck | null>(null);
-  const [mailTo, setMailTo] = useState('');
-  const [mailNote, setMailNote] = useState('');
-  const [mailFormat, setMailFormat] = useState<'docx' | 'pdf'>('pdf');
-  const [mailSent, setMailSent] = useState('');
-  const [mailError, setMailError] = useState('');
-  const [mailBusy, setMailBusy] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const player = useRef<HTMLAudioElement>(null);
   const [pos, setPos] = useState({ seg: -1, word: -1 });
@@ -98,7 +92,10 @@ export default function ItemPage({ id }: { id: string }) {
     <>
       <p><a href="#/">← Back to Meeting</a></p>
       <div className="card">
-        <h2>{r.name} {r.tags.map(x => <span key={x} className="tag">{x}</span>)}</h2>
+        <div className="item-head">
+          <h2>{r.name} {r.tags.map(x => <span key={x} className="tag">{x}</span>)}</h2>
+          {d.canExport && t && <ExportMenu id={id} approved={approved} onDone={load} />}
+        </div>
         <div className="note">
           <span className="pill">{r.status}</span> · {fmtLen(r.lengthMs)} · Owner {d.owner} · You are: {d.role} · Created {fmtDate(r.createdOn)}
           {r.assignedTo && <> · Assigned to {r.assignedTo}</>}
@@ -182,46 +179,6 @@ export default function ItemPage({ id }: { id: string }) {
             {d.canEditTranscript && d.processingState !== 'Processing' && <div className="actions">
               <button disabled={busy} onClick={() => { setBusy(true); run(() => api.post(`/items/${id}/outputs/regenerate`)).finally(() => setBusy(false)); }}>
                 {busy ? 'Writing…' : o ? 'Regenerate from current transcript' : 'Create summary'}</button></div>}
-          </div>}
-          {d.canExport && t && <div className="card"><h2>Export</h2>
-            <p className="note">Download the details, summary, action points, minutes and transcript as one document. {approved
-              ? 'It is marked Approved.' : 'It is marked Draft, because the meeting is not approved yet.'} Each file's fingerprint is recorded, so a copy can be checked later for changes.</p>
-            <div className="actions">
-              <button disabled={busy} onClick={() => run(() => api.exportMinutes(id, 'docx'))}>Download Word</button>
-              <button disabled={busy} onClick={() => run(() => api.exportMinutes(id, 'pdf'))}>Download PDF</button>
-              <button disabled={busy} onClick={() => {
-                // The tab is opened straight away (browsers block tabs opened later), then filled once the PDF arrives.
-                const tab = window.open('', '_blank');
-                run(async () => {
-                  try { const url = URL.createObjectURL(await api.previewMinutes(id)); if (tab) tab.location.href = url; else window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60_000); }
-                  catch (e) { tab?.close(); throw e; }
-                });
-              }}>Preview</button></div>
-            <h3>Email it</h3>
-            <p className="note">Sends the document as an attachment. Replies go to you.</p>
-            <div className="field"><label>To (up to 10 addresses, separated by commas)<br />
-              <input type="text" value={mailTo} onChange={e => { setMailTo(e.target.value); setMailSent(''); }} placeholder="name@example.com" /></label></div>
-            <div className="field"><label>Message (optional)<br />
-              <textarea rows={3} maxLength={2000} value={mailNote} onChange={e => setMailNote(e.target.value)} /></label></div>
-            <div className="actions">
-              <select aria-label="Email format" value={mailFormat} onChange={e => setMailFormat(e.target.value as 'docx' | 'pdf')}>
-                <option value="pdf">As PDF</option><option value="docx">As Word</option></select>
-              <button disabled={mailBusy || !mailTo.trim()} onClick={async () => {
-                setMailSent(''); setMailError(''); setMailBusy(true);
-                try {
-                  const r = await api.emailMinutes(id, mailFormat, mailTo, mailNote);
-                  setMailSent(r.message); setMailTo(''); setMailNote(''); await load();
-                } catch (e: any) { setMailError(e.message); } finally { setMailBusy(false); }
-              }}>{mailBusy ? 'Sending…' : 'Send email'}</button></div>
-            {mailSent && <p className="ok" role="status">{mailSent}</p>}
-            {mailError && <p className="error" role="alert">{mailError}</p>}
-            <h3>Check an exported file</h3>
-            <p className="note">Choose a Word or PDF file you were sent to see whether it is exactly as VerbaFlow exported it.</p>
-            <input type="file" aria-label="File to check" accept=".pdf,.docx" onChange={e => {
-              const f = e.target.files?.[0]; e.target.value = '';
-              if (f) run(async () => setExportCheck(await api.checkExport(id, f)));
-            }} />
-            {exportCheck && <p className={exportCheck.matches ? 'ok' : 'error'} role="status">{exportCheck.message}</p>}
           </div>}
           {acts.has('rerun') && t && d.processingState !== 'Processing' && <div className="card"><h2>Speakers or language look wrong?</h2>
             <p className="note">Run the conversion again on the same recording, for example with a different language. If you know how many people spoke, say so and the app will group the voices into exactly that many. To compare, you can also have the speech service hear the original recording without the audio clean-up.{t.versions.length > 1 && <> <strong>This transcript has {t.versions.length - 1} saved correction{t.versions.length > 2 ? 's' : ''}, and running again replaces them with a fresh transcript.</strong></>} It is not possible once the item has been approved.</p>

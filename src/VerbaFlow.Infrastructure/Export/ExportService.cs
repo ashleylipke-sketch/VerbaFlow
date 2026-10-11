@@ -10,7 +10,7 @@ namespace VerbaFlow.Infrastructure.Export;
 
 /// <summary>One file that was exported: its fingerprint, so a copy can later be checked for changes.</summary>
 public sealed record ExportRecord(Guid Id, Guid ItemId, int VersionNo, int TranscriptVersionNo, string Format, string Marker,
-    string Sha256, long SizeBytes, Guid ExportedBy, DateTimeOffset ExportedAt);
+    string Sha256, long SizeBytes, Guid ExportedBy, DateTimeOffset ExportedAt, string? Parts = null);
 
 public sealed record ExportFile(byte[] Content, string ContentType, string FileName);
 
@@ -30,19 +30,22 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     public const int MaxRecipients = 10;
 
     /// <param name="purpose">"download" or "preview"; written to the audit trail.</param>
-    public async Task<ExportFile> ExportAsync(User actor, Guid id, string format, string purpose = "download") =>
-        (await CreateAsync(actor, id, format, purpose)).File;
+    /// <param name="parts">Which parts to include (see <see cref="ExportParts"/>); null means everything.</param>
+    public async Task<ExportFile> ExportAsync(User actor, Guid id, string format, string purpose = "download", string? parts = null) =>
+        (await CreateAsync(actor, id, format, purpose, ExportParts.Parse(parts))).File;
 
     /// <summary>
     /// Emails the exported file as an attachment. The addresses are checked first; nothing is sent if one is not a valid
     /// address. The recipients, the file's fingerprint and the mail service's reference go into the audit trail.
     /// </summary>
-    public async Task<string> EmailAsync(User actor, Guid id, string format, string recipients, string? note, CancellationToken ct = default)
+    public async Task<string> EmailAsync(User actor, Guid id, string format, string recipients, string? note, CancellationToken ct = default,
+        string? parts = null)
     {
         if (email is null) throw new DomainException("Email is not available.");
         var to = ParseRecipients(recipients);
+        var chosen = ExportParts.Parse(parts);
         if (note is { Length: > 2000 }) throw new DomainException("The message is too long. Keep it under 2,000 characters.");
-        var (file, record, item) = await CreateAsync(actor, id, format, "email");
+        var (file, record, item) = await CreateAsync(actor, id, format, "email", chosen);
         var text = $"Please find attached the minutes of \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
             + $"Sent by {actor.Name} using VerbaFlow.\r\n"
             + (string.IsNullOrWhiteSpace(note) ? "" : $"\r\nMessage from {actor.Name}:\r\n{note.Trim()}\r\n")
@@ -81,7 +84,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         return parts;
     }
 
-    private async Task<(ExportFile File, ExportRecord Record, Item Item)> CreateAsync(User actor, Guid id, string format, string purpose)
+    private async Task<(ExportFile File, ExportRecord Record, Item Item)> CreateAsync(User actor, Guid id, string format, string purpose,
+        IReadOnlyList<string> parts)
     {
         format = format.ToLowerInvariant() switch { "docx" or "word" => ExportFormats.Word, "pdf" => ExportFormats.Pdf,
             _ => throw new DomainException("Choose Word or PDF.") };
@@ -114,21 +118,28 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         details.Add(("Languages", Languages(item.SpokenLanguages)));
         details.Add(("Version", $"{item.VersionNo} (transcript version {transcript.Current.No})"));
         details.Add(("Exported", $"{When(now)} by {actor.Name}"));
+        var everything = parts.Count == ExportParts.All.Count;
+        if (!everything) details.Add(("Contains", string.Join(", ", parts.Select(ExportParts.NameOf))));
+        bool Has(string part) => parts.Contains(part);
 
         var doc = new MinutesDocument(
             item.Name, marker, markerLine, details,
-            outputs?.Summary, outputs?.ActionPoints ?? [],
-            (outputs?.Minutes ?? "").Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0).ToList(),
-            outputs?.ToneOfMeeting,
-            transcript.Render().Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList(),
+            Has(ExportParts.Summary) ? outputs?.Summary : null,
+            Has(ExportParts.Actions) ? outputs?.ActionPoints ?? [] : [],
+            Has(ExportParts.Minutes) ? (outputs?.Minutes ?? "").Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0).ToList() : [],
+            Has(ExportParts.Tone) ? outputs?.ToneOfMeeting : null,
+            Has(ExportParts.Transcript)
+                ? transcript.Render().Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
+                : [],
             $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}");
 
         var bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        var record = new ExportRecord(Guid.NewGuid(), id, item.VersionNo, transcript.Current.No, format, marker, sha, bytes.LongLength, actor.Id, now);
+        var record = new ExportRecord(Guid.NewGuid(), id, item.VersionNo, transcript.Current.No, format, marker, sha, bytes.LongLength, actor.Id, now,
+            string.Join(",", parts));
         await stores.Exports.UpsertAsync(record.Id, record);
         await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.exported",
-            AuditChain.Details(("format", format), ("marker", marker), ("purpose", purpose), ("transcriptVersion", transcript.Current.No),
+            AuditChain.Details(("format", format), ("marker", marker), ("purpose", purpose), ("parts", string.Join(",", parts)), ("transcriptVersion", transcript.Current.No),
                 ("sha256", sha), ("bytes", bytes.LongLength)));
 
         var safeName = new string(item.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c is '"' ? '_' : c).ToArray()).Trim();

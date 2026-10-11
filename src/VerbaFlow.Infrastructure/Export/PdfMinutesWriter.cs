@@ -70,7 +70,7 @@ public static class PdfMinutesWriter
         }
         if (!string.IsNullOrWhiteSpace(d.Tone)) { Heading(section, "Tone of the meeting"); Text(section, d.Tone); }
 
-        Heading(section, "Transcript");
+        if (d.Transcript.Count > 0) Heading(section, "Transcript");
         foreach (var p in d.Transcript)
         {
             var para = section.AddParagraph();

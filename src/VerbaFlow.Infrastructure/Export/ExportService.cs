@@ -156,7 +156,10 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             Has(ExportParts.Tone) ? outputs?.ToneOfMeeting : null,
             Has(ExportParts.Transcript)
                 ? dictation
-                    ? DictationCommands.Paragraphs(transcript.Render(), r => r.Segment).Select(p => new MinutesPassage("", "", string.Join(" ", p.Select(r => r.Segment.Text)))).ToList()
+                    ? DictationCommands.Paragraphs(transcript.Render(), r => r.Segment)
+                        // A line break typed while editing is a paragraph break too.
+                        .SelectMany(p => string.Join(" ", p.Select(r => r.Segment.Text)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        .Select(text => new MinutesPassage("", "", text)).ToList()
                     : transcript.Render().Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
                 : [],
             $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}",

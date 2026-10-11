@@ -118,4 +118,34 @@ public class DictationTests
         Assert.Equal(["First part.", "Second part.", "Third part"], t.Segments.Select(s => s.Text));
         Assert.Equal([true, true, true], t.Segments.Select(s => s.NewParagraph == true));
     }
+
+    [Fact]
+    public async Task Pressing_enter_while_editing_starts_a_new_paragraph_without_changing_the_words()
+    {
+        using var env = new Env();
+        env.Speech.Heard = "Dear Ms Smith comma thank you full stop We agree full stop";
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await env.Processing.ProcessAsync(id);
+        var seg = (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Segments.Single();
+        await env.Meeting.EditSegmentAsync(env.Alice, id, seg.Id, "Dear Ms Smith, thank you.\r\n\r\n  We agree.  ");
+        var after = (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Segments.Single();
+        Assert.Equal("Dear Ms Smith, thank you.\nWe agree.", after.Text);
+        Assert.Equal(seg.Words!.Select(w => w.StartMs), after.Words!.Select(w => w.StartMs));
+        var file = await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "docx");
+        using var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(new MemoryStream(file.Content), false);
+        var paras = doc.MainDocumentPart!.Document!.Body!.Descendants<DocumentFormat.OpenXml.Wordprocessing.Paragraph>().Select(p => p.InnerText).ToList();
+        Assert.Contains("Dear Ms Smith, thank you.", paras);
+        Assert.Contains("We agree.", paras);
+    }
+
+    [Fact]
+    public void A_line_break_typed_at_the_start_makes_a_passage_begin_a_paragraph()
+    {
+        var a = new VerbaFlow.Core.Transcripts.Segment(Guid.NewGuid(), Guid.NewGuid(), "en", 0, 1000, "One.", 0.9, false, null, true);
+        var b = a with { Id = Guid.NewGuid(), StartMs = 1000, Text = "Two.", NewParagraph = false };
+        var t = VerbaFlow.Core.Transcripts.Transcript.CreateMachineV1(Guid.NewGuid(), "x", [], [a, b], DateTimeOffset.UnixEpoch);
+        t.EditSegment(b.Id, "\nTwo.", Guid.NewGuid(), "author", DateTimeOffset.UnixEpoch);
+        Assert.Equal([true, true], t.Render().Select(r => r.Segment.NewParagraph == true));
+        Assert.Equal("Two.", t.Render()[1].Segment.Text);
+    }
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LanguagePicker from '../LanguagePicker';
 import { ExportMenu } from '../ExportMenu';
 import { docLabel } from '../DocumentType';
+import { paragraphPieces, type Piece } from '../paragraphs';
 import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
@@ -281,13 +282,6 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
   );
 }
 
-/** Passages grouped into the paragraphs the person dictated. Older dictations, saved before paragraphs were kept, show each passage on its own. */
-function paragraphsOf(segs: Transcript['segments']): number[][] {
-  const out: number[][] = [];
-  segs.forEach((s, i) => { if (out.length === 0 || s.newParagraph !== false) out.push([]); out[out.length - 1].push(i); });
-  return out;
-}
-
 const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
 /** A dictation shown as the letter, Word document or email the person said it was. */
@@ -296,7 +290,7 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
   onSeek: (ms: number) => void; editable: boolean; showChanges: boolean;
   onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void;
 }) {
-  const paras = useMemo(() => paragraphsOf(t.segments), [t]);
+  const paras = useMemo(() => paragraphPieces(t.segments), [t]);
   const type = d.documentType ?? 'document';
   const anyLow = t.segments.some(s => s.lowConfidence);
   return (
@@ -310,53 +304,63 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
           <div><b>Subject</b> {d.row.name}</div>
           {d.clientReference && <div><b>Reference</b> {d.clientReference}</div>}</div>}
         {type === 'document' && <h1 className="page-title">{d.row.name}</h1>}
-        {paras.map((idx, p) => <Paragraph key={t.segments[idx[0]].id} idx={idx} t={t} timed={timed} pos={pos} playing={playing} canSeek={canSeek}
-          onSeek={onSeek} editable={editable} showChanges={showChanges} onSave={onSave} onSaved={onSaved} onError={onError} first={p === 0} />)}
+        {paras.map(pieces => <Paragraph key={`${t.segments[pieces[0].seg].id}-${pieces[0].from}`} pieces={pieces} t={t} timed={timed} pos={pos} playing={playing}
+          canSeek={canSeek} onSeek={onSeek} editable={editable} showChanges={showChanges} onSave={onSave} onSaved={onSaved} onError={onError} />)}
       </article>
     </>
   );
 }
 
-function Paragraph({ idx, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError }: {
-  idx: number[]; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
-  onSeek: (ms: number) => void; editable: boolean; showChanges: boolean; first: boolean;
+function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError }: {
+  pieces: Piece[]; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
+  onSeek: (ms: number) => void; editable: boolean; showChanges: boolean;
   onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void;
 }) {
+  // Editing works on whole passages: a passage split across paragraphs shows all of its text, line breaks included.
+  const idx = [...new Set(pieces.map(p => p.seg))];
   const segs = idx.map(i => t.segments[i]);
   const [editing, setEditing] = useState(false);
   const [texts, setTexts] = useState(segs.map(s => s.text));
   const [saving, setSaving] = useState(false);
   const el = useRef<HTMLDivElement>(null);
-  const reading = idx.includes(pos.seg);
+  const reading = pieces.some(p => p.seg === pos.seg && (pos.word < 0 ? p.from === 0 : pos.word >= p.from && pos.word < p.to));
   useEffect(() => { if (!editing) setTexts(segs.map(s => s.text)); }, [t]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (reading && playing) el.current?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }, [reading, playing]);
-  const changed = segs.map((s, k) => [s.id, texts[k].trim()] as [string, string]).filter(([, x], k) => x && x !== segs[k].text);
+  // A line break typed at the end of a box belongs to the start of the next passage, so that passage begins a new paragraph.
+  const outgoing = () => {
+    const v = texts.map(x => x.replace(/\r\n?/g, '\n'));
+    for (let k = 0; k < v.length - 1; k++) if (/\n\s*$/.test(v[k]) && v[k].trim()) { v[k] = v[k].replace(/\s+$/, ''); v[k + 1] = '\n' + v[k + 1].replace(/^\s+/, ''); }
+    return segs.map((s, k) => [s.id, v[k]] as [string, string])
+      .filter(([, x], k) => x.trim() && (x.trim() !== segs[k].text || (/^\s*\n/.test(x) && k > 0 && segs[k].newParagraph === false)));
+  };
 
   if (editing) return (
     <div className="para" ref={el}>
-      {segs.map((s, k) => <textarea key={s.id} rows={Math.max(2, Math.ceil(texts[k].length / 80))} value={texts[k]} aria-label={`Sentence ${k + 1} of this paragraph`}
-        onChange={e => setTexts(v => v.map((x, j) => j === k ? e.target.value : x))} />)}
-      <div className="actions para-tools"><button className="primary" disabled={saving || changed.length === 0}
-        onClick={async () => { setSaving(true); try { await onSave(changed); setEditing(false); onSaved(); } catch (e: any) { onError(e.message); } finally { setSaving(false); } }}>
+      <p className="note">Press Enter where a new paragraph should start.</p>
+      {segs.map((s, k) => <textarea key={s.id} rows={Math.max(2, Math.ceil(texts[k].length / 80) + (texts[k].match(/\n/g)?.length ?? 0))} value={texts[k]}
+        aria-label={`Sentence ${k + 1} of this paragraph`} onChange={e => setTexts(v => v.map((x, j) => j === k ? e.target.value : x))} />)}
+      <div className="actions para-tools"><button className="primary" disabled={saving || outgoing().length === 0}
+        onClick={async () => { setSaving(true); try { await onSave(outgoing()); setEditing(false); onSaved(); } catch (e: any) { onError(e.message); } finally { setSaving(false); } }}>
         {saving ? 'Saving…' : 'Save'}</button>
         <button onClick={() => { setTexts(segs.map(s => s.text)); setEditing(false); }}>Cancel</button></div>
     </div>);
 
   return (
     <div className={'para' + (reading ? ' reading' : '')} ref={el}>
-      {segs.map((s, k) => {
-        const i = idx[k];
-        return <span key={s.id} className={s.lowConfidence ? 'low-c' : undefined} title={s.lowConfidence ? 'Hard to hear. Please check.' : undefined}>
-          <Words s={s} words={timed[i] ?? []} activeWord={pos.seg === i ? pos.word : -1} canSeek={canSeek} onSeek={onSeek} showChanges={showChanges} />{' '}</span>;
+      {pieces.map(p => {
+        const s = t.segments[p.seg];
+        return <span key={`${s.id}-${p.from}`} className={s.lowConfidence ? 'low-c' : undefined} title={s.lowConfidence ? 'Hard to hear. Please check.' : undefined}>
+          <Words s={s} words={timed[p.seg] ?? []} from={p.from} to={p.to} activeWord={pos.seg === p.seg ? pos.word : -1} canSeek={canSeek} onSeek={onSeek} showChanges={showChanges} />{' '}</span>;
       })}
       {editable && <button className="link para-edit" onClick={() => setEditing(true)}>Edit</button>}
     </div>);
 }
 
-function Words({ s, words, activeWord, canSeek, onSeek, showChanges }: {
-  s: Transcript['segments'][number]; words: WordT[]; activeWord: number; canSeek: boolean; onSeek: (ms: number) => void; showChanges: boolean;
+/** Words [from, to) of a passage, with tracked changes when shown. Removed words appear with the word that follows them. */
+function Words({ s, words, from, to, activeWord, canSeek, onSeek, showChanges }: {
+  s: Transcript['segments'][number]; words: WordT[]; from: number; to: number; activeWord: number; canSeek: boolean; onSeek: (ms: number) => void; showChanges: boolean;
 }) {
   const word = (i: number) => {
     const w = words[i];
@@ -365,10 +369,15 @@ function Words({ s, words, activeWord, canSeek, onSeek, showChanges }: {
       onClick={canSeek ? () => onSeek(w.startMs) : undefined}
       onKeyDown={canSeek ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(w.startMs); } } : undefined}>{w.text}</span>;
   };
-  const ops = showChanges && s.originalText !== null ? diffWords(s.originalText, s.text) : null;
-  return <>{ops
-    ? ops.map((o, i) => o.kind === 'del' ? <span key={i}><del>{o.text}</del>{' '}</span>
-      : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{i < ops.length - 1 ? ' ' : ''}</span>
-      : <span key={i}>{word(o.cur!)}{i < ops.length - 1 ? ' ' : ''}</span>)
-    : words.map((_, i) => <span key={i}>{word(i)}{i < words.length - 1 ? ' ' : ''}</span>)}</>;
+  const all = showChanges && s.originalText !== null ? diffWords(s.originalText, s.text) : null;
+  if (!all) return <>{words.slice(from, to).map((_, k) => <span key={k}>{word(from + k)}{from + k < to - 1 ? ' ' : ''}</span>)}</>;
+  // Where each removed word is shown: with the next word that is still there (or at the very end).
+  const ops = all.filter((o, i) => {
+    if (o.cur !== undefined) return o.cur >= from && o.cur < to;
+    const next = all.slice(i + 1).find(x => x.cur !== undefined)?.cur;
+    return next === undefined ? to === words.length : next >= from && next < to;
+  });
+  return <>{ops.map((o, i) => o.kind === 'del' ? <span key={i}><del>{o.text}</del>{' '}</span>
+    : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{i < ops.length - 1 ? ' ' : ''}</span>
+    : <span key={i}>{word(o.cur!)}{i < ops.length - 1 ? ' ' : ''}</span>)}</>;
 }

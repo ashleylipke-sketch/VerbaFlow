@@ -77,13 +77,31 @@ public sealed class Transcript
         var index = cur.SegmentIds.IndexOf(segmentId);
         if (index < 0) throw new DomainException("That passage is not part of the current version.");
         var old = Segments[segmentId];
-        if (old.Text == newText.Trim()) throw new DomainException("The text has not changed.");
-        var trimmed = newText.Trim();
-        var replacement = old with { Id = Guid.NewGuid(), Text = trimmed, LowConfidence = false, Words = RetimedWords(old.Words, trimmed) };
+        var trimmed = Tidy(newText, out var startsParagraph);
+        // A line break typed at the very start makes the passage begin a new paragraph (used in dictations).
+        var newParagraph = startsParagraph && index > 0 ? true : old.NewParagraph;
+        if (old.Text == trimmed && newParagraph == old.NewParagraph) throw new DomainException("The text has not changed.");
+        var replacement = old with
+        {
+            Id = Guid.NewGuid(), Text = trimmed, NewParagraph = newParagraph,
+            // Only a new paragraph, no change to the words: the passage keeps its confidence.
+            LowConfidence = old.Text == trimmed && old.LowConfidence, Words = RetimedWords(old.Words, trimmed)
+        };
         Segments[replacement.Id] = replacement;
         var ids = cur.SegmentIds.ToList();
         ids[index] = replacement.Id;
         return Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, $"Edited passage at {old.StartMs} ms");
+    }
+
+    /// <summary>
+    /// Trims the text. A line break inside it is kept as a paragraph break (one per break, no blank lines, no spaces
+    /// around it); <paramref name="startsParagraph"/> says whether the text began with one.
+    /// </summary>
+    public static string Tidy(string text, out bool startsParagraph)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        startsParagraph = lines.Length > 1 && lines[0].Trim().Length == 0 && lines.Skip(1).Any(l => l.Trim().Length > 0);
+        return string.Join("\n", lines.Select(l => l.Trim()).Where(l => l.Length > 0));
     }
 
     /// <summary>

@@ -41,6 +41,9 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             // A dictation is one person: no speaker separation, and spoken commands ("comma", "new paragraph") are applied.
             var dictation = item.Mode == ItemMode.Dictate;
             var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
+            // Saved text a dictation can drop in with "insert <code>"; its codes help the speech service hear them.
+            IReadOnlyList<SavedText> saved = dictation ? await stores.SavedText.ListAsync() : [];
+            phrases.AddRange(saved.Select(t => "insert " + t.Code).Distinct(StringComparer.OrdinalIgnoreCase).Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
             var request = new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
                 azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases);
             // A dictation in one language goes word for word, so spoken commands reach VerbaFlow; the fast service is the fallback.
@@ -59,10 +62,14 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             }
             else if (dictation) dictationService = wordForWord is null ? "fast (word for word not available)" : request.CandidateLanguages.Length != 1 ? "fast (more than one language)" : "fast (chosen)";
             result ??= await speech.TranscribeAsync(copy, request, ct);
-            int? commands = null; string? commandsHeard = null, paragraphsMade = null;
+            int? commands = null; string? commandsHeard = null, paragraphsMade = null, savedTextUsed = null;
             if (dictation)
             {
-                var (segments, applied, heard) = DictationCommands.ApplyCounted(result.Segments);
+                var (segments, applied, heard) = DictationCommands.ApplyCounted(result.Segments, saved.Select(t => (t.Code, t.Text)).ToList());
+                // Which wording went in: the code and a fingerprint of the text at the time, so a later change to the saved text is traceable.
+                var used = saved.Where(t => heard.ContainsKey("insert " + t.Code))
+                    .Select(t => $"{t.Code} ({SavedTextService.Fingerprint(t.Text)[..12]})").ToList();
+                savedTextUsed = used.Count == 0 ? null : string.Join(", ", used);
                 commands = applied;
                 commandsHeard = heard.Count == 0 ? "none" : string.Join(", ", heard.Select(h => $"{h.Key} {h.Value}"));
                 // Counts only, never words: how the speech service's passages became paragraphs, to see where a break went missing.
@@ -141,7 +148,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
-                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
+                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

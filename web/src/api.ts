@@ -36,6 +36,7 @@ export function describeAudit(a: AuditEvent): string {
 }
 export type DeleteRequest = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null };
 export type Lang = { code: string; name: string; supported: boolean };
+export type SavedText = { id: string; code: string; text: string; addedBy: string; addedAt: string; changedBy: string | null; changedAt: string | null };
 export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
 
@@ -88,6 +89,10 @@ export const api = {
   addTerm: (text: string, note: string) => call<Term>('POST', '/vocabulary', { text, note: note || null }),
   importTerms: (lines: string) => call<{ added: number; skipped: string[] }>('POST', '/vocabulary/import', { lines }),
   removeTerm: (id: string) => call<void>('DELETE', `/vocabulary/${id}`),
+  savedText: () => call<SavedText[]>('GET', '/saved-text'),
+  addSavedText: (code: string, text: string) => call<SavedText>('POST', '/saved-text', { code, text }),
+  changeSavedText: (id: string, code: string, text: string) => call<SavedText>('PUT', `/saved-text/${id}`, { code, text }),
+  removeSavedText: (id: string) => call<void>('DELETE', `/saved-text/${id}`),
   reopenRequests: () => call<Reopen[]>('GET', '/reopen'),
   deleteRequests: () => call<DeleteRequest[]>('GET', '/delete-requests'),
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },

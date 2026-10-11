@@ -6,6 +6,7 @@ import Import from './pages/Import';
 import ItemPage from './pages/ItemPage';
 import Reopen from './pages/Reopen';
 import Vocabulary from './pages/Vocabulary';
+import SavedTextPage from './pages/SavedText';
 import Support from './pages/Support';
 
 function useHash() {
@@ -33,6 +34,7 @@ export default function App() {
           <a href="#/dictate" className={path.startsWith('/dictate') ? 'on' : ''}>Dictate</a>
           <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
+          <a href="#/saved-text" className={path === '/saved-text' ? 'on' : ''}>Saved text</a>
           {support && <a href="#/support" className={path === '/support' ? 'on' : ''}>Support: errors</a>}
           {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen and delete requests</a>}
         </nav>
@@ -54,6 +56,7 @@ export default function App() {
           : path === '/dictate' ? <Dashboard key="dictate" mode="dictate" />
           : path === '/reopen' ? <Reopen />
           : path === '/vocabulary' ? <Vocabulary />
+          : path === '/saved-text' ? <SavedTextPage />
           : path === '/support' ? <Support />
           : <Dashboard key="meeting" mode="meeting" />}
       </main>

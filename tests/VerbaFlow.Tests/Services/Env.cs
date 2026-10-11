@@ -60,6 +60,7 @@ public sealed class Env : IDisposable
     public FailureReporter Reporter { get; }
     public MeetingService Meeting { get; }
     public VocabularyService Vocabulary { get; }
+    public SavedTextService SavedText { get; }
     public ProcessingService Processing { get; }
     public User Alice { get; } = T.U("Alice");
     public User Bob { get; } = T.U("Bob");
@@ -75,6 +76,7 @@ public sealed class Env : IDisposable
         Reporter = new FailureReporter(Stores, Clock);
         Meeting = new MeetingService(Stores, new StandInMalwareScanner(), Queue, policy ?? new PlatformPolicy(), Clock, Ai, Reporter);
         Vocabulary = new VocabularyService(Stores, Clock);
+        SavedText = new SavedTextService(Stores, Clock);
         Processing = new ProcessingService(Stores, Speech, Ai, new StandInAudioEnhancer(), Clock, Reporter);
         foreach (var u in new[] { Alice, Bob, Carol, Dave, Xavier }) Stores.Users.UpsertAsync(u.Id, u).GetAwaiter().GetResult();
     }

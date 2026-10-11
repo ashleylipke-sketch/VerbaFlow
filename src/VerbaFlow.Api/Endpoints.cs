@@ -17,6 +17,7 @@ public static class Endpoints
     public sealed record EmailBody(string? Format, string? To, string? Note, string? Parts = null);
     public sealed record NameBody(string Name);
     public sealed record TermBody(string Text, string? Note);
+    public sealed record SavedTextBody(string? Code, string? Text);
     public sealed record LinesBody(string Lines);
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web)
@@ -42,6 +43,11 @@ public static class Endpoints
         api.MapPost("/vocabulary", async (HttpContext h, VocabularyService v, TermBody b) => Results.Ok(await v.AddAsync(h.Current(), b.Text, b.Note)));
         api.MapPost("/vocabulary/import", async (HttpContext h, VocabularyService v, LinesBody b) => Results.Ok(await v.ImportAsync(h.Current(), b.Lines)));
         api.MapDelete("/vocabulary/{id:guid}", async (HttpContext h, VocabularyService v, Guid id) => { await v.RemoveAsync(h.Current(), id); return Results.NoContent(); });
+        // Saved text for "insert <code>" in a dictation: anyone signed in can read it, administrators change it.
+        api.MapGet("/saved-text", (SavedTextService t) => t.ListAsync());
+        api.MapPost("/saved-text", async (HttpContext h, SavedTextService t, SavedTextBody b) => Results.Ok(await t.AddAsync(h.Current(), b.Code, b.Text)));
+        api.MapPut("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id, SavedTextBody b) => Results.Ok(await t.ChangeAsync(h.Current(), id, b.Code, b.Text)));
+        api.MapDelete("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id) => { await t.RemoveAsync(h.Current(), id); return Results.NoContent(); });
 
         api.MapGet("/items", (HttpContext h, MeetingService s, string? statuses, bool? selfAssigned, string? search, string? mode) =>
         {

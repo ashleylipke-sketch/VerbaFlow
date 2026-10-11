@@ -80,3 +80,4 @@ del { text-decoration:line-through; color:var(--del); }
 .page .para-tools { margin-top:6px; }
 @media (max-width:600px) { .page { padding:20px 16px; } }
 .low-c-key { background:rgba(180,83,9,.14); border-radius:3px; padding:0 3px; color:var(--ink); }
+td.wrap.saved-text { white-space: pre-line; max-width: 520px; }

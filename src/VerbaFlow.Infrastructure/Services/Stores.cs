@@ -19,6 +19,7 @@ public sealed class Stores
     public DocTable<DeleteRequest> Deletes { get; }
     public DocTable<MediaAsset> MediaAssets { get; }
     public DocTable<VocabularyTerm> Vocabulary { get; }
+    public DocTable<SavedText> SavedText { get; }
     public DocTable<SupportError> SupportErrors { get; }
     public DocTable<Export.ExportRecord> Exports { get; }
     public AuditLog Audit { get; }
@@ -34,6 +35,7 @@ public sealed class Stores
         Deletes = new(db, "doc_delete_requests");
         MediaAssets = new(db, "doc_media");
         Vocabulary = new(db, "doc_vocabulary");
+        SavedText = new(db, "doc_saved_text");
         SupportErrors = new(db, "doc_support_errors");
         Exports = new(db, "doc_exports");
         Audit = new(db, clock);

@@ -6,7 +6,8 @@ namespace VerbaFlow.Core.Transcripts;
 /// Spoken commands in a dictation ("comma", "full stop", "new paragraph") turned into punctuation and paragraphs.
 /// Works on the words the speech service returned, so each kept word keeps its timing. The speech service adds its own
 /// punctuation too, so a command replaces any punctuation it put next to the command word.
-/// "New paragraph" and "new line" both start a new passage.
+/// "New paragraph" and "new line" both start a new passage. "Insert" followed by a saved text's code ("insert legal 1.1")
+/// puts that text in its place; its words are timed across the spoken command, and its own line breaks start paragraphs.
 /// </summary>
 public static class DictationCommands
 {
@@ -40,11 +41,57 @@ public static class DictationCommands
 
     private const string Trailing = ".,;:!?";
 
-    private sealed class Token(string text, WordTiming? timing, int index)
+    private sealed class Token(string text, WordTiming? timing, int index, string? insert = null)
     {
         public string Text = text;
         public readonly WordTiming? Timing = timing;
         public readonly int Index = index; // position among the words the speech service returned
+        public readonly string? Insert = insert; // the saved text's code, for words put in by "insert"
+    }
+
+    /// <summary>A saved text ready to insert: its code as typed, and its words paragraph by paragraph.</summary>
+    private sealed record Insert(string Code, List<string[]> Paragraphs);
+
+    private sealed class Inserts
+    {
+        public readonly Dictionary<string, Insert> ByKey = new();
+        public readonly HashSet<string> FirstWords = [];
+    }
+
+    /// <summary>The longest run of words after "insert" that is a saved text's code.</summary>
+    private const int MaxCodeWords = 12;
+    /// <summary>Said before a code, in English and Afrikaans ("voeg in" is two words and splits around the code, so "invoeg" only).</summary>
+    private static readonly HashSet<string> InsertWords = ["insert", "invoeg"];
+    public const string NoMatch = "insert, no saved text matched";
+
+    private static Inserts? Prepare(IReadOnlyList<(string Code, string Text)>? saved)
+    {
+        if (saved is null || saved.Count == 0) return null;
+        var result = new Inserts();
+        foreach (var (code, text) in saved)
+        {
+            var key = SpokenCodes.Key(code);
+            if (key.Length == 0) continue;
+            var paragraphs = text.Replace("\r\n", "\n").Split(LineBreakChars)
+                .Select(l => l.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Where(w => w.Length > 0).ToList();
+            if (paragraphs.Count == 0) continue;
+            result.ByKey.TryAdd(key, new Insert(code, paragraphs));
+            result.FirstWords.Add(key.Split(' ')[0]);
+        }
+        return result.ByKey.Count == 0 ? null : result;
+    }
+
+    private static (Insert Insert, int Length)? FindInsert(string[] raw, int from, Inserts inserts)
+    {
+        var limit = 0;
+        while (limit < MaxCodeWords && from + limit < raw.Length && raw[from + limit] != LineBreak) limit++;
+        for (var k = limit; k >= 1; k--)
+        {
+            // A trailing "comma" or "full stop" belongs to the dictation, not to the code.
+            if (!SpokenCodes.HasContent(raw[from + k - 1])) continue;
+            if (inserts.ByKey.TryGetValue(SpokenCodes.Key(raw[from..(from + k)]), out var hit)) return (hit, k);
+        }
+        return null;
     }
 
     /// <summary>Applies the commands to every passage. A passage is split where a paragraph was asked for.</summary>
@@ -55,8 +102,10 @@ public static class DictationCommands
     }
 
     /// <summary>As <see cref="Apply(IReadOnlyList{Segment})"/>, also saying how often each command was heard (command names only, never the dictated words).</summary>
-    public static (IReadOnlyList<Segment> Segments, int Applied, IReadOnlyDictionary<string, int> Heard) ApplyCounted(IReadOnlyList<Segment> segments)
+    public static (IReadOnlyList<Segment> Segments, int Applied, IReadOnlyDictionary<string, int> Heard) ApplyCounted(IReadOnlyList<Segment> segments,
+        IReadOnlyList<(string Code, string Text)>? savedText = null)
     {
+        var inserts = Prepare(savedText);
         var heard = new SortedDictionary<string, int>();
         var result = new List<Segment>();
         var applied = 0;
@@ -64,7 +113,7 @@ public static class DictationCommands
         var startNext = true;
         foreach (var s in segments)
         {
-            var (parts, n, breakAtStart, breakAtEnd) = Run(s, heard);
+            var (parts, n, breakAtStart, breakAtEnd) = Run(s, heard, inserts);
             if (parts.Count > 0)
             {
                 result.Add(parts[0] with { NewParagraph = startNext || breakAtStart });
@@ -79,7 +128,7 @@ public static class DictationCommands
 
     public static (IReadOnlyList<Segment> Segments, int Applied) Apply(Segment s)
     {
-        var (parts, n, _, _) = Run(s, null);
+        var (parts, n, _, _) = Run(s, null, null);
         return (parts, n);
     }
 
@@ -116,7 +165,7 @@ public static class DictationCommands
 
     private static string NameOf(Command c) => c == SpeechServiceBreak ? "line break from the speech service" : string.Join(' ', c.Words);
 
-    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard)
+    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard, Inserts? inserts)
     {
         var raw = MarkLineBreaks(s.Text).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         // Word timings line up with the spoken words, not with line breaks.
@@ -130,6 +179,36 @@ public static class DictationCommands
         string? openNext = null;
         for (var i = 0; i < raw.Length;)
         {
+            if (inserts is not null && raw[i] != LineBreak && InsertWords.Contains(Bare(raw[i])))
+            {
+                if (FindInsert(raw, i + 1, inserts) is { } hit)
+                {
+                    applied++;
+                    Count(heard, "insert " + hit.Insert.Code);
+                    // The inserted words share out the time it took to say "insert legal 1.1", so highlighting passes over them then.
+                    var from = timed?[wordAt[i]].StartMs ?? 0;
+                    var to = timed?[wordAt[i + hit.Length]].EndMs ?? 0;
+                    var total = hit.Insert.Paragraphs.Sum(p => p.Length);
+                    var n = 0;
+                    for (var p = 0; p < hit.Insert.Paragraphs.Count; p++)
+                    {
+                        if (p > 0 && paragraphs[^1].Count > 0) paragraphs.Add([]);
+                        foreach (var word in hit.Insert.Paragraphs[p])
+                        {
+                            var text = word;
+                            if (openNext is not null) { text = openNext + text; openNext = null; }
+                            if (capitalNext) { text = Capitalise(text); capitalNext = false; }
+                            WordTiming? timing = timed is null ? null
+                                : new(text, from + (int)((long)(to - from) * n / total), from + (int)((long)(to - from) * (n + 1) / total));
+                            paragraphs[^1].Add(new Token(text, timing, i, hit.Insert.Code));
+                            n++;
+                        }
+                    }
+                    i += 1 + hit.Length;
+                    continue;
+                }
+                if (i + 1 < raw.Length && inserts.FirstWords.Contains(SpokenCodes.Key([raw[i + 1]]).Split(' ')[0])) Count(heard, NoMatch);
+            }
             var cmd = raw[i] == LineBreak ? SpeechServiceBreak : Commands.FirstOrDefault(c => Matches(raw, i, c.Words));
             var current = paragraphs[^1];
             var prev = current.Count > 0 ? current[^1] : null;
@@ -144,7 +223,7 @@ public static class DictationCommands
             }
             applied++;
             i += cmd.Words.Length;
-            if (heard is not null) heard[NameOf(cmd)] = heard.TryGetValue(NameOf(cmd), out var c) ? c + 1 : 1;
+            Count(heard, NameOf(cmd));
             switch (cmd.Kind)
             {
                 case Kind.Break:
@@ -177,13 +256,20 @@ public static class DictationCommands
             var start = p == 0 ? s.StartMs : tokens[0].Timing?.StartMs ?? Proportional(s, raw.Length, tokens[0].Index);
             var end = p == kept.Count - 1 ? s.EndMs : kept[p + 1][0].Timing?.StartMs ?? Proportional(s, raw.Length, kept[p + 1][0].Index);
             var words = timed is null ? null : tokens.Select(t => t.Timing! with { Text = t.Text }).ToList();
+            var codes = tokens.Select(t => t.Insert).OfType<string>().Distinct().ToList();
             segments.Add(s with
             {
                 Id = Guid.NewGuid(),
-                Text = string.Join(' ', tokens.Select(t => t.Text)), StartMs = start, EndMs = Math.Max(start, end), Words = words
+                Text = string.Join(' ', tokens.Select(t => t.Text)), StartMs = start, EndMs = Math.Max(start, end), Words = words,
+                Inserted = codes.Count == 0 ? null : string.Join(", ", codes)
             });
         }
         return (segments, applied, breakAtStart, breakAtEnd);
+    }
+
+    private static void Count(IDictionary<string, int>? heard, string name)
+    {
+        if (heard is not null) heard[name] = heard.TryGetValue(name, out var c) ? c + 1 : 1;
     }
 
     private static bool Matches(string[] raw, int at, string[] words)

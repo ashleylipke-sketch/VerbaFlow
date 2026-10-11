@@ -14,6 +14,7 @@ public static class RestartedSentences
     /// <summary>The passage with restarted sentences taken out, or null when there are none. Kept words keep their timings.</summary>
     public static (Segment Segment, int Removed)? Remove(Segment s)
     {
+        if (s.Inserted is not null) return null; // saved text is the company's own wording: never cross any of it out
         var tokens = s.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
         if (tokens.Any(t => t.Contains('\n'))) return null; // typed paragraph breaks: leave alone
         var timed = s.Words is { } w && w.Count == tokens.Count ? w.ToList() : null;

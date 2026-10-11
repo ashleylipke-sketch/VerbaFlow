@@ -185,6 +185,7 @@ function CommandHelp() {
       <strong>Say these while dictating</strong> and they are turned into punctuation:
       <ul style={{ margin: '4px 0' }}>{dictationCommands.map(([say, gives]) => <li key={say}>"{say}" gives {gives}</li>)}</ul>
       In Afrikaans: {dictationCommandsAf}.
+      <div>"insert" and a code from <a href="#/saved-text" target="_blank" rel="noreferrer">Saved text</a> (for example "insert legal 1.1") puts that text in.</div>
     </div>
   );
 }

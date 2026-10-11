@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, fmtLen, type Mode } from '../api';
 import { dictationCommands, dictationCommandsAf } from '../dictation';
 import LanguagePicker from '../LanguagePicker';
+import DocumentTypePicker, { type DocType } from '../DocumentType';
 import { summaryLanguage } from '../languages';
 
 type Marker = { type: 'Objection' | 'Pause' | 'Resume'; offsetMs: number; note: string | null };
@@ -11,6 +12,7 @@ export default function Record({ mode }: { mode: Mode }) {
   const [consent, setConsent] = useState(false);
   const [name, setName] = useState('');
   const [clientRef, setClientRef] = useState('');
+  const [docType, setDocType] = useState<DocType | ''>('');
   const [state, setState] = useState<'idle' | 'recording' | 'paused' | 'stopped'>('idle');
   const [elapsed, setElapsed] = useState(0);
   const [quiet, setQuiet] = useState(false);
@@ -110,7 +112,7 @@ export default function Record({ mode }: { mode: Mode }) {
       const f = new FormData();
       f.append('audio', blob.current!, 'recording.webm');
       f.append('name', name || `${dictate ? 'Dictation' : 'Meeting'} ${new Date().toLocaleString('en-GB')}`);
-      f.append('mode', mode); if (clientRef.trim()) f.append('clientReference', clientRef.trim());
+      f.append('mode', mode); if (dictate) f.append('documentType', docType); if (clientRef.trim()) f.append('clientReference', clientRef.trim());
       f.append('lengthMs', String(Math.max(1, Math.round(activeMs.current))));
       f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken); if (speakers) f.append('numSpeakers', speakers); f.append('consentNoticeGiven', String(consent)); f.append('markers', JSON.stringify(markers));
       const { id } = await api.form('/items/recordings', f);
@@ -118,10 +120,15 @@ export default function Record({ mode }: { mode: Mode }) {
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
+  // A dictation needs a name (a client reference alone is not enough) and to say what it is.
+  const dictateNeeds = !docType ? 'Choose letter, Word document or email to start.'
+    : !name.trim() ? (clientRef.trim() ? 'A client reference needs a name as well. Add a name to start.' : 'Give the dictation a name to start.') : '';
+
   return (
     <div className="card">
       <h2>{dictate ? 'New dictation' : 'Record a meeting'}</h2>
       {state === 'idle' && dictate && <>
+        <DocumentTypePicker value={docType} onChange={setDocType} />
         <div className="pair"><div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Letter to Mr Smith" /></label></div>
           <div className="field"><label>Client reference (optional)<br /><input value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="e.g. ACME-042" /></label></div></div>
         <LanguagePicker value={spoken} onChange={setSpoken} />
@@ -138,7 +145,8 @@ export default function Record({ mode }: { mode: Mode }) {
             <option value="">Not sure</option>{[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
           <div className="note">If you know how many people will speak, say so. It helps the app tell them apart.</div></div>
       </>}
-      {state === 'idle' && <button className="primary" disabled={!dictate && !consent} onClick={start}>{dictate ? 'Start dictating' : 'Start recording'}</button>}
+      {state === 'idle' && <button className="primary" disabled={dictate ? !!dictateNeeds : !consent} onClick={start}>{dictate ? 'Start dictating' : 'Start recording'}</button>}
+      {state === 'idle' && dictate && dictateNeeds && <p className="need">{dictateNeeds}</p>}
       {state !== 'idle' && <>
         <div className="timer" aria-live="off">{fmtLen(elapsed)} {state === 'paused' && <span className="tag warn">Paused</span>}</div>
         {dictate && state !== 'stopped' && <details className="note"><summary>Spoken commands</summary><CommandHelp /></details>}

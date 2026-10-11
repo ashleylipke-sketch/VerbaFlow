@@ -1,3 +1,4 @@
+using VerbaFlow.Core.Transcripts;
 using System.Globalization;
 using System.Security.Cryptography;
 using VerbaFlow.Core.Audit;
@@ -85,6 +86,9 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         return new ExportFile(eml, "message/rfc822", Path.ChangeExtension(file.FileName, ".eml"));
     }
 
+    /// <summary>The heading over a dictation's text: what the person said it was for.</summary>
+    public static string DocumentHeading(string? type) => type switch { "letter" => "Letter", "document" => "Document", "email" => "Email", _ => "Text" };
+
     private static string What(Item item) => item.Mode == ItemMode.Dictate ? "the dictation" : "the minutes of";
 
     private static string Subject(Item item, ExportRecord record) =>
@@ -151,11 +155,12 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             Has(ExportParts.Minutes) ? (outputs?.Minutes ?? "").Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0).ToList() : [],
             Has(ExportParts.Tone) ? outputs?.ToneOfMeeting : null,
             Has(ExportParts.Transcript)
-                ? transcript.Render().Select(r => dictation ? new MinutesPassage("", "", r.Segment.Text)
-                    : new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
+                ? dictation
+                    ? DictationCommands.Paragraphs(transcript.Render(), r => r.Segment).Select(p => new MinutesPassage("", "", string.Join(" ", p.Select(r => r.Segment.Text)))).ToList()
+                    : transcript.Render().Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
                 : [],
             $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}",
-            dictation ? "Text" : "Transcript");
+            dictation ? DocumentHeading(item.DocumentType) : "Transcript");
 
         var bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();

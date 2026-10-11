@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LanguagePicker from '../LanguagePicker';
 import { ExportMenu } from '../ExportMenu';
+import { docLabel } from '../DocumentType';
 import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
@@ -152,7 +153,7 @@ export default function ItemPage({ id }: { id: string }) {
       {audioUrl && <div className="player"><audio ref={player} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} /></div>}
       <div className="split">
         <div className="card">
-          <h2>{dictate ? 'Text' : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}</h2>
+          <h2>{dictate ? docLabel(d.documentType) : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}</h2>
           {!t && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No transcript.'}</p>}
           {t && !dictate && <p className="note">Speakers: {t.speakers.map(s => (
             <span key={s.id} style={{ marginRight: 10 }}>{s.name}{d.canEditTranscript && <> <button onClick={() => { const n = prompt('Rename speaker', s.name); if (n?.trim()) run(() => api.put(`/items/${id}/speakers/${s.id}`, { name: n.trim() })); }}>Rename</button></>}</span>))}</p>}
@@ -162,7 +163,10 @@ export default function ItemPage({ id }: { id: string }) {
               {showChanges ? <> · <ins>Added or changed text</ins> · <del>Original text</del></> : ' · hidden'}
               {approved && ' · approved version'}</span></div>}
           {audioUrl && t && <p className="note">Press play to follow along. Click any word to jump the audio to it.</p>}
-          {t?.segments.map((s, i) => <SegmentRow key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
+          {dictate && t && <DocumentView d={d} t={t} timed={timed} pos={pos} playing={playing} canSeek={!!audioUrl} onSeek={seek}
+            editable={d.canEditTranscript} showChanges={showChanges}
+            onSave={async edits => { for (const [sid, text] of edits) await api.put(`/items/${id}/segments/${sid}`, { text }); }} onSaved={load} onError={setError} />}
+          {!dictate && t?.segments.map((s, i) => <SegmentRow key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
             playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript} hideSpeaker={dictate}
             showChanges={showChanges}
             onSave={text => run(() => api.put(`/items/${id}/segments/${s.id}`, { text }))} />)}
@@ -275,4 +279,96 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
       </div>
     </div>
   );
+}
+
+/** Passages grouped into the paragraphs the person dictated. Older dictations, saved before paragraphs were kept, show each passage on its own. */
+function paragraphsOf(segs: Transcript['segments']): number[][] {
+  const out: number[][] = [];
+  segs.forEach((s, i) => { if (out.length === 0 || s.newParagraph !== false) out.push([]); out[out.length - 1].push(i); });
+  return out;
+}
+
+const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+/** A dictation shown as the letter, Word document or email the person said it was. */
+function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError }: {
+  d: Detail; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
+  onSeek: (ms: number) => void; editable: boolean; showChanges: boolean;
+  onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void;
+}) {
+  const paras = useMemo(() => paragraphsOf(t.segments), [t]);
+  const type = d.documentType ?? 'document';
+  const anyLow = t.segments.some(s => s.lowConfidence);
+  return (
+    <>
+      {anyLow && <p className="note"><span className="low-c-key">Shaded</span> text was hard to hear. Please check it.</p>}
+      <article className="page" aria-label={docLabel(d.documentType)}>
+        {type === 'letter' && <>
+          <div className="page-date">{longDate(d.row.createdOn)}</div>
+          <div className="page-ref">{d.clientReference ? <>Our ref: {d.clientReference}</> : null}</div></>}
+        {type === 'email' && <div className="mail-head">
+          <div><b>Subject</b> {d.row.name}</div>
+          {d.clientReference && <div><b>Reference</b> {d.clientReference}</div>}</div>}
+        {type === 'document' && <h1 className="page-title">{d.row.name}</h1>}
+        {paras.map((idx, p) => <Paragraph key={t.segments[idx[0]].id} idx={idx} t={t} timed={timed} pos={pos} playing={playing} canSeek={canSeek}
+          onSeek={onSeek} editable={editable} showChanges={showChanges} onSave={onSave} onSaved={onSaved} onError={onError} first={p === 0} />)}
+      </article>
+    </>
+  );
+}
+
+function Paragraph({ idx, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError }: {
+  idx: number[]; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
+  onSeek: (ms: number) => void; editable: boolean; showChanges: boolean; first: boolean;
+  onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void;
+}) {
+  const segs = idx.map(i => t.segments[i]);
+  const [editing, setEditing] = useState(false);
+  const [texts, setTexts] = useState(segs.map(s => s.text));
+  const [saving, setSaving] = useState(false);
+  const el = useRef<HTMLDivElement>(null);
+  const reading = idx.includes(pos.seg);
+  useEffect(() => { if (!editing) setTexts(segs.map(s => s.text)); }, [t]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (reading && playing) el.current?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, [reading, playing]);
+  const changed = segs.map((s, k) => [s.id, texts[k].trim()] as [string, string]).filter(([, x], k) => x && x !== segs[k].text);
+
+  if (editing) return (
+    <div className="para" ref={el}>
+      {segs.map((s, k) => <textarea key={s.id} rows={Math.max(2, Math.ceil(texts[k].length / 80))} value={texts[k]} aria-label={`Sentence ${k + 1} of this paragraph`}
+        onChange={e => setTexts(v => v.map((x, j) => j === k ? e.target.value : x))} />)}
+      <div className="actions para-tools"><button className="primary" disabled={saving || changed.length === 0}
+        onClick={async () => { setSaving(true); try { await onSave(changed); setEditing(false); onSaved(); } catch (e: any) { onError(e.message); } finally { setSaving(false); } }}>
+        {saving ? 'Saving…' : 'Save'}</button>
+        <button onClick={() => { setTexts(segs.map(s => s.text)); setEditing(false); }}>Cancel</button></div>
+    </div>);
+
+  return (
+    <div className={'para' + (reading ? ' reading' : '')} ref={el}>
+      {segs.map((s, k) => {
+        const i = idx[k];
+        return <span key={s.id} className={s.lowConfidence ? 'low-c' : undefined} title={s.lowConfidence ? 'Hard to hear. Please check.' : undefined}>
+          <Words s={s} words={timed[i] ?? []} activeWord={pos.seg === i ? pos.word : -1} canSeek={canSeek} onSeek={onSeek} showChanges={showChanges} />{' '}</span>;
+      })}
+      {editable && <button className="link para-edit" onClick={() => setEditing(true)}>Edit</button>}
+    </div>);
+}
+
+function Words({ s, words, activeWord, canSeek, onSeek, showChanges }: {
+  s: Transcript['segments'][number]; words: WordT[]; activeWord: number; canSeek: boolean; onSeek: (ms: number) => void; showChanges: boolean;
+}) {
+  const word = (i: number) => {
+    const w = words[i];
+    if (!w) return null;
+    return <span className={'w' + (i === activeWord ? ' now' : '')} role={canSeek ? 'button' : undefined} tabIndex={canSeek ? 0 : undefined}
+      onClick={canSeek ? () => onSeek(w.startMs) : undefined}
+      onKeyDown={canSeek ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(w.startMs); } } : undefined}>{w.text}</span>;
+  };
+  const ops = showChanges && s.originalText !== null ? diffWords(s.originalText, s.text) : null;
+  return <>{ops
+    ? ops.map((o, i) => o.kind === 'del' ? <span key={i}><del>{o.text}</del>{' '}</span>
+      : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{i < ops.length - 1 ? ' ' : ''}</span>
+      : <span key={i}>{word(o.cur!)}{i < ops.length - 1 ? ' ' : ''}</span>)
+    : words.map((_, i) => <span key={i}>{word(i)}{i < words.length - 1 ? ' ' : ''}</span>)}</>;
 }

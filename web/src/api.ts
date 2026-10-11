@@ -11,9 +11,9 @@ export type Detail = {
   approvedAt: string | null; approvedBy: string | null; chainId: string;
   chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string; spokenLanguages: string;
   deletedAt: string | null; deletedBy: string | null; deleteReason: string | null; canExport: boolean;
-  mode: 'Dictate' | 'Meeting';
+  mode: 'Dictate' | 'Meeting'; documentType: string | null; clientReference: string | null;
 };
-export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null };
+export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null; newParagraph: boolean | null };
 export type Transcript = {
   versionNo: number; engine: string; segments: Segment[]; speakers: { id: string; label: string; name: string }[];
   versions: { no: number; kind: string; capacity: string; by: string | null; at: string; note: string | null }[];

@@ -86,7 +86,7 @@ public sealed class Env : IDisposable
         new(Audio(audio), "meeting.webm", "audio/webm", name, 60_000, "en", consent, markers ?? []);
 
     public RecordingUpload Dictation(string name = "Letter to the client") =>
-        new(Audio(), "dictation.webm", "audio/webm", name, 30_000, "en", false, [], "en-GB", null, ItemMode.Dictate);
+        new(Audio(), "dictation.webm", "audio/webm", name, 30_000, "en", false, [], "en-GB", null, ItemMode.Dictate, null, "letter");
 
     public ImportUpload Import(string fileName = "call.mp4", bool rights = true, string content = "pretend this is video") =>
         new(Audio(content), fileName, "video/mp4", null, 0, "en", rights, "supplied by client");

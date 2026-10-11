@@ -8,11 +8,11 @@ public sealed record MarkerInput(MarkerType Type, int OffsetMs, string? Note);
 
 public sealed record RecordingUpload(Stream Audio, string FileName, string ContentType, string Name, int LengthMs,
     string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null, int? NumSpeakers = null,
-    ItemMode Mode = ItemMode.Meeting, string? ClientReference = null);
+    ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null);
 
 public sealed record ImportUpload(Stream File, string FileName, string ContentType, string? Name, int LengthMs,
     string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null, int? NumSpeakers = null,
-    ItemMode Mode = ItemMode.Meeting, string? ClientReference = null);
+    ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null);
 
 public sealed record RetryRequest(string? SpokenLanguages);
 public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null, string? Audio = null);
@@ -35,14 +35,14 @@ public sealed record ItemDetail(
     bool CanEditDetails, bool CanDownloadAudio, string Role, string OutputLanguage, DateTimeOffset? ApprovedAt,
     string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en",
     DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null, bool CanExport = false,
-    string Mode = "Meeting");
+    string Mode = "Meeting", string? DocumentType = null, string? ClientReference = null);
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 
 public sealed record WordView(string Text, int StartMs, int EndMs);
 
 public sealed record SegmentView(Guid Id, string Speaker, Guid SpeakerId, string Language, int StartMs, int EndMs, string Text,
-    bool LowConfidence, IReadOnlyList<WordView>? Words, string? OriginalText = null);
+    bool LowConfidence, IReadOnlyList<WordView>? Words, string? OriginalText = null, bool? NewParagraph = null);
 
 public sealed record VersionView(int No, string Kind, string Capacity, string? By, DateTimeOffset At, string? Note);
 

@@ -34,6 +34,15 @@ public sealed class Item
     [JsonInclude] public string? FailureReason { get; private set; }
     [JsonInclude] public string Name { get; private set; } = "";
     [JsonInclude] public string? ClientReference { get; private set; }
+    /// <summary>What a dictation is for: "letter", "document" (a Word document) or "email". The text is shown and exported in that shape. Null for meetings.</summary>
+    [JsonInclude] public string? DocumentType { get; private set; }
+    public static readonly IReadOnlyList<string> DocumentTypes = ["letter", "document", "email"];
+    public void SetDocumentType(string? value)
+    {
+        var v = value?.Trim().ToLowerInvariant();
+        if (v is null || !DocumentTypes.Contains(v)) throw new DomainException("Choose whether this is a letter, a Word document or an email.");
+        DocumentType = v;
+    }
     [JsonInclude] public string? Description { get; private set; }
     [JsonInclude] public Priority Priority { get; private set; } = Priority.Normal;
     [JsonInclude] public DateOnly? DueDate { get; private set; }
@@ -227,6 +236,7 @@ public sealed class Item
         next.MediaSourceItemId = MediaSourceItemId;
         next.SpokenLanguages = SpokenLanguages;
         next.ClientReference = ClientReference;
+        next.DocumentType = DocumentType;
         next.Description = Description;
         next.Priority = Priority;
         next.DueDate = DueDate;

@@ -51,4 +51,18 @@ public class DictationCommandsTests
     [Fact]
     public void Words_that_merely_contain_a_command_are_left_alone() =>
         Assert.Equal("The commander stopped fully", Text(DictationCommands.Apply(Seg("The commander stopped fully")).Segments));
+
+    [Fact]
+    public void Passages_join_into_one_paragraph_until_a_new_paragraph_is_asked_for()
+    {
+        var (segs, _) = DictationCommands.Apply([Seg("Dear John comma"), Seg("thank you for your letter"), Seg("new paragraph"),
+            Seg("I agree full stop new paragraph"), Seg("Yours sincerely"), Seg("new line Ann")]);
+        Assert.Equal([true, false, true, true, true], segs.Select(x => x.NewParagraph == true).ToArray());
+        var paragraphs = DictationCommands.Paragraphs(segs, x => x).Select(p => string.Join(" ", p.Select(x => x.Text))).ToList();
+        Assert.Equal(["Dear John, thank you for your letter", "I agree.", "Yours sincerely", "Ann"], paragraphs);
+    }
+
+    [Fact]
+    public void Passages_saved_before_paragraphs_existed_each_stand_alone() =>
+        Assert.Equal(2, DictationCommands.Paragraphs([Seg("one"), Seg("two")], x => x).Count);
 }

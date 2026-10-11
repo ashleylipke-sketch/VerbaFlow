@@ -52,10 +52,18 @@ public static class DictationCommands
     {
         var result = new List<Segment>();
         var applied = 0;
+        // The speech service splits speech into passages at pauses; in a dictation only "new paragraph" starts a new paragraph.
+        var startNext = true;
         foreach (var s in segments)
         {
-            var (parts, n) = Apply(s);
-            result.AddRange(parts);
+            var (parts, n, breakAtStart, breakAtEnd) = Run(s);
+            if (parts.Count > 0)
+            {
+                result.Add(parts[0] with { NewParagraph = startNext || breakAtStart });
+                result.AddRange(parts.Skip(1).Select(x => x with { NewParagraph = true }));
+                startNext = breakAtEnd;
+            }
+            else startNext = startNext || breakAtStart || breakAtEnd;
             applied += n;
         }
         return (result, applied);
@@ -63,11 +71,30 @@ public static class DictationCommands
 
     public static (IReadOnlyList<Segment> Segments, int Applied) Apply(Segment s)
     {
+        var (parts, n, _, _) = Run(s);
+        return (parts, n);
+    }
+
+    /// <summary>Passages grouped into paragraphs, in order.</summary>
+    public static List<List<T>> Paragraphs<T>(IEnumerable<T> items, Func<T, Segment> segment)
+    {
+        var result = new List<List<T>>();
+        foreach (var x in items)
+        {
+            if (result.Count == 0 || segment(x).NewParagraph != false) result.Add([]);
+            result[^1].Add(x);
+        }
+        return result;
+    }
+
+    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s)
+    {
         var raw = s.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         var timed = s.Words is { } w && w.Count == raw.Length ? w : null;
         var paragraphs = new List<List<Token>> { new() };
         var applied = 0;
         var capitalNext = false;
+        var breakAtStart = false;
         string? openNext = null;
         for (var i = 0; i < raw.Length;)
         {
@@ -89,6 +116,7 @@ public static class DictationCommands
             {
                 case Kind.Break:
                     if (current.Count > 0) paragraphs.Add([]);
+                    else if (paragraphs.Count == 1) breakAtStart = true;
                     capitalNext = true;
                     break;
                 case Kind.Punctuation:
@@ -103,10 +131,11 @@ public static class DictationCommands
                     break;
             }
         }
-        if (applied == 0) return ([s], 0);
+        if (applied == 0) return ([s], 0, false, false);
 
+        var breakAtEnd = paragraphs.Count > 1 && paragraphs[^1].Count == 0;
         var kept = paragraphs.Where(p => p.Count > 0).ToList();
-        if (kept.Count == 0) return ([], applied); // the passage was nothing but commands
+        if (kept.Count == 0) return ([], applied, breakAtStart, false); // the passage was nothing but commands
         var segments = new List<Segment>();
         for (var p = 0; p < kept.Count; p++)
         {
@@ -120,7 +149,7 @@ public static class DictationCommands
                 Text = string.Join(' ', tokens.Select(t => t.Text)), StartMs = start, EndMs = Math.Max(start, end), Words = words
             });
         }
-        return (segments, applied);
+        return (segments, applied, breakAtStart, breakAtEnd);
     }
 
     private static bool Matches(string[] raw, int at, string[] words)

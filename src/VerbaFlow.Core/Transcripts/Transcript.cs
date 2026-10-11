@@ -9,7 +9,9 @@ public sealed record Speaker(Guid Id, string Label);
 public sealed record WordTiming(string Text, int StartMs, int EndMs);
 
 public sealed record Segment(Guid Id, Guid SpeakerId, string Language, int StartMs, int EndMs, string Text,
-    double Confidence, bool LowConfidence, IReadOnlyList<WordTiming>? Words = null);
+    double Confidence, bool LowConfidence, IReadOnlyList<WordTiming>? Words = null, bool? NewParagraph = null);
+// NewParagraph: in a dictation, true where a paragraph starts and false where the passage carries on the paragraph before it.
+// Null (meetings, and dictations saved before this existed) means every passage stands alone.
 
 public enum VersionKind { MachineV1, HumanEdit, SpeakerCorrection, Restore, ReopenCopy }
 

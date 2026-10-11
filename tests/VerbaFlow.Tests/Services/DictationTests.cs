@@ -64,7 +64,7 @@ public class DictationTests
         var file = await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "docx", parts: "summary,minutes");
         using var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(new MemoryStream(file.Content), false);
         var text = doc.MainDocumentPart!.Document!.Body!.InnerText;
-        Assert.Contains("TextPlease call me back.", text);
+        Assert.Contains("LetterPlease call me back.", text);
         Assert.DoesNotContain(env.Alice.Name + ":", text);
         Assert.DoesNotContain("0:00", text);
         Assert.DoesNotContain("Contains", text);
@@ -76,7 +76,7 @@ public class DictationTests
     public async Task An_imported_dictation_is_the_authors_own_and_needs_no_speaker_count()
     {
         using var env = new Env();
-        var id = await env.Meeting.ImportAsync(env.Alice, env.Import("memo.m4a") with { Mode = ItemMode.Dictate, NumSpeakers = 3 });
+        var id = await env.Meeting.ImportAsync(env.Alice, env.Import("memo.m4a") with { Mode = ItemMode.Dictate, NumSpeakers = 3, Name = "Memo", DocumentType = "email" });
         var item = await env.Item(id);
         Assert.Equal(ItemStatus.WithAuthor, item.Status);
         Assert.Null(item.NumSpeakers);
@@ -91,5 +91,19 @@ public class DictationTests
         var imp = await env.Meeting.ImportAsync(env.Alice, env.Import() with { ClientReference = "B-7" });
         Assert.Equal("ACME-042", (await env.Item(rec)).ClientReference);
         Assert.Equal("B-7", (await env.Item(imp)).ClientReference);
+    }
+
+    [Fact]
+    public async Task A_dictation_needs_a_name_and_a_kind_of_document_and_keeps_the_kind()
+    {
+        using var env = new Env();
+        await Assert.ThrowsAsync<DomainException>(() => env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation(" ") with { ClientReference = "ACME-042" }));
+        await Assert.ThrowsAsync<DomainException>(() => env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation() with { DocumentType = null }));
+        await Assert.ThrowsAsync<DomainException>(() => env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation() with { DocumentType = "fax" }));
+        await Assert.ThrowsAsync<DomainException>(() => env.Meeting.ImportAsync(env.Alice, env.Import("memo.m4a") with { Mode = ItemMode.Dictate, DocumentType = "letter" }));
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation() with { DocumentType = "Email" });
+        Assert.Equal("email", (await env.Meeting.GetItemAsync(env.Alice, id)).DocumentType);
+        // A meeting needs neither.
+        await env.Meeting.ImportAsync(env.Alice, env.Import());
     }
 }

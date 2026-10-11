@@ -28,12 +28,14 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (!dictation && !up.ConsentNoticeGiven)
             throw new DomainException("Confirm that everyone was told the meeting is being recorded before saving.");
         if (up.LengthMs <= 0) throw new DomainException("The recording has no length.");
+        if (dictation) CheckDictation(up.Name, up.DocumentType);
 
         var staged = await StageAndScanAsync(actor, up.Audio, up.FileName, "recording", ct);
         var id = Guid.NewGuid();
         var now = clock.GetUtcNow();
         var item = Item.CreateRecorded(id, actor.Id, up.Name, up.LengthMs, up.OutputLanguage, now, up.Mode);
         if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
+        if (dictation) item.SetDocumentType(up.DocumentType);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
         if (!dictation)
         {
@@ -61,12 +63,14 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var ext = Path.GetExtension(up.FileName);
         if (!MediaExtensions.Contains(ext) && !(up.ContentType.StartsWith("audio/") || up.ContentType.StartsWith("video/")))
             throw new DomainException("Only audio and video files can be imported. Attach documents to an existing item instead.");
+        if (up.Mode == ItemMode.Dictate) CheckDictation(up.Name, up.DocumentType);
 
         var staged = await StageAndScanAsync(actor, up.File, up.FileName, "import", ct);
         var id = Guid.NewGuid();
         var name = string.IsNullOrWhiteSpace(up.Name) ? Path.GetFileNameWithoutExtension(up.FileName) : up.Name!;
         var item = Item.CreateImported(id, actor.Id, name, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), SafeName(up.FileName), up.SourceNote, up.Mode);
         if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
+        if (up.Mode == ItemMode.Dictate) item.SetDocumentType(up.DocumentType);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
         if (up.Mode != ItemMode.Dictate) ApplySpeakerCount(item, up.NumSpeakers);
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Imported");
@@ -87,6 +91,14 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, CapacityOf(actor, item), id, "processing.retry_requested");
         queue.Enqueue(id);
+    }
+
+    /// <summary>A dictation needs a name (a client reference alone is not enough) and to say whether it is a letter, Word document or email.</summary>
+    private static void CheckDictation(string? name, string? documentType)
+    {
+        if (string.IsNullOrWhiteSpace(name)) throw new DomainException("Give the dictation a name before starting.");
+        if (documentType is null || !Item.DocumentTypes.Contains(documentType.Trim().ToLowerInvariant()))
+            throw new DomainException("Choose whether this is a letter, a Word document or an email.");
     }
 
     /// <summary>When the person says how many people spoke, that count goes to the speech service and its own speaker labels are used.</summary>
@@ -370,7 +382,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
                 x.CreatedBy is { } u ? users.GetValueOrDefault(u) : null, x.CreatedAt, x.Note)).ToList(),
             current.Select((r, i) => new SegmentView(r.Segment.Id, r.SpeakerName, r.Segment.SpeakerId, r.Segment.Language,
                 r.Segment.StartMs, r.Segment.EndMs, r.Segment.Text, r.Segment.LowConfidence,
-                r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList(), OriginalOf(i))).ToList(),
+                r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList(), OriginalOf(i), r.Segment.NewParagraph)).ToList(),
             t.Speakers.Select(s => new SpeakerView(s.Id, s.Label, v.SpeakerNames.GetValueOrDefault(s.Id, s.Label))).ToList(), t.Engine);
     }
 
@@ -492,7 +504,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             item.Source == SourceKind.Imported ? "Imported (external source)" : "Recorded in app", item.SpokenLanguages,
             item.DeletedAt, item.DeletedBy is { } db ? users.GetValueOrDefault(db)?.Name : null, item.DeleteReason,
             item.Status != ItemStatus.Purged && PermissionEvaluator.Evaluate(actor, item, Capability.Export).Allowed,
-            item.Mode.ToString());
+            item.Mode.ToString(), item.DocumentType, item.ClientReference);
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)

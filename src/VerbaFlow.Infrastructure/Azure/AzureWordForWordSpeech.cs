@@ -39,6 +39,8 @@ public sealed class AzureWordForWordSpeech(AzureSpeechOptions options, string? f
             config.SetProfanity(ProfanityOption.Raw); // a transcript must record what was said
             // Automatic punctuation only: spoken punctuation stays as words for VerbaFlow to apply.
             config.SetServiceProperty("punctuation", "implicit", ServicePropertyChannel.UriQueryParameter);
+            // Leave out stumbles and repeats ("I will quite... I will quite clearly"), as fast transcription does.
+            config.SetProperty(PropertyId.SpeechServiceResponse_PostProcessingOption, "TrueText");
 
             using var input = AudioConfig.FromWavFileInput(wav);
             using var recogniser = new SpeechRecognizer(config, input);
@@ -59,12 +61,16 @@ public sealed class AzureWordForWordSpeech(AzureSpeechOptions options, string? f
                 if (r.Reason != ResultReason.RecognizedSpeech || string.IsNullOrWhiteSpace(r.Text)) return;
                 var best = r.Best()?.FirstOrDefault();
                 var start = (int)(r.OffsetInTicks / TimeSpan.TicksPerMillisecond);
-                var words = best?.Words?.Select(w => new WordTiming(w.Word,
+                var end = start + (int)r.Duration.TotalMilliseconds;
+                var spoken = best?.Words?.Select(w => new WordTiming(w.Word,
                     (int)(w.Offset / TimeSpan.TicksPerMillisecond), (int)((w.Offset + w.Duration) / TimeSpan.TicksPerMillisecond))).ToList();
+                // The timed words are the words as spoken; give each shown word a time so following along stays in step.
+                var text = r.Text.Trim();
+                var words = spoken is { Count: > 0 } ? WordTimingAligner.Align(text, spoken, start, end) : null;
                 var confidence = best?.Confidence ?? 1.0;
                 lock (phrases)
-                    phrases.Add(new Segment(Guid.NewGuid(), voice.Id, language, start, start + (int)r.Duration.TotalMilliseconds, r.Text.Trim(),
-                        confidence, confidence < AzureSpeechService.LowConfidenceBelow, words is { Count: > 0 } ? words : null));
+                    phrases.Add(new Segment(Guid.NewGuid(), voice.Id, language, start, end, text,
+                        confidence, confidence < AzureSpeechService.LowConfidenceBelow, words));
             };
             recogniser.Canceled += (_, e) =>
             {

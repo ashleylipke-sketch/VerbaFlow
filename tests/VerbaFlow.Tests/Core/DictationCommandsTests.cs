@@ -72,6 +72,8 @@ public class DictationCommandsTests
     [InlineData("We spoke to the client. Comma. BBC staff were there.", "We spoke to the client, BBC staff were there.")]
     [InlineData("I met Sarah today. Colon. Sarah agreed.", "I met Sarah today: Sarah agreed.")]
     [InlineData("Is that right? Comma. It is.", "Is that right, it is.")]
+    [InlineData("As per our meeting on Thursday 22 November 2023 comma. Please find a summary.", "As per our meeting on Thursday 22 November 2023, please find a summary.")]
+    [InlineData("Thank you comma John will call.", "Thank you, John will call.")]
     public void A_spoken_comma_that_replaces_a_full_stop_also_takes_away_the_capital_it_gave(string spoken, string expected) =>
         Assert.Equal(expected, Text(DictationCommands.Apply(Seg(spoken)).Segments));
 
@@ -80,5 +82,13 @@ public class DictationCommandsTests
     {
         var (segs, _, _) = DictationCommands.ApplyCounted([Seg("Thank you. Comma. Lee-Anne will call.")], names: ["Lee-Anne"]);
         Assert.Equal("Thank you, Lee-Anne will call.", Text(segs));
+    }
+
+    [Fact]
+    public void History_counts_capitals_taken_away_and_kept_after_a_spoken_comma()
+    {
+        var (_, _, heard) = DictationCommands.ApplyCounted([Seg("Dated 2023 comma. Please reply. Thank you comma John will call.")]);
+        Assert.Equal(1, heard[DictationCommands.LoweredName]);
+        Assert.Equal(1, heard[DictationCommands.KeptName]);
     }
 }

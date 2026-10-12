@@ -177,6 +177,7 @@ public static class DictationCommands
         var applied = 0;
         var capitalNext = false;
         var lowerNext = false;
+        var afterComma = false;
         var breakAtStart = false;
         string? openNext = null;
         for (var i = 0; i < raw.Length;)
@@ -186,6 +187,7 @@ public static class DictationCommands
                 if (FindInsert(raw, i + 1, inserts) is { } hit)
                 {
                     applied++;
+                    lowerNext = false; afterComma = false;
                     Count(heard, "insert " + hit.Insert.Code);
                     // The inserted words share out the time it took to say "insert legal 1.1", so highlighting passes over them then.
                     var from = timed?[wordAt[i]].StartMs ?? 0;
@@ -217,7 +219,15 @@ public static class DictationCommands
             if (cmd is null)
             {
                 var text = raw[i];
-                if (lowerNext) { text = Uncapitalise(text, keep); lowerNext = false; }
+                if (lowerNext)
+                {
+                    var lowered = Uncapitalise(text, keep);
+                    if (lowered != text) Count(heard, LoweredName);
+                    text = lowered; lowerNext = false;
+                }
+                // Counted so the history shows when a capital after a comma was left alone (a name, or no sentence end seen).
+                if (afterComma && text.FirstOrDefault(char.IsLetter) is var first && char.IsUpper(first)) Count(heard, KeptName);
+                afterComma = false;
                 if (openNext is not null) { text = openNext + text; openNext = null; }
                 if (capitalNext) { text = Capitalise(text); capitalNext = false; }
                 current.Add(new Token(text, timed?[wordAt[i]], i));
@@ -225,6 +235,7 @@ public static class DictationCommands
                 continue;
             }
             applied++;
+            lowerNext = false; afterComma = false; // only ever the word straight after the comma
             i += cmd.Words.Length;
             Count(heard, NameOf(cmd));
             switch (cmd.Kind)
@@ -235,9 +246,11 @@ public static class DictationCommands
                     capitalNext = true;
                     break;
                 case Kind.Punctuation:
-                    // The speech service may have ended a sentence here ("2023. Please"); a spoken comma, colon or semicolon
-                    // takes away its full stop, so the capital it gave the next word goes too.
-                    lowerNext = cmd.Symbol is "," or ":" or ";" && prev is not null && EndsSentence(prev.Text);
+                    // The speech service may have ended a sentence here, before the command ("2023. Comma. Please") or on the
+                    // command word itself ("2023 comma. Please"); the comma takes the full stop away, so the capital goes too.
+                    lowerNext = cmd.Symbol is "," or ":" or ";" && prev is not null
+                        && (EndsSentence(prev.Text) || raw.Skip(i - cmd.Words.Length).Take(cmd.Words.Length).Any(EndsSentence));
+                    afterComma = cmd.Symbol is "," or ":" or ";";
                     if (prev is not null) prev.Text = prev.Text.TrimEnd(Trailing.ToCharArray()) + cmd.Symbol;
                     capitalNext = cmd.Symbol is "." or "?" or "!";
                     break;
@@ -289,6 +302,11 @@ public static class DictationCommands
     /// <summary>The word without the punctuation the speech service put around it.</summary>
     private static string Bare(string token) => token.Trim().Trim(Trailing.ToCharArray()).Trim('"', '(', ')').ToLowerInvariant();
 
+    public const string LoweredName = "small letter after a spoken comma";
+    public const string KeptName = "capital kept after a spoken comma";
+    /// <summary>The last word of every spoken command: a capital straight after one was given by the speech service, not a name.</summary>
+    private static readonly HashSet<string> CommandEnds = Commands.Select(c => c.Words[^1]).ToHashSet();
+
     private static bool EndsSentence(string word) => word.TrimEnd('"', ')', '\'', '’', '”') is { Length: > 0 } w && w[^1] is '.' or '?' or '!';
 
     /// <summary>
@@ -305,7 +323,7 @@ public static class DictationCommands
             var words = MarkLineBreaks(seg.Text).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             for (var i = 1; i < words.Length; i++)
             {
-                if (words[i - 1] == LineBreak || EndsSentence(words[i - 1])) continue;
+                if (words[i - 1] == LineBreak || EndsSentence(words[i - 1]) || CommandEnds.Contains(Bare(words[i - 1]))) continue;
                 var w = words[i].TrimStart('"', '(', '\'', '‘', '“');
                 if (w.Length > 0 && char.IsUpper(w[0])) keep.Add(Bare(w));
             }

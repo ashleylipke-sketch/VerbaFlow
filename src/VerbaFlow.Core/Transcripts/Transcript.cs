@@ -75,7 +75,8 @@ public sealed class Transcript
 
     public TranscriptVersion EditSegment(Guid segmentId, string newText, Guid actor, string capacity, DateTimeOffset now)
     {
-        if (string.IsNullOrWhiteSpace(newText)) throw new DomainException("The text cannot be empty.");
+        // Emptying a passage is allowed (its words were moved elsewhere, or should not be there): it stays in the version
+        // with no text, so the tracked changes still show what was taken out and Restore brings it back.
         var cur = Current;
         var index = cur.SegmentIds.IndexOf(segmentId);
         if (index < 0) throw new DomainException("That passage is not part of the current version.");
@@ -94,6 +95,22 @@ public sealed class Transcript
         var ids = cur.SegmentIds.ToList();
         ids[index] = replacement.Id;
         return Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, $"Edited passage at {old.StartMs} ms");
+    }
+
+    /// <summary>In a dictation: the passage carries on the paragraph before it instead of starting a new one. The words do not change.</summary>
+    public TranscriptVersion JoinWithPrevious(Guid segmentId, Guid actor, string capacity, DateTimeOffset now)
+    {
+        var cur = Current;
+        var index = cur.SegmentIds.IndexOf(segmentId);
+        if (index < 0) throw new DomainException("That passage is not part of the current version.");
+        if (index == 0) throw new DomainException("The first paragraph has nothing before it to join.");
+        var old = Segments[segmentId];
+        if (old.NewParagraph == false) throw new DomainException("This already carries on the paragraph before it.");
+        var replacement = old with { Id = Guid.NewGuid(), NewParagraph = false };
+        Segments[replacement.Id] = replacement;
+        var ids = cur.SegmentIds.ToList();
+        ids[index] = replacement.Id;
+        return Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, $"Joined passage at {old.StartMs} ms to the paragraph before");
     }
 
     /// <summary>

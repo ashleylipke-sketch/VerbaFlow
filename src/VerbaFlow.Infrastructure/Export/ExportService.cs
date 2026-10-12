@@ -160,7 +160,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                         // A line break typed while editing is a paragraph break too.
                         .SelectMany(p => string.Join(" ", p.Select(r => r.Segment.Text)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                         .Select(text => new MinutesPassage("", "", text)).ToList()
-                    : transcript.Render().Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
+                    : transcript.Render().Where(r => r.Segment.Text.Length > 0).Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
                 : [],
             $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}",
             dictation ? DocumentHeading(item.DocumentType) : "Transcript");

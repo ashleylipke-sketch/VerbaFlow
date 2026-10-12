@@ -18,4 +18,8 @@ describe('paragraphs of a dictation', () => {
   it('shows each passage on its own for older dictations', () => {
     expect(paragraphPieces([{ text: 'a', newParagraph: null }, { text: 'b', newParagraph: null }]).length).toBe(2);
   });
+  it('keeps an emptied passage with the paragraph before, so its removed words can still be shown', () => {
+    const p = paragraphPieces([{ text: 'one two', newParagraph: null }, { text: '', newParagraph: null }, { text: 'three', newParagraph: null }]);
+    expect(p).toEqual([[{ seg: 0, from: 0, to: 2 }, { seg: 1, from: 0, to: 0 }], [{ seg: 2, from: 0, to: 1 }]]);
+  });
 });

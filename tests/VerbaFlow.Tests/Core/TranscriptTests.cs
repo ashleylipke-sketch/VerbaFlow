@@ -64,11 +64,35 @@ public class TranscriptTests
     }
 
     [Fact]
-    public void Empty_or_unchanged_edits_are_refused()
+    public void Unchanged_edits_are_refused()
     {
         var (t, _, _, seg1) = Make();
-        Assert.Throws<DomainException>(() => t.EditSegment(seg1.Id, "  ", Guid.NewGuid(), "author", T.Now));
         Assert.Throws<DomainException>(() => t.EditSegment(seg1.Id, "Hello everyone", Guid.NewGuid(), "author", T.Now));
+    }
+
+    [Fact]
+    public void A_passage_can_be_emptied_and_restored()
+    {
+        var (t, _, _, seg1) = Make();
+        t.EditSegment(seg1.Id, "  ", Guid.NewGuid(), "assignee", T.Now);
+        Assert.Equal("", t.Render().Single(r => r.Segment.StartMs == 0).Segment.Text);
+        Assert.Equal(2, t.Render().Count); // still there, so the tracked changes show what was taken out
+        Assert.Throws<DomainException>(() => t.EditSegment(t.Render()[0].Segment.Id, "", Guid.NewGuid(), "assignee", T.Now));
+        t.Restore(1, Guid.NewGuid(), "author", T.Now);
+        Assert.Equal("Hello everyone", t.Render()[0].Segment.Text);
+    }
+
+    [Fact]
+    public void A_passage_can_be_joined_to_the_paragraph_before_without_changing_its_words()
+    {
+        var (t, _, _, seg1) = Make();
+        var second = t.Render()[1].Segment;
+        Assert.Throws<DomainException>(() => t.JoinWithPrevious(seg1.Id, Guid.NewGuid(), "assignee", T.Now)); // nothing before the first
+        var v = t.JoinWithPrevious(second.Id, Guid.NewGuid(), "assignee", T.Now);
+        Assert.Equal(VersionKind.HumanEdit, v.Kind);
+        Assert.False(t.Render()[1].Segment.NewParagraph);
+        Assert.Equal(second.Text, t.Render()[1].Segment.Text);
+        Assert.Throws<DomainException>(() => t.JoinWithPrevious(t.Render()[1].Segment.Id, Guid.NewGuid(), "assignee", T.Now));
     }
 
     [Fact]

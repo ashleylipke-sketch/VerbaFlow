@@ -193,6 +193,8 @@ public static class Endpoints
 
         api.MapGet("/items/{id:guid}/transcript", (HttpContext h, MeetingService s, Guid id, int? version) =>
             s.GetTranscriptAsync(h.Current(), id, version));
+        api.MapPost("/items/{id:guid}/segments/{segId:guid}/join", async (HttpContext h, MeetingService s, Guid id, Guid segId) =>
+        { await s.JoinParagraphAsync(h.Current(), id, segId); return Results.NoContent(); });
         api.MapPut("/items/{id:guid}/segments/{segId:guid}", async (HttpContext h, MeetingService s, Guid id, Guid segId, TextBody b) =>
         { await s.EditSegmentAsync(h.Current(), id, segId, b.Text); return Results.NoContent(); });
         api.MapPut("/items/{id:guid}/speakers/{spId:guid}", async (HttpContext h, MeetingService s, Guid id, Guid spId, NameBody b) =>

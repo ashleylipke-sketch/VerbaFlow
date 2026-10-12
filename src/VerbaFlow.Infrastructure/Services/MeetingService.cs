@@ -475,6 +475,16 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         await Audit(actor, v.Capacity, id, "transcript.edited", ("version", v.No), ("segmentId", segmentId));
     }
 
+    public async Task JoinParagraphAsync(User actor, Guid id, Guid segmentId)
+    {
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Write);
+        var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
+        var v = t.JoinWithPrevious(segmentId, actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
+        await stores.Transcripts.UpsertAsync(id, t);
+        await Audit(actor, v.Capacity, id, "transcript.paragraphs_joined", ("version", v.No), ("segmentId", segmentId));
+    }
+
     public async Task RenameSpeakerAsync(User actor, Guid id, Guid speakerId, string name)
     {
         var item = await stores.RequireItemAsync(id);

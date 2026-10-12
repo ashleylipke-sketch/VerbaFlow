@@ -23,7 +23,8 @@ export function paragraphPieces(segs: SegText[]): Piece[][] {
   const out: Piece[][] = [];
   segs.forEach((s, i) => {
     const breaks = breaksBefore(s.text);
-    if (out.length === 0 || s.newParagraph !== false) out.push([]);
+    // An emptied passage starts nothing: it stays with the paragraph before, where its removed words show as tracked changes.
+    if (out.length === 0 || (s.newParagraph !== false && breaks.length > 0)) out.push([]);
     let from = 0;
     for (let w = 1; w <= breaks.length; w++) {
       if (w === breaks.length || breaks[w]) {

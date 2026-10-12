@@ -172,8 +172,9 @@ export default function ItemPage({ id }: { id: string }) {
           {audioUrl && t && <p className="note">Press play to follow along. Click any word to jump the audio to it.</p>}
           {dictate && t && <DocumentView d={d} t={t} timed={timed} pos={pos} playing={playing} canSeek={!!audioUrl} onSeek={seek}
             editable={d.canEditTranscript} showChanges={showChanges}
-            onSave={async edits => { for (const [sid, text] of edits) await api.put(`/items/${id}/segments/${sid}`, { text }); }} onSaved={load} onError={setError} />}
-          {!dictate && t?.segments.map((s, i) => <SegmentRow key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
+            onSave={async edits => { for (const [sid, text] of edits) await api.put(`/items/${id}/segments/${sid}`, { text }); }} onSaved={load} onError={setError}
+            onJoin={sid => run(() => api.post(`/items/${id}/segments/${sid}/join`))} />}
+          {!dictate && t?.segments.map((s, i) => (s.text || showChanges) && <SegmentRow key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
             playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript} hideSpeaker={dictate}
             showChanges={showChanges}
             onSave={text => run(() => api.put(`/items/${id}/segments/${s.id}`, { text }))} />)}
@@ -275,7 +276,7 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
       <div>
         {editing ? <>
           <textarea rows={3} value={text} autoFocus onChange={e => setText(e.target.value)} />
-          <div className="actions"><button className="primary" disabled={!text.trim() || text.trim() === s.text}
+          <div className="actions"><button className="primary" disabled={text.trim() === s.text}
             onClick={() => { onSave(text); setEditing(false); }}>Save</button>
             <button onClick={() => { setText(s.text); setEditing(false); }}>Cancel</button></div>
         </> : <>
@@ -295,10 +296,10 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
 const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
 /** A dictation shown as the letter, Word document or email the person said it was. */
-function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError }: {
+function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError, onJoin }: {
   d: Detail; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
   onSeek: (ms: number) => void; editable: boolean; showChanges: boolean;
-  onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void;
+  onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void; onJoin: (segmentId: string) => void;
 }) {
   const paras = useMemo(() => paragraphPieces(t.segments), [t]);
   const type = d.documentType ?? 'document';
@@ -314,17 +315,20 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
           <div><b>Subject</b> {d.row.name}</div>
           {d.clientReference && <div><b>Reference</b> {d.clientReference}</div>}</div>}
         {type === 'document' && <h1 className="page-title">{d.row.name}</h1>}
-        {paras.map(pieces => <Paragraph key={`${t.segments[pieces[0].seg].id}-${pieces[0].from}`} pieces={pieces} t={t} timed={timed} pos={pos} playing={playing}
-          canSeek={canSeek} onSeek={onSeek} editable={editable} showChanges={showChanges} onSave={onSave} onSaved={onSaved} onError={onError} />)}
+        {paras.map((pieces, k) => <Paragraph key={`${t.segments[pieces[0].seg].id}-${pieces[0].from}`} pieces={pieces} t={t} timed={timed} pos={pos} playing={playing}
+          canSeek={canSeek} onSeek={onSeek} editable={editable} showChanges={showChanges} onSave={onSave} onSaved={onSaved} onError={onError}
+          onJoin={k > 0 && pieces[0].from === 0 ? () => onJoin(t.segments[pieces[0].seg].id) : undefined} />)}
       </article>
     </>
   );
 }
 
-function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError }: {
+function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError, onJoin }: {
   pieces: Piece[]; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
   onSeek: (ms: number) => void; editable: boolean; showChanges: boolean;
   onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void;
+  /** Present when this paragraph starts at a passage that can carry on the paragraph above instead. */
+  onJoin?: () => void;
 }) {
   // Editing works on whole passages: a passage split across paragraphs shows all of its text, line breaks included.
   const idx = [...new Set(pieces.map(p => p.seg))];
@@ -343,12 +347,13 @@ function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, 
     const v = texts.map(x => x.replace(/\r\n?/g, '\n'));
     for (let k = 0; k < v.length - 1; k++) if (/\n\s*$/.test(v[k]) && v[k].trim()) { v[k] = v[k].replace(/\s+$/, ''); v[k + 1] = '\n' + v[k + 1].replace(/^\s+/, ''); }
     return segs.map((s, k) => [s.id, v[k]] as [string, string])
-      .filter(([, x], k) => x.trim() && (x.trim() !== segs[k].text || (/^\s*\n/.test(x) && k > 0 && segs[k].newParagraph === false)));
+      // An emptied box is sent too: its words are taken out (they show struck through, and Restore brings them back).
+      .filter(([, x], k) => x.trim() !== segs[k].text || (x.trim() !== '' && /^\s*\n/.test(x) && k > 0 && segs[k].newParagraph === false));
   };
 
   if (editing) return (
     <div className="para" ref={el}>
-      <p className="note">Press Enter where a new paragraph should start.</p>
+      <p className="note">Press Enter where a new paragraph should start. Empty a box to take its words out.</p>
       {segs.map((s, k) => <textarea key={s.id} rows={Math.max(2, Math.ceil(texts[k].length / 80) + (texts[k].match(/\n/g)?.length ?? 0))} value={texts[k]}
         aria-label={`Sentence ${k + 1} of this paragraph`} onChange={e => setTexts(v => v.map((x, j) => j === k ? e.target.value : x))} />)}
       <div className="actions para-tools"><button className="primary" disabled={saving || outgoing().length === 0}
@@ -365,6 +370,7 @@ function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, 
           <Words s={s} words={timed[p.seg] ?? []} from={p.from} to={p.to} activeWord={pos.seg === p.seg ? pos.word : -1} canSeek={canSeek} onSeek={onSeek} showChanges={showChanges} />{' '}</span>;
       })}
       {editable && <button className="link para-edit" onClick={() => setEditing(true)}>Edit</button>}
+      {editable && onJoin && <button className="link para-edit" onClick={onJoin} title="This paragraph carries on the one above, with no break between them">Join to paragraph above</button>}
     </div>);
 }
 

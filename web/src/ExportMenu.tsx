@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, saveFile, type ExportCheck } from './api';
+import { api, saveFile, type ExportCheck, type Letterhead } from './api';
+import { letterheadNote } from './letterheadNote';
 
 /** The parts a person can tick. The title, Approved/Draft marker and details are always in the file. */
 export const exportParts = [
@@ -13,7 +14,8 @@ export const exportParts = [
 type Format = 'docx' | 'pdf';
 
 /** The Export button at the top of a meeting: opens a menu to pick what goes in, then download, preview or email it. */
-export function ExportMenu({ id, approved, dictate = false, onDone }: { id: string; approved: boolean; dictate?: boolean; onDone: () => void }) {
+export function ExportMenu({ id, approved, dictate = false, documentType = null, onDone }:
+  { id: string; approved: boolean; dictate?: boolean; documentType?: string | null; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [parts, setParts] = useState<string[]>(exportParts.map(p => p.key));
   const [busy, setBusy] = useState(false);
@@ -28,6 +30,13 @@ export function ExportMenu({ id, approved, dictate = false, onDone }: { id: stri
   const [mailSent, setMailSent] = useState('');
   const [check, setCheck] = useState<ExportCheck | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  const [letterhead, setLetterhead] = useState<Letterhead | null>(null);
+  const letter = dictate && documentType === 'letter';
+
+  // A dictated letter goes out on the letterhead, so the menu says which letterheads are set up.
+  useEffect(() => {
+    if (open && letter) api.letterhead().then(setLetterhead).catch(() => setLetterhead(null));
+  }, [open, letter]);
 
   // Close when clicking elsewhere or pressing Escape.
   useEffect(() => {
@@ -87,7 +96,8 @@ export function ExportMenu({ id, approved, dictate = false, onDone }: { id: stri
     <div className="menu" ref={box}>
       <button className="primary" aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(o => !o)}>Export ▾</button>
       {open && <div className="menu-panel" role="dialog" aria-label="Export">
-        {dictate ? <p className="note">Exports the text of the dictation, with its details and {approved ? 'Approved' : 'Draft'} marker.</p> : <><fieldset>
+        {dictate ? <><p className="note">Exports the text of the dictation, with its details and {approved ? 'Approved' : 'Draft'} marker.</p>
+          <p className="note" data-testid="letterhead-note">{letterheadNote(documentType, letterhead)}</p></> : <><fieldset>
           <legend>Include</legend>
           {exportParts.map(p => <label key={p.key} className="check">
             <input type="checkbox" checked={parts.includes(p.key)} onChange={() => toggle(p.key)} /> {p.label}</label>)}
@@ -148,3 +158,4 @@ export function ExportMenu({ id, approved, dictate = false, onDone }: { id: stri
     </div>
   );
 }
+

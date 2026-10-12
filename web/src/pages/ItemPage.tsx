@@ -101,7 +101,7 @@ export default function ItemPage({ id }: { id: string }) {
       <div className="card">
         <div className="item-head">
           <h2>{r.name} {r.tags.map(x => <span key={x} className="tag">{x}</span>)}</h2>
-          {d.canExport && t && <ExportMenu id={id} approved={approved} dictate={dictate} onDone={load} />}
+          {d.canExport && t && <ExportMenu id={id} approved={approved} dictate={dictate} documentType={d.documentType} onDone={load} />}
         </div>
         <div className="note">
           <span className="pill">{r.status}</span> · {fmtLen(r.lengthMs)} · Owner {d.owner} · You are: {d.role} · Created {fmtDate(r.createdOn)}

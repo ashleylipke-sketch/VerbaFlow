@@ -78,6 +78,9 @@ public class LetterheadTests
         var pdf = await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "pdf");
         using var read = PdfReader.Open(new MemoryStream(pdf.Content), PdfDocumentOpenMode.Import);
         Assert.Equal(1, read.PageCount);
+        var exported = (await env.Stores.Audit.ListAsync(null)).Where(a => a.Type == "item.exported").Select(a => a.Details).ToList();
+        Assert.Contains("none (no Word letterhead uploaded)", exported[0]); // History says why the letter is plain
+        Assert.Contains("none (no PDF letterhead uploaded)", exported[1]);
     }
 
     [Fact]
@@ -97,6 +100,7 @@ public class LetterheadTests
         Assert.Equal("12240", doc.MainDocumentPart!.Document!.Body!.Elements<SectionProperties>().Single().GetFirstChild<PageSize>()!.Width!.ToString());
         var audit = (await env.Stores.Audit.ListAsync(null)).Single(a => a.Type == "letterhead.uploaded");
         Assert.Contains("sha256", audit.Details);
+        Assert.Contains("\"letterhead\":\"Word letterhead\"", (await env.Stores.Audit.ListAsync(null)).Single(a => a.Type == "item.exported").Details);
     }
 
     [Fact]

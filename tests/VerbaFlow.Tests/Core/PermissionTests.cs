@@ -42,6 +42,19 @@ public class PermissionTests
     }
 
     [Fact]
+    public void An_assignee_can_export_only_once_approved()
+    {
+        var a = T.U("Alice"); var b = T.U("Bob"); var i = T.Recorded(a);
+        i.Assign(b.Id); i.OpenByAssignee(b.Id);
+        Assert.False(Can(b, i, Capability.Export));
+        i.ReturnToOwner(b.Id);
+        Assert.False(Can(b, i, Capability.Export));
+        i.Approve(a.Id, false, false, T.Now);
+        Assert.True(Can(b, i, Capability.Export));
+        Assert.False(Can(b, i, Capability.ExportAudio));
+    }
+
+    [Fact]
     public void Strangers_see_and_do_nothing()
     {
         var a = T.U("Alice"); var x = T.U("Xavier"); var i = T.Recorded(a);

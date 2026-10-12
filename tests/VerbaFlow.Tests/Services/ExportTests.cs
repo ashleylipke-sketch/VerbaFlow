@@ -96,7 +96,7 @@ public class ExportTests
     }
 
     [Fact]
-    public async Task Only_the_owner_an_admin_or_someone_granted_export_may_export()
+    public async Task Only_the_owner_an_admin_someone_granted_export_or_the_assignee_once_approved_may_export()
     {
         using var env = new Env();
         var id = await env.ProcessedRecordingAsync();
@@ -108,6 +108,12 @@ public class ExportTests
         Assert.True((await env.Meeting.GetItemAsync(env.Alice, id)).CanExport);
         Assert.False((await env.Meeting.GetItemAsync(env.Bob, id)).CanExport);
         await exports.ExportAsync(env.Dave, id, "word");
+        await env.Meeting.AcceptAsync(env.Bob, id);
+        await env.Meeting.ReturnAsync(env.Bob, id);
+        await Assert.ThrowsAsync<ForbiddenException>(() => exports.ExportAsync(env.Bob, id, "pdf"));
+        await env.Meeting.ApproveAsync(env.Alice, id);
+        Assert.True((await env.Meeting.GetItemAsync(env.Bob, id)).CanExport); // once approved, the assignee may take it out
+        await exports.ExportAsync(env.Bob, id, "pdf");
     }
 
     [Fact]

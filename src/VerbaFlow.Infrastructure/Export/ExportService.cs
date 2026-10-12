@@ -166,6 +166,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             dictation ? DocumentHeading(item.DocumentType) : "Transcript");
 
         byte[] bytes;
+        // Recorded in History so a plain letter can be explained: which letterhead was used, or why none.
+        string? letterheadUsed = dictation ? "not a letter" : null;
         if (dictation && item.DocumentType == "letter")
         {
             // A dictated letter goes out as a letter, on the organisation's letterhead when one is set.
@@ -177,6 +179,9 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 doc.Transcript.Select(t => t.Text).ToList());
             var letterheads = new Services.LetterheadService(stores, clock);
             var l = await letterheads.GetAsync();
+            letterheadUsed = (format == ExportFormats.Word ? l.Word : l.Pdf) is null
+                ? (format == ExportFormats.Word ? "none (no Word letterhead uploaded)" : "none (no PDF letterhead uploaded)")
+                : (format == ExportFormats.Word ? "Word letterhead" : "PDF letterhead");
             bytes = format == ExportFormats.Word
                 ? LetterWriter.Word(letter, await letterheads.ReadAsync(Services.LetterheadService.Word))
                 : LetterWriter.Pdf(letter, await letterheads.ReadAsync(Services.LetterheadService.Pdf),
@@ -187,9 +192,10 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         var record = new ExportRecord(Guid.NewGuid(), id, item.VersionNo, transcript.Current.No, format, marker, sha, bytes.LongLength, actor.Id, now,
             string.Join(",", parts));
         await stores.Exports.UpsertAsync(record.Id, record);
-        await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.exported",
-            AuditChain.Details(("format", format), ("marker", marker), ("purpose", purpose), ("parts", string.Join(",", parts)), ("transcriptVersion", transcript.Current.No),
-                ("sha256", sha), ("bytes", bytes.LongLength)));
+        (string, object?)[] audit = [("format", format), ("marker", marker), ("purpose", purpose), ("parts", string.Join(",", parts)),
+            ("transcriptVersion", transcript.Current.No), ("sha256", sha), ("bytes", bytes.LongLength)];
+        if (letterheadUsed is not null) audit = [.. audit, ("letterhead", letterheadUsed)];
+        await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.exported", AuditChain.Details(audit));
 
         var safeName = new string(item.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c is '"' ? '_' : c).ToArray()).Trim();
         if (safeName.Length == 0) safeName = "meeting";

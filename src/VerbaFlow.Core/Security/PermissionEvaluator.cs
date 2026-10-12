@@ -45,6 +45,8 @@ public static class PermissionEvaluator
                 return Decision.Allow("role:Owner");
             case Capability.Export when role == ItemRole.Owner: // the author or importer can take their own meeting's minutes out
                 return Decision.Allow("role:Owner");
+            case Capability.Export when role == ItemRole.Assignee && item.Status == ItemStatus.Completed: // once approved, the typist can take it out too
+                return Decision.Allow("role:Assignee");
         }
 
         if (user.IsAdmin && capability is Capability.Read or Capability.Reassign or Capability.Approve or Capability.Export)

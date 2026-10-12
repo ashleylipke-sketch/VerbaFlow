@@ -110,6 +110,16 @@ public static class Endpoints
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 
+        // The author changes a finished dictation's recording before it is approved; it is converted again.
+        api.MapPost("/items/{id:guid}/recording", async (HttpContext h, MeetingService s, Guid id, CancellationToken ct) =>
+        {
+            var (f, stream, file) = await DraftForm(h, ct);
+            await using var _ = stream;
+            await s.ChangeRecordingAsync(h.Current(), id, new DraftUpload(stream, file.FileName, file.ContentType, int.TryParse(f["lengthMs"], out var l) ? l : 0),
+                f["discardEdits"] == "true", ct);
+            return Results.Ok(new { id });
+        }).DisableAntiforgery();
+
         api.MapPost("/items/imports", async (HttpContext h, MeetingService s, CancellationToken ct) =>
         {
             var f = await h.Request.ReadFormAsync(ct);

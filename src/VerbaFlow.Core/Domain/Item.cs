@@ -135,6 +135,26 @@ public sealed class Item
         Processing = ProcessingState.Running;
     }
 
+    /// <summary>How many times the author has changed the recording of a finished dictation (more put in or recorded over).</summary>
+    [JsonInclude] public int RecordingRevision { get; private set; }
+
+    /// <summary>
+    /// The author changed the recording of a dictation that is back with them and not yet approved: the new recording is
+    /// this item's own from now on (earlier recordings are kept unchanged) and it is converted to text again.
+    /// </summary>
+    public int ReplaceRecording(int lengthMs)
+    {
+        EnsureNotLocked();
+        if (Mode != ItemMode.Dictate) throw new DomainException("Only a dictation's recording can be changed.");
+        if (Status != ItemStatus.WithAuthor) throw new DomainException("The recording can be changed only while the dictation is with its author and not yet approved.");
+        if (Processing == ProcessingState.Running) throw new DomainException("The item is still being processed.");
+        if (lengthMs <= 0) throw new DomainException("The dictation has no length.");
+        LengthMs = lengthMs;
+        MediaSourceItemId = Id;
+        Processing = ProcessingState.Running;
+        return ++RecordingRevision;
+    }
+
     private void EnsureDraft()
     {
         if (Status != ItemStatus.Draft) throw new DomainException("This dictation has already been sent to be converted to text, so it can no longer be added to.");

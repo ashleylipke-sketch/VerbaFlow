@@ -102,6 +102,30 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         queue.Enqueue(id);
     }
 
+    /// <summary>
+    /// The author changes the recording of a dictation that is with them and not yet approved (more put in, or part recorded
+    /// over). The new recording is kept alongside the old ones and the dictation is converted to text again, replacing
+    /// saved corrections only when the author agreed.
+    /// </summary>
+    public async Task ChangeRecordingAsync(User actor, Guid id, DraftUpload up, bool discardEdits, CancellationToken ct = default)
+    {
+        var item = await stores.RequireItemAsync(id);
+        if (item.OwnerId != actor.Id) throw new ForbiddenException("Only the person who dictated this can change its recording.");
+        if ((await stores.Items.ListAsync()).Any(i => i.SupersedesItemId == id)) throw new DomainException("A newer version of this dictation exists.");
+        var transcript = await stores.Transcripts.GetAsync(id);
+        var edits = transcript is null ? 0 : transcript.PersonVersions;
+        if (edits > 0 && !discardEdits)
+            throw new DomainException("This text has saved corrections, and converting the changed recording would replace them.");
+        var previous = await stores.Media.FindCurrentAsync(item.MediaSourceItemId);
+        var revision = item.ReplaceRecording(up.LengthMs);
+        var staged = await StageAndScanAsync(actor, up.Audio, up.FileName, "recording", ct);
+        var asset = await stores.Media.CommitRevisionAsync(staged, id, revision, SafeName(up.FileName), up.ContentType);
+        await stores.Items.UpsertAsync(id, item);
+        await Audit(actor, "author", id, "recording.changed", ("change", revision), ("sha256", asset.Sha256), ("previousSha256", previous?.Sha256),
+            ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs), ("replacedEdits", edits));
+        queue.Enqueue(id);
+    }
+
     private static void RequireDraftAuthor(User actor, Item item)
     {
         if (item.OwnerId != actor.Id) throw new ForbiddenException("Only the person who dictated this can carry on with it.");
@@ -235,7 +259,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         PermissionEvaluator.Require(actor, item, Capability.Approve);
         var selfReview = item.IsSelfAssigned || item.AssignedUserId is null && item.OwnerId == actor.Id;
         item.Approve(actor.Id, actor.IsAdmin, policy.BlockSelfApproval, clock.GetUtcNow());
-        var asset = await stores.Media.FindOriginalAsync(item.MediaSourceItemId);
+        var asset = await stores.Media.FindCurrentAsync(item.MediaSourceItemId);
         var transcript = await stores.Transcripts.GetAsync(id);
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, CapacityOf(actor, item), id, "item.approved", ("selfReview", selfReview),
@@ -517,7 +541,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
 
     /// <summary>The recording, or for an unfinished dictation its newest save.</summary>
     private async Task<MediaAsset?> PlayableAsync(Item item) =>
-        await stores.Media.FindOriginalAsync(item.MediaSourceItemId)
+        await stores.Media.FindCurrentAsync(item.MediaSourceItemId)
         ?? (item.Status == ItemStatus.Draft ? await stores.Media.FindLatestDraftAsync(item.Id) : null);
 
     // ---------- dashboard ----------
@@ -609,6 +633,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var idle = i.Processing == ProcessingState.Idle;
         if (i.Status == ItemStatus.ConversionFailed && ownerOrAdmin) a.Add("retry");
         if (i.Status == ItemStatus.Draft && role == ItemRole.Owner) a.Add("continue"); // an unfinished dictation: only its author carries on
+        if (i.Mode == ItemMode.Dictate && i.Status == ItemStatus.WithAuthor && idle && !superseded && role == ItemRole.Owner) a.Add("change-recording");
         if (idle && ownerOrAdmin && i.Status is not (ItemStatus.ConversionFailed or ItemStatus.Completed or ItemStatus.Draft)) a.Add("rerun");
         if (idle && i.Status == i.Home && PermissionEvaluator.Evaluate(u, i, Capability.Approve).Allowed) a.Add("approve");
         if (idle && i.Status is ItemStatus.WithAuthor or ItemStatus.WithImporter or ItemStatus.AwaitingAssignee or ItemStatus.WithAssignee

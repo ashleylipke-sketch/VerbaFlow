@@ -72,6 +72,18 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
         return asset;
     }
 
+    /// <summary>A changed recording of a dictation (more put in or recorded over). Earlier recordings are kept as they were.</summary>
+    public Task<MediaAsset> CommitRevisionAsync(StagedFile staged, Guid itemId, int revision, string fileName, string contentType) =>
+        CommitAsync(staged, itemId, fileName, contentType, $"Recording changed by the author, change {revision}", $"revision:{revision}");
+
+    /// <summary>The recording as it is now: the newest change of it, or the original when it was never changed.</summary>
+    public async Task<MediaAsset?> FindCurrentAsync(Guid itemId)
+    {
+        var all = (await table.ListAsync()).Where(a => a.ItemId == itemId).ToList();
+        return all.Where(a => a.Kind.StartsWith("revision:")).OrderByDescending(a => int.TryParse(a.Kind[9..], out var n) ? n : 0).FirstOrDefault()
+            ?? all.FirstOrDefault(a => a.Kind == "original");
+    }
+
     public async Task<MediaAsset?> FindOriginalAsync(Guid itemId) =>
         (await table.ListAsync()).FirstOrDefault(a => a.ItemId == itemId && a.Kind == "original");
 

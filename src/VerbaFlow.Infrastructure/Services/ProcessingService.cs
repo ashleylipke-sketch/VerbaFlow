@@ -22,7 +22,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             AuditChain.Details(("enhancer", enhancer.Name)));
         try
         {
-            var asset = await stores.Media.FindOriginalAsync(item.MediaSourceItemId)
+            var asset = await stores.Media.FindCurrentAsync(item.MediaSourceItemId)
                 ?? throw new InvalidOperationException("The original recording is missing.");
             await using var original = stores.Media.OpenRead(asset);
             var notices = new List<string>(); // plain, customer-safe notes recorded in the history

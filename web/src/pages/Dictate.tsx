@@ -33,6 +33,10 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Changing the recording of a dictation that has been converted but not approved (instead of carrying on with an unfinished one).
+  const [changing, setChanging] = useState(false);
+  const [corrections, setCorrections] = useState(0);
+  const [replaceOk, setReplaceOk] = useState(false);
 
   const track = useRef<Float32Array>(new Float32Array(0));
   const history = useRef<Float32Array[]>([]);
@@ -60,8 +64,14 @@ export default function Dictate({ draftId }: { draftId?: string }) {
       try {
         const d = await api.item(draftId);
         setDetail(d);
-        if (d.row.statusCode !== 'Draft') { location.hash = `#/items/${draftId}`; return; }
-        if (!d.row.actions.includes('continue')) { setError('Only the person who dictated this can carry on with it.'); setPhase('setup'); return; }
+        const change = d.row.statusCode !== 'Draft';
+        if (change && !d.row.actions.includes('change-recording')) { location.hash = `#/items/${draftId}`; return; }
+        if (change) {
+          setChanging(true);
+          const t = await api.transcript(draftId).catch(() => null);
+          setCorrections(t ? t.versions.filter(v => v.kind !== 'MachineV1' && v.kind !== 'AutoTidy').length : 0);
+        }
+        else if (!d.row.actions.includes('continue')) { setError('Only the person who dictated this can carry on with it.'); setPhase('setup'); return; }
         show(await decode(await api.audio(draftId)), false);
         setDirty(false);
         setPhase('ready');
@@ -191,6 +201,18 @@ export default function Dictate({ draftId }: { draftId?: string }) {
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
+  /** Sends the changed recording; the dictation is converted to text again. */
+  const convertAgain = async () => {
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const f = form(true);
+      if (corrections > 0) f.append('discardEdits', String(replaceOk));
+      await api.form(`/items/${id}/recording`, f);
+      setDirty(false);
+      location.hash = `#/items/${id}`;
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+
   const remove = async () => {
     setBusy(true); setError('');
     try {
@@ -210,7 +232,9 @@ export default function Dictate({ draftId }: { draftId?: string }) {
 
   return (
     <div className="card">
-      <h2>{draftId ? 'Carry on dictating' : 'New dictation'}</h2>
+      <h2>{changing ? 'Change the recording' : draftId ? 'Carry on dictating' : 'New dictation'}</h2>
+      {changing && phase === 'ready' && <p className="note">Add to the end, put more in, or record over part of it. When you are done, the dictation is converted to text again.
+        The recording as it was is kept in the history.</p>}
       {phase === 'loading' && <p>Opening the dictation…</p>}
 
       {phase === 'setup' && !draftId && <>
@@ -240,7 +264,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
       {phase === 'adding' && <p>Adding the recording…</p>}
 
       {phase === 'ready' && <>
-        <p className="note">Length {fmtLen(trackMs)}.{dirty ? ' Not saved yet.' : ' Saved.'}</p>
+        <p className="note">Length {fmtLen(trackMs)}.{changing ? (dirty ? ' Changed, not sent yet.' : '') : dirty ? ' Not saved yet.' : ' Saved.'}</p>
         {url && <audio ref={player} controls src={url} style={{ width: '100%' }} onTimeUpdate={e => setPosMs(Math.round(e.currentTarget.currentTime * 1000))} onSeeked={e => setPosMs(Math.round(e.currentTarget.currentTime * 1000))} />}
         {hasAudio && <fieldset className="take-mode">
           <legend>Next recording</legend>
@@ -254,7 +278,15 @@ export default function Dictate({ draftId }: { draftId?: string }) {
           <button className="primary" disabled={busy} onClick={start}>Record</button>
           {canUndo && <button disabled={busy} onClick={undo}>Undo last recording</button>}
         </div>
-        {hasAudio && !confirmDelete && <div className="actions">
+        {changing && <>
+          {corrections > 0 && <label className="row"><input type="checkbox" checked={replaceOk} onChange={e => setReplaceOk(e.target.checked)} />
+            <span>The text has {corrections} saved correction{corrections > 1 ? 's' : ''}. I understand converting again replaces {corrections > 1 ? 'them' : 'it'}.</span></label>}
+          <div className="actions">
+            <button className="primary" disabled={busy || !dirty || (corrections > 0 && !replaceOk)} onClick={convertAgain}>{busy ? 'Sending…' : 'Convert to text again'}</button>
+            <a className="btn" href={`#/items/${id}`}>Cancel</a>
+          </div>
+        </>}
+        {!changing && hasAudio && !confirmDelete && <div className="actions">
           <button className="primary" disabled={busy} onClick={finish}>{busy ? 'Saving…' : 'Finish and convert to text'}</button>
           <button disabled={busy || (!dirty && !!id)} onClick={saveDraft}>Save and finish later</button>
           <button className="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>{id ? 'Delete dictation' : 'Discard'}</button>

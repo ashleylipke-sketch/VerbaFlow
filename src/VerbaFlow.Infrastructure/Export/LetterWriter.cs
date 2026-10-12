@@ -17,8 +17,8 @@ public sealed record LetterSpace(int TopFirstMm, int TopNextMm, int BottomMm, in
 
 /// <summary>
 /// Lays a letter out on the organisation's letterhead, or on a plain A4 page when there is none.
-/// Word: the letterhead's headers, footers, page size, margins and fonts are kept and the letter goes into its body. Anything
-/// typed in the letterhead's body is replaced, unless it contains {{letter}}: then the letter goes exactly there and the rest stays.
+/// Word: the letterhead's headers, footers, page size, margins and fonts are kept and the letter goes into its body. Text
+/// typed in the letterhead's body is replaced (pictures, shapes and text boxes there are kept), unless it contains {{letter}}: then the letter goes exactly there and the rest stays.
 /// PDF: page 1 of the letterhead is drawn behind the first page of the letter, page 2 (if it has one) behind the pages after.
 /// </summary>
 public static class LetterWriter
@@ -58,9 +58,17 @@ public static class LetterWriter
             }
             else
             {
-                // Keep only the page set-up (it points at the headers and footers); the letter replaces the rest.
+                // The letter replaces the letterhead's typed text. Kept: the page set-up (it points at the headers and footers),
+                // and anything drawn in the body, because many letterheads put the logo, address box or lines there rather
+                // than in the header. Plain text next to a drawing is dropped; text inside a text box stays with its box.
                 var setup = body.Elements<SectionProperties>().LastOrDefault();
-                body.RemoveAllChildren();
+                foreach (var child in body.ChildElements.ToList())
+                {
+                    if (child is SectionProperties) continue;
+                    if (!HasGraphics(child) && !child.Descendants<SectionProperties>().Any()) { child.Remove(); continue; }
+                    foreach (var run in child.Descendants<W.Run>().Where(r => !HasGraphics(r) && r.Ancestors().All(a => !IsGraphic(a))).ToList()) run.Remove();
+                }
+                setup?.Remove();
                 foreach (var p in Paragraphs(letter, plain: false)) body.Append(p);
                 if (setup is not null) body.Append(setup);
             }
@@ -68,6 +76,11 @@ public static class LetterWriter
         }
         return ms.ToArray();
     }
+
+    private static bool IsGraphic(OpenXmlElement e) =>
+        e is W.Drawing or W.Picture or W.EmbeddedObject or AlternateContent;
+
+    private static bool HasGraphics(OpenXmlElement e) => e.Descendants().Any(IsGraphic);
 
     /// <param name="plain">True without a letterhead: VerbaFlow then sets the text size itself; otherwise the letterhead's own style is used.</param>
     private static IEnumerable<W.Paragraph> Paragraphs(LetterDocument d, bool plain)

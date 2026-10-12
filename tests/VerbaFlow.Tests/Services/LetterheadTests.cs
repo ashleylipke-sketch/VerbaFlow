@@ -23,6 +23,7 @@ public class LetterheadTests
             header.Header = new Header(new Paragraph(new Run(new Text("ACME Attorneys, 1 Long Street"))));
             main.Document = new Document(new Body(
                 new Paragraph(new Run(new Text("Kept above"))),
+                new Paragraph(new Run(new Drawing()), new Run(new Text("Logo caption"))), // a logo placed in the body
                 new Paragraph(new Run(new Text(bodyText))),
                 new SectionProperties(new HeaderReference { Type = HeaderFooterValues.Default, Id = main.GetIdOfPart(header) },
                     new PageSize { Width = 12240, Height = 15840 })));
@@ -95,9 +96,12 @@ public class LetterheadTests
         Assert.Contains("ACME Attorneys, 1 Long Street", headers);
         Assert.DoesNotContain("Sample letter text", body);
         Assert.DoesNotContain("Kept above", body);
+        Assert.DoesNotContain("Logo caption", body);
         Assert.EndsWith("Dear Mr Smith,|Thank you for your letter.", body);
         using var doc = WordprocessingDocument.Open(new MemoryStream(file.Content), false);
         Assert.Equal("12240", doc.MainDocumentPart!.Document!.Body!.Elements<SectionProperties>().Single().GetFirstChild<PageSize>()!.Width!.ToString());
+        Assert.Single(doc.MainDocumentPart.Document.Body.Descendants<Drawing>()); // the logo in the body stays
+        Assert.IsType<SectionProperties>(doc.MainDocumentPart.Document.Body.LastChild);
         var audit = (await env.Stores.Audit.ListAsync(null)).Single(a => a.Type == "letterhead.uploaded");
         Assert.Contains("sha256", audit.Details);
         Assert.Contains("\"letterhead\":\"Word letterhead\"", (await env.Stores.Audit.ListAsync(null)).Single(a => a.Type == "item.exported").Details);
@@ -111,7 +115,7 @@ public class LetterheadTests
         await letterheads.UploadAsync(env.Carol, "word", new MemoryStream(WordLetterhead(LetterWriter.Placeholder)), "acme.docx");
         var id = await Letter(env, reference: null);
         var body = WordBody((await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "docx")).Content, out _);
-        Assert.StartsWith("Kept above|Draft: not approved yet.|", body);
+        Assert.StartsWith("Kept above|Logo caption|Draft: not approved yet.|", body); // with a placeholder the rest of the body stays as it is
         Assert.DoesNotContain("Our ref", body);
         Assert.DoesNotContain(LetterWriter.Placeholder, body);
     }

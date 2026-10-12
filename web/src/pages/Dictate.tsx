@@ -5,6 +5,7 @@ import DocumentTypePicker, { docLabel, type DocType } from '../DocumentType';
 import { summaryLanguage } from '../languages';
 import { decode, msOf, samplesAt, splice, toWav, type TakeMode } from '../takes';
 import { CommandHelp, drawWave } from './Record';
+import { layout, textWords, type Take, type TextWord } from '../takeMap';
 
 type Phase = 'setup' | 'loading' | 'ready' | 'recording' | 'paused' | 'adding';
 
@@ -37,6 +38,10 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const [changing, setChanging] = useState(false);
   const [corrections, setCorrections] = useState(0);
   const [replaceOk, setReplaceOk] = useState(false);
+  // The converted text, so the author can see where to put more in; it follows the changes made on this page.
+  const [words, setWords] = useState<TextWord[]>([]);
+  const [originalMs, setOriginalMs] = useState(0);
+  const [takes, setTakes] = useState<Take[]>([]);
 
   const track = useRef<Float32Array>(new Float32Array(0));
   const history = useRef<Float32Array[]>([]);
@@ -70,9 +75,12 @@ export default function Dictate({ draftId }: { draftId?: string }) {
           setChanging(true);
           const t = await api.transcript(draftId).catch(() => null);
           setCorrections(t ? t.versions.filter(v => v.kind !== 'MachineV1' && v.kind !== 'AutoTidy').length : 0);
+          if (t) setWords(textWords(t.segments));
         }
         else if (!d.row.actions.includes('continue')) { setError('Only the person who dictated this can carry on with it.'); setPhase('setup'); return; }
-        show(await decode(await api.audio(draftId)), false);
+        const audio = await decode(await api.audio(draftId));
+        show(audio, false);
+        setOriginalMs(msOf(audio.length));
         setDirty(false);
         setPhase('ready');
       } catch (e: any) { setError(e?.message || 'The dictation could not be opened. Try again.'); setPhase('setup'); }
@@ -108,6 +116,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
     const prev = history.current.pop();
     if (!prev) return;
     show(prev, false);
+    setTakes(t => t.slice(0, -1));
     setCanUndo(history.current.length > 0);
     setMessage('The last recording was taken out.');
   };
@@ -157,6 +166,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
     try {
       const take = await decode(blob);
       show(splice(track.current, take, takeAt.current, takeMode_.current), true);
+      setTakes(t => [...t, { at: msOf(takeAt.current), mode: takeMode_.current, len: msOf(take.length) }]);
       const at = fmtLen(msOf(takeAt.current));
       setMessage(`${takeMode_.current === 'insert' ? `Put in at ${at}` : takeMode_.current === 'overwrite' ? `Recorded over from ${at}` : 'Added'}. Not saved yet.`);
     } catch { setError('That recording could not be added. Try recording it again.'); }
@@ -230,9 +240,23 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const type = detail?.documentType ?? docType;
   const ref = detail?.clientReference ?? clientRef;
 
+  const seek = (ms: number) => {
+    const p = player.current; if (!p) return;
+    p.currentTime = ms / 1000; setPosMs(ms);
+  };
+  const shown = changing && words.length ? layout(words, takes, originalMs) : [];
+  const paras: (typeof shown)[] = [];
+  // A new recording just before a paragraph's first word belongs to that paragraph.
+  for (const x of shown) {
+    const last = paras[paras.length - 1];
+    if (!last || (x.kind === 'word' && x.paraStart && last.some(y => y.kind === 'word'))) paras.push([]);
+    paras[paras.length - 1].push(x);
+  }
+  const nowIndex = shown.findIndex(x => x.kind === 'word' && !x.gone && posMs >= x.startMs && posMs < x.endMs);
+
   return (
     <div className="card">
-      <h2>{changing ? 'Change the recording' : draftId ? 'Carry on dictating' : 'New dictation'}</h2>
+      <h2>{changing ? 'Insert or amend' : draftId ? 'Carry on dictating' : 'New dictation'}</h2>
       {changing && phase === 'ready' && <p className="note">Add to the end, put more in, or record over part of it. When you are done, the dictation is converted to text again.
         The recording as it was is kept in the history.</p>}
       {phase === 'loading' && <p>Opening the dictation…</p>}
@@ -266,12 +290,20 @@ export default function Dictate({ draftId }: { draftId?: string }) {
       {phase === 'ready' && <>
         <p className="note">Length {fmtLen(trackMs)}.{changing ? (dirty ? ' Changed, not sent yet.' : '') : dirty ? ' Not saved yet.' : ' Saved.'}</p>
         {url && <audio ref={player} controls src={url} style={{ width: '100%' }} onTimeUpdate={e => setPosMs(Math.round(e.currentTarget.currentTime * 1000))} onSeeked={e => setPosMs(Math.round(e.currentTarget.currentTime * 1000))} />}
+        {shown.length > 0 && <div className="take-text">
+          <p className="note">The text as it was converted. Click a word to move the player there.{takes.length ? ' Words recorded over are crossed out; new recordings are marked and will be converted when you send them.' : ''}</p>
+          {paras.map((p, k) => <p key={k} className="words">{p.map((x, i) => x.kind === 'new'
+            ? <span key={i} className="tag new-take" role="button" tabIndex={0} onClick={() => seek(x.startMs)} onKeyDown={e => e.key === 'Enter' && seek(x.startMs)}>New recording {x.take} ({fmtLen(x.endMs - x.startMs)})</span>
+            : x.gone ? <del key={i}>{x.text} </del>
+            : <span key={i}><span className={'w' + (shown.indexOf(x) === nowIndex ? ' now' : '')} role="button" tabIndex={0}
+                onClick={() => seek(x.startMs)} onKeyDown={e => e.key === 'Enter' && seek(x.startMs)}>{x.text}</span> </span>)}</p>)}
+        </div>}
         {hasAudio && <fieldset className="take-mode">
           <legend>Next recording</legend>
           <label><input type="radio" name="take" checked={takeMode === 'end'} onChange={() => setTakeMode('end')} /> Add to the end</label>
           <label><input type="radio" name="take" checked={takeMode === 'insert'} onChange={() => setTakeMode('insert')} /> Put in at {fmtLen(posMs)}</label>
           <label><input type="radio" name="take" checked={takeMode === 'overwrite'} onChange={() => setTakeMode('overwrite')} /> Record over from {fmtLen(posMs)}</label>
-          {takeMode !== 'end' && <p className="note">Play or drag the player to the point you want, then press Record. {takeMode === 'overwrite'
+          {takeMode !== 'end' && <p className="note">{shown.length ? 'Click a word in the text below, or play or drag the player, to choose the point' : 'Play or drag the player to the point you want'}, then press Record. {takeMode === 'overwrite'
             ? 'What you said from there is replaced for as long as you speak.' : 'What comes after moves along to make room.'}</p>}
         </fieldset>}
         <div className="actions" style={{ margin: '12px 0' }}>

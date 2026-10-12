@@ -85,3 +85,5 @@ td.wrap.saved-text { white-space: pre-line; max-width: 520px; }
 .take-mode legend { font-weight: 600; padding: 0 4px; }
 .take-mode label { display: inline-flex; gap: 6px; align-items: center; }
 .take-mode .note { flex-basis: 100%; margin: 4px 0 0; }
+.take-text { border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin:12px 0; max-height:50vh; overflow:auto; }
+.tag.new-take { cursor:pointer; margin:0 4px; }

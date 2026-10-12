@@ -103,8 +103,9 @@ public static class DictationCommands
 
     /// <summary>As <see cref="Apply(IReadOnlyList{Segment})"/>, also saying how often each command was heard (command names only, never the dictated words).</summary>
     public static (IReadOnlyList<Segment> Segments, int Applied, IReadOnlyDictionary<string, int> Heard) ApplyCounted(IReadOnlyList<Segment> segments,
-        IReadOnlyList<(string Code, string Text)>? savedText = null, IEnumerable<string>? names = null)
+        IReadOnlyList<(string Code, string Text)>? savedText = null, IEnumerable<string>? names = null, bool spokenPunctuationOnly = false)
     {
+        var flow = new Flow(spokenPunctuationOnly);
         var inserts = Prepare(savedText);
         var keep = KeepCapitals(segments, names);
         var heard = new SortedDictionary<string, int>();
@@ -114,7 +115,8 @@ public static class DictationCommands
         var startNext = true;
         foreach (var s in segments)
         {
-            var (parts, n, breakAtStart, breakAtEnd) = Run(s, heard, inserts, keep);
+            if (startNext) flow.LowerNext = false;
+            var (parts, n, breakAtStart, breakAtEnd) = Run(s, heard, inserts, keep, flow);
             if (parts.Count > 0)
             {
                 result.Add(parts[0] with { NewParagraph = startNext || breakAtStart });
@@ -129,7 +131,7 @@ public static class DictationCommands
 
     public static (IReadOnlyList<Segment> Segments, int Applied) Apply(Segment s)
     {
-        var (parts, n, _, _) = Run(s, null, null, KeepCapitals([s], null));
+        var (parts, n, _, _) = Run(s, null, null, KeepCapitals([s], null), new Flow(false));
         return (parts, n);
     }
 
@@ -166,8 +168,39 @@ public static class DictationCommands
 
     private static string NameOf(Command c) => c == SpeechServiceBreak ? "line break from the speech service" : string.Join(' ', c.Words);
 
-    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard, Inserts? inserts, HashSet<string> keep)
+    /// <summary>
+    /// Carried from passage to passage. With spoken punctuation only, the speech service's own . , ? ! ; : are taken away
+    /// (the person says the punctuation they want), and a capital it gave after its own sentence end is taken away too.
+    /// </summary>
+    private sealed class Flow(bool spokenOnly)
     {
+        public readonly bool SpokenOnly = spokenOnly;
+        /// <summary>The speech service ended a sentence on the last word and that ending was taken away.</summary>
+        public bool LowerNext;
+    }
+
+    public const string RemovedPunctuation = "punctuation from the speech service removed";
+    public const string RemovedCapital = "capital from the speech service removed";
+    /// <summary>Kept with their full stop: they are abbreviations, not sentence ends.</summary>
+    private static readonly HashSet<string> Abbreviations = ["mr", "mrs", "ms", "dr", "st", "prof", "etc", "vs", "no", "jr", "sr", "co", "ltd", "inc", "esq"];
+
+    /// <summary>The word without the punctuation the speech service put at its end; "e.g.", "U.K." and "Mr." keep their full stop.</summary>
+    private static string WithoutServicePunctuation(string text)
+    {
+        // Closing quotes or brackets the service wrote stay; only the punctuation in front of them goes.
+        var close = text.Length;
+        while (close > 0 && text[close - 1] is '"' or ')' or '\'' or '’' or '”') close--;
+        var end = close;
+        while (end > 0 && Trailing.Contains(text[end - 1])) end--;
+        if (end == close || end == 0) return text;
+        var body = text[..end];
+        if (text[end] == '.' && end + 1 == close && (body.Contains('.') || Abbreviations.Contains(Bare(body)))) return text;
+        return body + text[close..];
+    }
+
+    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard, Inserts? inserts, HashSet<string> keep, Flow flow)
+    {
+        var touched = false;
         var raw = MarkLineBreaks(s.Text).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         // Word timings line up with the spoken words, not with line breaks.
         var wordAt = new int[raw.Length];
@@ -208,6 +241,7 @@ public static class DictationCommands
                             n++;
                         }
                     }
+                    flow.LowerNext = false;
                     i += 1 + hit.Length;
                     continue;
                 }
@@ -229,13 +263,27 @@ public static class DictationCommands
                 if (afterComma && text.FirstOrDefault(char.IsLetter) is var first && char.IsUpper(first)) Count(heard, KeptName);
                 afterComma = false;
                 if (openNext is not null) { text = openNext + text; openNext = null; }
-                if (capitalNext) { text = Capitalise(text); capitalNext = false; }
+                if (capitalNext) { text = Capitalise(text); capitalNext = false; flow.LowerNext = false; }
+                if (flow.SpokenOnly)
+                {
+                    if (flow.LowerNext)
+                    {
+                        var lowered = Uncapitalise(text, keep);
+                        if (lowered != text) { Count(heard, RemovedCapital); touched = true; text = lowered; }
+                    }
+                    var bare = WithoutServicePunctuation(text);
+                    flow.LowerNext = bare != text && EndsSentence(text);
+                    if (bare != text) { Count(heard, RemovedPunctuation); touched = true; text = bare; }
+                }
                 current.Add(new Token(text, timed?[wordAt[i]], i));
                 i++;
                 continue;
             }
             applied++;
             lowerNext = false; afterComma = false; // only ever the word straight after the comma
+            // A spoken comma after the service's own sentence end keeps the next word small; other commands decide for themselves.
+            var serviceEnded = flow.LowerNext;
+            if (cmd.Kind != Kind.Open) flow.LowerNext = false;
             i += cmd.Words.Length;
             Count(heard, NameOf(cmd));
             switch (cmd.Kind)
@@ -249,7 +297,7 @@ public static class DictationCommands
                     // The speech service may have ended a sentence here, before the command ("2023. Comma. Please") or on the
                     // command word itself ("2023 comma. Please"); the comma takes the full stop away, so the capital goes too.
                     lowerNext = cmd.Symbol is "," or ":" or ";" && prev is not null
-                        && (EndsSentence(prev.Text) || raw.Skip(i - cmd.Words.Length).Take(cmd.Words.Length).Any(EndsSentence));
+                        && (serviceEnded || EndsSentence(prev.Text) || raw.Skip(i - cmd.Words.Length).Take(cmd.Words.Length).Any(EndsSentence));
                     afterComma = cmd.Symbol is "," or ":" or ";";
                     if (prev is not null) prev.Text = prev.Text.TrimEnd(Trailing.ToCharArray()) + cmd.Symbol;
                     capitalNext = cmd.Symbol is "." or "?" or "!";
@@ -263,7 +311,7 @@ public static class DictationCommands
                     break;
             }
         }
-        if (applied == 0) return ([s], 0, false, false);
+        if (applied == 0 && !touched) return ([s], 0, false, false);
 
         var breakAtEnd = paragraphs.Count > 1 && paragraphs[^1].Count == 0;
         var kept = paragraphs.Where(p => p.Count > 0).ToList();

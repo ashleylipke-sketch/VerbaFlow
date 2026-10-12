@@ -65,7 +65,9 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             int? commands = null; string? commandsHeard = null, paragraphsMade = null, savedTextUsed = null;
             if (dictation)
             {
-                var (segments, applied, heard) = DictationCommands.ApplyCounted(result.Segments, saved.Select(t => (t.Code, t.Text)).ToList(), phrases);
+                var (segments, applied, heard) = DictationCommands.ApplyCounted(result.Segments, saved.Select(t => (t.Code, t.Text)).ToList(), phrases,
+                    // The fast service turns a spoken "comma" into "," itself, so its punctuation is the person's and stays.
+                    spokenPunctuationOnly: dictationService == "word for word");
                 // Which wording went in: the code and a fingerprint of the text at the time, so a later change to the saved text is traceable.
                 var used = saved.Where(t => heard.ContainsKey("insert " + t.Code))
                     .Select(t => $"{t.Code} ({SavedTextService.Fingerprint(t.Text)[..12]})").ToList();

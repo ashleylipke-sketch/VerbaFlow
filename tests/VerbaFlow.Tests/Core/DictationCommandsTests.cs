@@ -91,4 +91,42 @@ public class DictationCommandsTests
         Assert.Equal(1, heard[DictationCommands.LoweredName]);
         Assert.Equal(1, heard[DictationCommands.KeptName]);
     }
+
+    private static string SpokenOnly(params string[] passages) =>
+        Text(DictationCommands.ApplyCounted(passages.Select(p => Seg(p)).ToList(), spokenPunctuationOnly: true).Segments);
+
+    [Theory]
+    [InlineData("Please contact me if you need anything further. Regards.", "Please contact me if you need anything further regards")]
+    [InlineData("I will call you, tomorrow full stop", "I will call you tomorrow.")]
+    [InlineData("Is that right? Question mark", "Is that right?")]
+    [InlineData("Is that right question mark", "Is that right?")]
+    [InlineData("Thank you. Comma. Please reply full stop", "Thank you, please reply.")]
+    [InlineData("Ask Mr. Smith about e.g. the U.K. office full stop", "Ask Mr. Smith about e.g. the U.K. office.")]
+    [InlineData("It costs 2.5 million. And more full stop", "It costs 2.5 million and more.")]
+    [InlineData("We met. I agreed full stop", "We met I agreed.")]
+    [InlineData("He said open quote hello. Close quote full stop", "He said \"hello\".")]
+    public void Spoken_punctuation_only_takes_away_what_the_speech_service_added(string spoken, string expected) =>
+        Assert.Equal(expected, SpokenOnly(spoken));
+
+    [Fact]
+    public void Spoken_punctuation_only_works_across_passages_and_keeps_paragraph_starts()
+    {
+        Assert.Equal("Please contact me if you need anything | further.", SpokenOnly("Please contact me if you need anything.", "Further full stop"));
+        Assert.Equal("Thank you | Yours sincerely", SpokenOnly("Thank you. New paragraph.", "Yours sincerely."));
+        // Sarah is capitalised mid-sentence elsewhere, so it is a name and keeps its capital.
+        Assert.Equal("We met Sarah | Sarah agreed", SpokenOnly("We met Sarah.", "Sarah agreed."));
+    }
+
+    [Fact]
+    public void Without_spoken_punctuation_only_the_speech_service_punctuation_stays() =>
+        Assert.Equal("Please contact me if you need anything further. Regards.",
+            Text(DictationCommands.ApplyCounted([Seg("Please contact me if you need anything further. Regards.")]).Segments));
+
+    [Fact]
+    public void History_counts_punctuation_and_capitals_taken_away()
+    {
+        var (_, _, heard) = DictationCommands.ApplyCounted([Seg("Anything further. Regards.")], spokenPunctuationOnly: true);
+        Assert.Equal(2, heard[DictationCommands.RemovedPunctuation]);
+        Assert.Equal(1, heard[DictationCommands.RemovedCapital]);
+    }
 }

@@ -1,8 +1,8 @@
 import { paragraphPieces, breaksBefore } from './paragraphs';
 import type { TakeMode } from './takes';
 
-/** One change made to the recording on the recorder page, in milliseconds of the recording as it was at the time. */
-export type Take = { at: number; mode: TakeMode; len: number };
+/** One change made to the recording on the recorder page, in milliseconds of the recording as it was at the time. A delete takes `len` out from `at`; a replace takes `cut` out from `at` and puts `len` of new recording there. */
+export type Take = { at: number; mode: TakeMode | 'delete' | 'replace'; len: number; cut?: number };
 
 /** A word of the converted text, at its time in the recording the text was made from. */
 export type TextWord = { text: string; startMs: number; endMs: number; paraStart: boolean };
@@ -39,6 +39,8 @@ export function textWords(segs: Seg[]): TextWord[] {
 function after(ms: number, t: Take): number | null {
   if (t.mode === 'insert') return ms >= t.at ? ms + t.len : ms;
   if (t.mode === 'overwrite') return ms >= t.at && ms < t.at + t.len ? null : ms;
+  if (t.mode === 'delete') return ms < t.at ? ms : ms < t.at + t.len ? null : ms - t.len;
+  if (t.mode === 'replace') { const c = t.cut ?? 0; return ms < t.at ? ms : ms < t.at + c ? null : ms - c + t.len; }
   return ms;
 }
 
@@ -50,12 +52,18 @@ export function layout(words: TextWord[], takes: Take[], originalMs: number): Sh
     for (const x of items) {
       const mid = x.kind === 'word' ? (x.startMs + x.endMs) / 2 : x.startMs;
       const moved = after(mid, t);
-      if (moved === null) { if (x.kind === 'word') x.gone = true; else x.endMs = x.startMs; continue; }
+      if (moved === null) {
+        if (x.kind === 'word') { x.gone = true; if (t.mode === 'delete') { x.startMs = t.at; x.endMs = t.at; } } // shown crossed out where the cut is
+        else if (t.mode === 'delete') { x.endMs = Math.max(x.startMs, x.endMs - t.len); x.startMs = t.at; } // partly deleted: what is left starts at the cut
+        else x.endMs = x.startMs;
+        continue;
+      }
       x.startMs += moved - mid; x.endMs += moved - mid;
     }
+    if (t.mode === 'delete') { length -= t.len; return; }
     const at = t.mode === 'end' ? length : t.at;
-    items.push({ kind: 'new', startMs: at, endMs: at + t.len, take: k + 1 });
-    length = t.mode === 'insert' || t.mode === 'end' ? length + t.len : Math.max(length, t.at + t.len);
+    items.push({ kind: 'new', startMs: at, endMs: at + t.len, take: takes.slice(0, k + 1).filter(x => x.mode !== 'delete').length });
+    length = t.mode === 'replace' ? length - (t.cut ?? 0) + t.len : t.mode === 'insert' || t.mode === 'end' ? length + t.len : Math.max(length, t.at + t.len);
   });
   return items
     .filter(x => x.kind === 'word' || x.endMs > x.startMs)

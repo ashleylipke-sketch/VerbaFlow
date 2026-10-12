@@ -3,7 +3,8 @@ import { api, fmtLen, type Detail } from '../api';
 import LanguagePicker from '../LanguagePicker';
 import DocumentTypePicker, { docLabel, type DocType } from '../DocumentType';
 import { summaryLanguage } from '../languages';
-import { decode, msOf, samplesAt, splice, toWav, type TakeMode } from '../takes';
+import { cut, decode, msOf, samplesAt, splice, toWav, type TakeMode } from '../takes';
+import WaveEditor, { type Selection } from '../WaveEditor';
 import { CommandHelp, drawWave } from './Record';
 import { layout, textWords, type Take, type TextWord } from '../takeMap';
 
@@ -27,7 +28,12 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const [dirty, setDirty] = useState(false);
   const [url, setUrl] = useState('');
   const [posMs, setPosMs] = useState(0);
-  const [takeMode, setTakeMode] = useState<TakeMode>('end');
+  const [playing, setPlaying] = useState(false);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  // Marking a part by two clicks, to delete it or record over it: first where it starts, then where it ends.
+  const [deleteStep, setDeleteStep] = useState<null | 'start' | 'end'>(null);
+  const [markFor, setMarkFor] = useState<'delete' | 'overwrite'>('delete');
+  const deleteFrom = useRef(0);
   const [elapsed, setElapsed] = useState(0);
   const [quiet, setQuiet] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,8 +52,11 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const track = useRef<Float32Array>(new Float32Array(0));
   const history = useRef<Float32Array[]>([]);
   const takeAt = useRef(0);
-  const takeMode_ = useRef<TakeMode>('end');
+  const takeMode_ = useRef<TakeMode | 'replace'>('end');
+  const replaceLen = useRef(0); // samples of the marked part a replacement takes out
   const player = useRef<HTMLAudioElement>(null);
+  const pendingSeek = useRef(0); // where the cursor goes once a changed recording has loaded
+  const playUntil = useRef<number | null>(null);
   const rec = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const stream = useRef<MediaStream | null>(null);
@@ -103,14 +112,47 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   }, [phase]);
 
   /** Shows a new version of the dictation; `undoable` keeps the previous one for Undo. */
-  const show = (next: Float32Array, undoable: boolean) => {
+  const show = (next: Float32Array, undoable: boolean, cursorMs = 0) => {
     if (undoable) { history.current.push(track.current); setCanUndo(true); }
     track.current = next;
     setTrackMs(msOf(next.length));
     setUrl(next.length ? URL.createObjectURL(toWav(next)) : '');
-    setPosMs(0);
+    pendingSeek.current = cursorMs;
+    setPosMs(cursorMs);
+    setSelection(null);
     setDirty(true);
   };
+
+  /** Takes the marked part out of the recording. */
+  const deleteMarked = () => {
+    if (!selection) return;
+    const { from, to } = selection;
+    player.current?.pause();
+    show(cut(track.current, samplesAt(from), samplesAt(to)), true, from);
+    setTakes(t => [...t, { at: from, mode: 'delete', len: to - from }]);
+    setMessage(`Deleted ${fmtFine(to - from)} from ${fmtFine(from)}. Not saved yet.`);
+  };
+
+  const play = () => {
+    const p = player.current; if (!p) return;
+    if (!p.paused) { p.pause(); return; }
+    playUntil.current = selection ? selection.to : null;
+    p.currentTime = (selection ? selection.from : posMs >= trackMs - 50 ? 0 : posMs) / 1000;
+    p.play().catch(() => {});
+  };
+
+  // Playing a marked part stops at its end.
+  useEffect(() => {
+    if (!playing || playUntil.current === null) return;
+    let raf = 0;
+    const tick = () => {
+      const p = player.current;
+      if (p && playUntil.current !== null && p.currentTime * 1000 >= playUntil.current) { p.pause(); p.currentTime = playUntil.current / 1000; return; }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
 
   const undo = () => {
     const prev = history.current.pop();
@@ -118,15 +160,16 @@ export default function Dictate({ draftId }: { draftId?: string }) {
     show(prev, false);
     setTakes(t => t.slice(0, -1));
     setCanUndo(history.current.length > 0);
-    setMessage('The last recording was taken out.');
+    setMessage('The last change was undone.');
   };
 
-  const start = async () => {
+  const start = async (wanted: TakeMode | 'replace' = 'end') => {
     setError(''); setMessage('');
     const p = player.current; if (p && !p.paused) p.pause();
-    const mode: TakeMode = track.current.length === 0 ? 'end' : takeMode;
+    const mode = track.current.length === 0 ? 'end' : wanted === 'replace' && !selection ? 'overwrite' : wanted;
     takeMode_.current = mode;
-    takeAt.current = mode === 'end' ? track.current.length : samplesAt((p?.currentTime ?? 0) * 1000);
+    takeAt.current = mode === 'end' ? track.current.length : samplesAt(mode === 'replace' ? selection!.from : posMs);
+    replaceLen.current = mode === 'replace' ? samplesAt(selection!.to) - samplesAt(selection!.from) : 0;
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
       stream.current = s;
@@ -165,12 +208,17 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const addTake = async (blob: Blob) => {
     try {
       const take = await decode(blob);
-      show(splice(track.current, take, takeAt.current, takeMode_.current), true);
-      setTakes(t => [...t, { at: msOf(takeAt.current), mode: takeMode_.current, len: msOf(take.length) }]);
+      // The cursor ends up just after the new recording, ready to play on from there or add more.
+      const mode = takeMode_.current;
+      // Recording over a marked part: the part comes out and the new recording goes in its place, whatever its length.
+      const next = mode === 'replace'
+        ? splice(cut(track.current, takeAt.current, takeAt.current + replaceLen.current), take, takeAt.current, 'insert')
+        : splice(track.current, take, takeAt.current, mode);
+      show(next, true, msOf((mode === 'end' ? track.current.length : takeAt.current) + take.length));
+      setTakes(t => [...t, { at: msOf(takeAt.current), mode, len: msOf(take.length), cut: mode === 'replace' ? msOf(replaceLen.current) : undefined }]);
       const at = fmtLen(msOf(takeAt.current));
-      setMessage(`${takeMode_.current === 'insert' ? `Put in at ${at}` : takeMode_.current === 'overwrite' ? `Recorded over from ${at}` : 'Added'}. Not saved yet.`);
+      setMessage(`${mode === 'insert' ? `Put in at ${at}` : mode === 'overwrite' ? `Recorded over from ${at}` : mode === 'replace' ? `Marked part replaced from ${at}` : 'Added'}. Not saved yet.`);
     } catch { setError('That recording could not be added. Try recording it again.'); }
-    setTakeMode('end');
     setPhase('ready');
   };
 
@@ -240,9 +288,29 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const type = detail?.documentType ?? docType;
   const ref = detail?.clientReference ?? clientRef;
 
-  const seek = (ms: number) => {
-    const p = player.current; if (!p) return;
-    p.currentTime = ms / 1000; setPosMs(ms);
+  const seek = (at: number) => {
+    const ms = Math.max(0, Math.min(trackMs, at)); // word times can run a little past the end of the recording
+    const p = player.current;
+    if (p) p.currentTime = ms / 1000;
+    setPosMs(ms);
+  };
+  /** While deleting by two clicks: the first click is the start, the second the end (either order). */
+  const pointClick = (at: number) => {
+    const ms = Math.max(0, Math.min(trackMs, at));
+    if (deleteStep === 'start') { deleteFrom.current = ms; setSelection(null); seek(ms); setDeleteStep('end'); return; }
+    const a = Math.min(deleteFrom.current, ms), b = Math.max(deleteFrom.current, ms);
+    setDeleteStep(null);
+    if (b - a < 20) { setSelection(null); return; }
+    setSelection({ from: a, to: b }); seek(a);
+  };
+  /** A click on a word puts the cursor just before it; Shift + click marks from the cursor to the end of that word. */
+  const clickWord = (e: React.MouseEvent | React.KeyboardEvent, from: number, to: number) => {
+    if (deleteStep) { pointClick(deleteStep === 'start' || to <= deleteFrom.current ? from : to); return; }
+    if (e.shiftKey) {
+      const a = Math.min(posMs, from), b = Math.max(posMs, to);
+      setSelection(b > a ? { from: a, to: b } : null);
+      seek(a);
+    } else { setSelection(null); seek(from); }
   };
   const shown = changing && words.length ? layout(words, takes, originalMs) : [];
   const paras: (typeof shown)[] = [];
@@ -253,12 +321,13 @@ export default function Dictate({ draftId }: { draftId?: string }) {
     paras[paras.length - 1].push(x);
   }
   const nowIndex = shown.findIndex(x => x.kind === 'word' && !x.gone && posMs >= x.startMs && posMs < x.endMs);
+  const marked = (x: { startMs: number; endMs: number }) => !!selection && (x.startMs + x.endMs) / 2 >= selection.from && (x.startMs + x.endMs) / 2 < selection.to;
 
   return (
     <div className="card">
       <h2>{changing ? 'Insert or amend' : draftId ? 'Carry on dictating' : 'New dictation'}</h2>
-      {changing && phase === 'ready' && <p className="note">Add to the end, put more in, or record over part of it. When you are done, the dictation is converted to text again.
-        The recording as it was is kept in the history.</p>}
+      {changing && phase === 'ready' && <p className="note">Put the cursor where you want to make a change, then put more in, record over, or mark a part and delete it.
+        When you are done, the dictation is converted to text again. The recording as it was is kept in the history.</p>}
       {phase === 'loading' && <p>Opening the dictation…</p>}
 
       {phase === 'setup' && !draftId && <>
@@ -266,7 +335,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
         <div className="pair"><div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Letter to Mr Smith" /></label></div>
           <div className="field"><label>Client reference (optional)<br /><input value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="e.g. ACME-042" /></label></div></div>
         <LanguagePicker value={spoken} onChange={setSpoken} />
-        <button className="primary" disabled={!!dictateNeeds} onClick={start}>Start dictating</button>
+        <button className="primary" disabled={!!dictateNeeds} onClick={() => start()}>Start dictating</button>
         {dictateNeeds && <p className="need">{dictateNeeds}</p>}
       </>}
 
@@ -275,7 +344,8 @@ export default function Dictate({ draftId }: { draftId?: string }) {
       {recordingNow && <>
         <div className="timer" aria-live="off">{fmtLen(elapsed)} {phase === 'paused' && <span className="tag warn">Paused</span>}</div>
         {hasAudio && <p className="note">{takeMode_.current === 'insert' ? `Putting this in at ${fmtLen(msOf(takeAt.current))}.`
-          : takeMode_.current === 'overwrite' ? `Recording over what you said from ${fmtLen(msOf(takeAt.current))}.` : 'Adding to the end.'}</p>}
+          : takeMode_.current === 'overwrite' ? `Recording over what you said from ${fmtLen(msOf(takeAt.current))}.`
+          : takeMode_.current === 'replace' ? `Recording what goes in place of the marked part (${fmtFine(msOf(replaceLen.current))} from ${fmtFine(msOf(takeAt.current))}). It can be shorter or longer.` : 'Adding to the end.'}</p>}
         <details className="note"><summary>Spoken commands</summary><CommandHelp /></details>
         <canvas ref={wave} className="wave" role="img" aria-label="Live sound wave from your microphone" />
         {quiet && <div className="banner" role="status">We cannot hear anything yet. Check that the right microphone is selected and that it is not muted.</div>}
@@ -289,27 +359,52 @@ export default function Dictate({ draftId }: { draftId?: string }) {
 
       {phase === 'ready' && <>
         <p className="note">Length {fmtLen(trackMs)}.{changing ? (dirty ? ' Changed, not sent yet.' : '') : dirty ? ' Not saved yet.' : ' Saved.'}</p>
-        {url && <audio ref={player} controls src={url} style={{ width: '100%' }} onTimeUpdate={e => setPosMs(Math.round(e.currentTarget.currentTime * 1000))} onSeeked={e => setPosMs(Math.round(e.currentTarget.currentTime * 1000))} />}
+        {url && <audio ref={player} src={url} preload="auto" style={{ display: 'none' }}
+          onLoadedMetadata={e => { if (pendingSeek.current) e.currentTarget.currentTime = pendingSeek.current / 1000; }}
+          onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+          onTimeUpdate={e => setPosMs(Math.round(e.currentTarget.currentTime * 1000))} />}
+        {hasAudio && <>
+          <WaveEditor track={track.current} lengthMs={trackMs} now={() => (player.current?.currentTime ?? 0) * 1000} playing={playing}
+            cursorMs={posMs} selection={selection} onSeek={deleteStep ? pointClick : seek} onSelect={deleteStep ? () => {} : setSelection} />
+          <div className="actions wave-bar">
+            <button onClick={play}>{playing ? 'Pause' : selection ? 'Play marked part' : 'Play from cursor'}</button>
+            <span className="note">Cursor {fmtFine(posMs)} of {fmtFine(trackMs)}{selection ? ` · marked ${fmtFine(selection.from)} to ${fmtFine(selection.to)}` : ''}</span>
+          </div>
+          {deleteStep && <div className="banner" role="status"><strong>{markFor === 'delete' ? 'Delete a part' : 'Record over a part'}:</strong> {deleteStep === 'start'
+            ? `click where the ${markFor === 'delete' ? 'deletion' : 'part to record over'} should start, on the sound wave${shown.length ? ' or on a word' : ''}.`
+            : `now click where it should end. It starts at ${fmtFine(deleteFrom.current)}.`}{' '}
+            <button className="link" onClick={() => setDeleteStep(null)}>Cancel</button></div>}
+          <p className="note">Click the sound wave{shown.length ? ' or a word in the text' : ''} to put the cursor there. Drag across the sound wave{shown.length ? ', or Shift + click a word,' : ''} to mark a part.</p>
+        </>}
         {shown.length > 0 && <div className="take-text">
-          <p className="note">The text as it was converted. Click a word to move the player there.{takes.length ? ' Words recorded over are crossed out; new recordings are marked and will be converted when you send them.' : ''}</p>
+          <p className="note">The text as it was converted. A click on a word puts the cursor just before it.{takes.length ? ' Words deleted or recorded over are crossed out; new recordings are marked and will be converted when you send them.' : ''}</p>
           {paras.map((p, k) => <p key={k} className="words">{p.map((x, i) => x.kind === 'new'
-            ? <span key={i} className="tag new-take" role="button" tabIndex={0} onClick={() => seek(x.startMs)} onKeyDown={e => e.key === 'Enter' && seek(x.startMs)}>New recording {x.take} ({fmtLen(x.endMs - x.startMs)})</span>
+            ? <span key={i} className="tag new-take" role="button" tabIndex={0} onClick={() => { setSelection(null); seek(x.startMs); }} onKeyDown={e => e.key === 'Enter' && seek(x.startMs)}>New recording {x.take} ({fmtLen(x.endMs - x.startMs)})</span>
             : x.gone ? <del key={i}>{x.text} </del>
-            : <span key={i}><span className={'w' + (shown.indexOf(x) === nowIndex ? ' now' : '')} role="button" tabIndex={0}
-                onClick={() => seek(x.startMs)} onKeyDown={e => e.key === 'Enter' && seek(x.startMs)}>{x.text}</span> </span>)}</p>)}
+            : <span key={i}><span className={'w' + (shown.indexOf(x) === nowIndex ? ' now' : '') + (marked(x) ? ' marked' : '')} role="button" tabIndex={0}
+                onClick={e => clickWord(e, x.startMs, x.endMs)} onKeyDown={e => e.key === 'Enter' && clickWord(e, x.startMs, x.endMs)}>{x.text}</span> </span>)}</p>)}
         </div>}
-        {hasAudio && <fieldset className="take-mode">
-          <legend>Next recording</legend>
-          <label><input type="radio" name="take" checked={takeMode === 'end'} onChange={() => setTakeMode('end')} /> Add to the end</label>
-          <label><input type="radio" name="take" checked={takeMode === 'insert'} onChange={() => setTakeMode('insert')} /> Put in at {fmtLen(posMs)}</label>
-          <label><input type="radio" name="take" checked={takeMode === 'overwrite'} onChange={() => setTakeMode('overwrite')} /> Record over from {fmtLen(posMs)}</label>
-          {takeMode !== 'end' && <p className="note">{shown.length ? 'Click a word in the text below, or play or drag the player, to choose the point' : 'Play or drag the player to the point you want'}, then press Record. {takeMode === 'overwrite'
-            ? 'What you said from there is replaced for as long as you speak.' : 'What comes after moves along to make room.'}</p>}
-        </fieldset>}
         <div className="actions" style={{ margin: '12px 0' }}>
-          <button className="primary" disabled={busy} onClick={start}>Record</button>
-          {canUndo && <button disabled={busy} onClick={undo}>Undo last recording</button>}
+          {!hasAudio && <button className="primary" disabled={busy} onClick={() => start()}>Record</button>}
+          {hasAudio && <>
+            <button className="primary" disabled={busy} onClick={() => start('insert')}>Insert at {fmtFine(posMs)}</button>
+            <button disabled={busy} onClick={() => start('end')}>Add to the end</button>
+          </>}
         </div>
+        {hasAudio && <div className="actions" style={{ margin: '0 0 12px' }}>
+          {selection
+            ? <>
+              <button className={markFor === 'overwrite' ? 'primary' : ''} disabled={busy} onClick={() => start('replace')}>Record over marked part</button>
+              <button className="danger" disabled={busy} onClick={deleteMarked}>Delete marked part ({fmtFine(selection.to - selection.from)})</button>
+            </>
+            : <>
+              <button className="danger" disabled={busy || !!deleteStep} onClick={() => { player.current?.pause(); setSelection(null); setMarkFor('delete'); setDeleteStep('start'); }}>Delete…</button>
+              <button disabled={busy || !!deleteStep} onClick={() => { player.current?.pause(); setSelection(null); setMarkFor('overwrite'); setDeleteStep('start'); }}>Overwrite…</button>
+              <button disabled={busy || posMs >= trackMs - 50} onClick={() => setSelection({ from: posMs, to: trackMs })}>Mark from cursor to the end</button>
+            </>}
+          {selection && <button disabled={busy} onClick={() => setSelection(null)}>Clear the mark</button>}
+          {canUndo && <button disabled={busy} onClick={undo}>Undo last change</button>}
+        </div>}
         {changing && <>
           {corrections > 0 && <label className="row"><input type="checkbox" checked={replaceOk} onChange={e => setReplaceOk(e.target.checked)} />
             <span>The text has {corrections} saved correction{corrections > 1 ? 's' : ''}. I understand converting again replaces {corrections > 1 ? 'them' : 'it'}.</span></label>}
@@ -332,6 +427,13 @@ export default function Dictate({ draftId }: { draftId?: string }) {
       {error && <div className="error">{error}</div>}
     </div>
   );
+}
+
+/** A time to a tenth of a second (0:12.4), for putting the cursor at an exact point. */
+function fmtFine(ms: number) {
+  const t = Math.max(0, Math.round(ms / 100));
+  const m = Math.floor(t / 600), sec = (t % 600) / 10;
+  return `${m}:${sec < 10 ? '0' : ''}${sec.toFixed(1)}`;
 }
 
 /** Puts the saved dictation's address in the location bar without reopening the page. */

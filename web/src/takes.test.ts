@@ -38,3 +38,14 @@ describe('toWav', () => {
     expect(v.getInt16(48, true)).toBe(-0x8000);
   });
 });
+
+describe('cut and peaks', () => {
+  it('cuts a stretch out', async () => {
+    const { cut } = await import('./takes');
+    expect(Array.from(cut(new Float32Array([1, 2, 3, 4, 5]), 1, 3))).toEqual([1, 4, 5]);
+  });
+  it('finds the loudest point per column', async () => {
+    const { peaks } = await import('./takes');
+    expect(Array.from(peaks(new Float32Array([0.1, -0.5, 0.2, 0.3]), 2))).toEqual([0.5, 0.30000001192092896]);
+  });
+});

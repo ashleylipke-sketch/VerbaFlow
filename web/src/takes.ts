@@ -23,6 +23,31 @@ export function splice(track: Float32Array, take: Float32Array, at: number, mode
   return out;
 }
 
+/** The track without the samples from `from` to `to`. */
+export function cut(track: Float32Array, from: number, to: number): Float32Array {
+  const a = Math.max(0, Math.min(track.length, Math.round(from))), b = Math.max(a, Math.min(track.length, Math.round(to)));
+  const out = new Float32Array(track.length - (b - a));
+  out.set(track.subarray(0, a));
+  out.set(track.subarray(b), a);
+  return out;
+}
+
+/** The loudest sample in each of `columns` equal slices of the track, for drawing its sound wave. */
+export function peaks(track: Float32Array, columns: number): Float32Array {
+  const out = new Float32Array(Math.max(0, columns));
+  if (!track.length || columns <= 0) return out;
+  const per = track.length / columns;
+  for (let c = 0; c < columns; c++) {
+    const from = Math.floor(c * per), to = Math.max(from + 1, Math.floor((c + 1) * per));
+    // A slice of a long recording is sampled every few points: plenty for a drawing, and quick.
+    const step = Math.max(1, Math.floor((to - from) / 400));
+    let m = 0;
+    for (let i = from; i < to && i < track.length; i += step) { const v = Math.abs(track[i]); if (v > m) m = v; }
+    out[c] = m;
+  }
+  return out;
+}
+
 /** The samples as a 16-bit mono WAV file. */
 export function toWav(samples: Float32Array): Blob {
   const data = samples.length * 2;

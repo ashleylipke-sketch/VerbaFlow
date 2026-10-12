@@ -87,3 +87,8 @@ td.wrap.saved-text { white-space: pre-line; max-width: 520px; }
 .take-mode .note { flex-basis: 100%; margin: 4px 0 0; }
 .take-text { border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin:12px 0; max-height:50vh; overflow:auto; }
 .tag.new-take { cursor:pointer; margin:0 4px; }
+.wave-editor { border:1px solid var(--line); border-radius:10px; padding:6px; margin:8px 0 4px; background:var(--card); }
+.wave-editor canvas { display:block; cursor:text; touch-action:none; }
+.wave-editor canvas:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+.wave-bar { align-items:center; }
+.w.marked:not(.now) { background:rgba(214, 69, 65, 0.18); }

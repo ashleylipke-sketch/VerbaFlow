@@ -18,4 +18,12 @@ describe('text on the recorder', () => {
     expect(view(layout(words, [{ at: 400, mode: 'overwrite', len: 700 }, { at: 0, mode: 'end', len: 500 }], 2000)))
       .toBe('Dear@0 [new 400] -John thank@1000 you@1500 [new 2000]');
   });
+  it('takes deleted words out and moves the rest back', () => {
+    expect(view(layout(words, [{ at: 400, mode: 'delete', len: 1000 }, { at: 0, mode: 'end', len: 500 }], 2000)))
+      .toBe('Dear@0 -John -thank you@500 [new 1000]');
+  });
+  it('replaces a marked part with a new recording of any length', () => {
+    expect(view(layout(words, [{ at: 500, mode: 'replace', len: 2000, cut: 500 }], 2000)))
+      .toBe('Dear@0 [new 500] -John thank@2500 you@3000');
+  });
 });

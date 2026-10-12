@@ -8,13 +8,13 @@ const VIEWS: Record<Mode, [string, string][]> = {
   ],
   // A dictation is always the author's own, even when imported from a dictaphone, so there is no Imported view.
   dictate: [
-    ['WithAuthor', 'With Author'], ['AwaitingAssignee', 'Awaiting Assignee'], ['WithAssignee', 'With Assignee'],
+    ['Draft', 'Unfinished'], ['WithAuthor', 'With Author'], ['AwaitingAssignee', 'Awaiting Assignee'], ['WithAssignee', 'With Assignee'],
     ['ConversionFailed', 'Conversion Failed'], ['Completed', 'Completed'], ['Purged', 'Deleted'],
   ],
 };
-const DEFAULT_ON = new Set(['WithAuthor', 'WithImporter', 'AwaitingAssignee', 'WithAssignee', 'ConversionFailed']);
+const DEFAULT_ON = new Set(['Draft', 'WithAuthor', 'WithImporter', 'AwaitingAssignee', 'WithAssignee', 'ConversionFailed']);
 // Only these show in the list. Others (run again, delete) need choices or a reason, so they live on the item page.
-const ACTION_LABEL: Record<string, string> = { open: 'Open', retry: 'Retry', approve: 'Approve', assign: 'Assign', reassign: 'Reassign', accept: 'Accept', return: 'Return', 'request-reopen': 'Reopen' };
+const ACTION_LABEL: Record<string, string> = { continue: 'Carry on', open: 'Open', retry: 'Retry', approve: 'Approve', assign: 'Assign', reassign: 'Reassign', accept: 'Accept', return: 'Return', 'request-reopen': 'Reopen' };
 
 export default function Dashboard({ mode }: { mode: Mode }) {
   const dictate = mode === 'dictate';
@@ -35,6 +35,7 @@ export default function Dashboard({ mode }: { mode: Mode }) {
   const act = async (r: Row, a: string) => {
     setError('');
     try {
+      if (a === 'continue') { location.hash = `#/dictate/record/${r.id}`; return; }
       if (a === 'open' || a === 'assign' || a === 'reassign' || a === 'request-reopen') { location.hash = `#/items/${r.id}`; return; }
       await api.post(`/items/${r.id}/${a}`);
       load();
@@ -70,7 +71,7 @@ export default function Dashboard({ mode }: { mode: Mode }) {
                 <td><span className="pill">{r.status}</span> {r.tags.map(t => <span key={t} className={'tag' + (t === 'Objection logged' ? ' warn' : '')}>{t}</span>)}</td>
                 <td>{fmtLen(r.lengthMs)}</td>
                 <td>{r.clientReference ?? ''}</td>
-                <td className="wrap"><a href={`#/items/${r.id}`}>{r.name}</a>{r.description ? ` — ${r.description}` : ''}</td>
+                <td className="wrap"><a href={r.actions.includes('continue') ? `#/dictate/record/${r.id}` : `#/items/${r.id}`}>{r.name}</a>{r.description ? ` — ${r.description}` : ''}</td>
                 <td>{r.author ?? ''}</td>
                 <td>{r.assignedTo ?? ''}</td>
                 <td>{fmtDate(r.createdOn)}</td>

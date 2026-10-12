@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, getUser, setUser, type UserView } from './api';
 import Dashboard from './pages/Dashboard';
 import Record from './pages/Record';
+import Dictate from './pages/Dictate';
 import Import from './pages/Import';
 import ItemPage from './pages/ItemPage';
 import Reopen from './pages/Reopen';
@@ -23,6 +24,7 @@ export default function App() {
   const key = (u: UserView) => u.email.split('@')[0];
   const path = hash.replace(/^#/, '');
   const item = path.match(/^\/items\/([0-9a-f-]{36})$/);
+  const draft = path.match(/^\/dictate\/record\/([0-9a-f-]{36})$/);
   const admin = users.find(u => key(u) === me)?.isAdmin;
   const support = users.find(u => key(u) === me)?.isSupport;
 
@@ -51,7 +53,8 @@ export default function App() {
           : item ? <ItemPage id={item[1]} />
           : path === '/record' ? <Record mode="meeting" />
           : path === '/import' ? <Import mode="meeting" />
-          : path === '/dictate/record' ? <Record key="dictate" mode="dictate" />
+          : draft ? <Dictate key={draft[1]} draftId={draft[1]} />
+          : path === '/dictate/record' ? <Dictate key="new" />
           : path === '/dictate/import' ? <Import key="dictate" mode="dictate" />
           : path === '/dictate' ? <Dashboard key="dictate" mode="dictate" />
           : path === '/reopen' ? <Reopen />

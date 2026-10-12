@@ -56,6 +56,58 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return id;
     }
 
+    // ---------- unfinished dictations ----------
+
+    /// <summary>
+    /// Saves a dictation unfinished, to carry on later. The first save creates it (with name, type and reference); later saves
+    /// add a new audio file each time. Nothing is converted to text until the author finishes it. Only the author can save.
+    /// </summary>
+    public async Task<Guid> SaveDraftAsync(User actor, Guid? id, DraftUpload up, CancellationToken ct = default)
+    {
+        Item item;
+        if (id is { } existing)
+        {
+            item = await stores.RequireItemAsync(existing);
+            RequireDraftAuthor(actor, item);
+        }
+        else
+        {
+            CheckDictation(up.Name, up.DocumentType);
+            if (up.LengthMs <= 0) throw new DomainException("The dictation has no length.");
+            item = Item.CreateDraft(Guid.NewGuid(), actor.Id, up.Name!, up.LengthMs, up.OutputLanguage, clock.GetUtcNow());
+            if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
+            item.SetDocumentType(up.DocumentType);
+            item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
+        }
+        var version = item.SaveDraft(up.LengthMs);
+        var staged = await StageAndScanAsync(actor, up.Audio, up.FileName, "recording", ct);
+        var asset = await stores.Media.CommitDraftAsync(staged, item.Id, version, SafeName(up.FileName), up.ContentType);
+        await stores.Items.UpsertAsync(item.Id, item);
+        if (id is null) await Audit(actor, "author", item.Id, "item.created", ("source", "Recorded in app"), ("mode", item.Mode.ToString()), ("unfinished", true));
+        await Audit(actor, "author", item.Id, "draft.saved", ("save", version), ("sha256", asset.Sha256), ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs));
+        return item.Id;
+    }
+
+    /// <summary>The author has finished an unfinished dictation: its final audio becomes the recording and is converted to text.</summary>
+    public async Task FinishDraftAsync(User actor, Guid id, DraftUpload up, CancellationToken ct = default)
+    {
+        var item = await stores.RequireItemAsync(id);
+        RequireDraftAuthor(actor, item);
+        item.FinishDraft(up.LengthMs);
+        var staged = await StageAndScanAsync(actor, up.Audio, up.FileName, "recording", ct);
+        var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Recorded in app");
+        await stores.Items.UpsertAsync(id, item);
+        await Audit(actor, "author", id, "draft.finished", ("savesBefore", item.DraftVersion), ("sha256", asset.Sha256),
+            ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs));
+        queue.Enqueue(id);
+    }
+
+    private static void RequireDraftAuthor(User actor, Item item)
+    {
+        if (item.OwnerId != actor.Id) throw new ForbiddenException("Only the person who dictated this can carry on with it.");
+        if (item.Status != ItemStatus.Draft) throw new DomainException("This dictation has already been sent to be converted to text, so it can no longer be added to.");
+    }
+
     public async Task<Guid> ImportAsync(User actor, ImportUpload up, CancellationToken ct = default)
     {
         if (!up.RightsConfirmed)
@@ -458,10 +510,15 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, download ? Capability.ExportAudio : Capability.Read);
         if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
-        var asset = await stores.Media.FindOriginalAsync(item.MediaSourceItemId) ?? throw new NotFoundException("The recording is missing.");
+        var asset = await PlayableAsync(item) ?? throw new NotFoundException("The recording is missing.");
         await Audit(actor, CapacityOf(actor, item), id, download ? "audio.downloaded" : "audio.played", ("sha256", asset.Sha256));
         return new AudioHandle(stores.Media.OpenRead(asset), asset.ContentType, asset.FileName);
     }
+
+    /// <summary>The recording, or for an unfinished dictation its newest save.</summary>
+    private async Task<MediaAsset?> PlayableAsync(Item item) =>
+        await stores.Media.FindOriginalAsync(item.MediaSourceItemId)
+        ?? (item.Status == ItemStatus.Draft ? await stores.Media.FindLatestDraftAsync(item.Id) : null);
 
     // ---------- dashboard ----------
 
@@ -490,7 +547,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var all = await stores.Items.ListAsync();
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id);
         var superseded = all.Any(i => i.SupersedesItemId == id);
-        var asset = await stores.Media.FindOriginalAsync(item.MediaSourceItemId);
+        var asset = await PlayableAsync(item);
         var chain = all.Where(i => i.ChainId == item.ChainId).OrderBy(i => i.VersionNo).ToList();
         var role = PermissionEvaluator.RoleOn(actor, item);
         var ownerRole = item.Source == SourceKind.Imported ? "Importer" : "Author";
@@ -551,7 +608,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var ownerOrAdmin = role == ItemRole.Owner || u.IsAdmin;
         var idle = i.Processing == ProcessingState.Idle;
         if (i.Status == ItemStatus.ConversionFailed && ownerOrAdmin) a.Add("retry");
-        if (idle && ownerOrAdmin && i.Status is not (ItemStatus.ConversionFailed or ItemStatus.Completed)) a.Add("rerun");
+        if (i.Status == ItemStatus.Draft && role == ItemRole.Owner) a.Add("continue"); // an unfinished dictation: only its author carries on
+        if (idle && ownerOrAdmin && i.Status is not (ItemStatus.ConversionFailed or ItemStatus.Completed or ItemStatus.Draft)) a.Add("rerun");
         if (idle && i.Status == i.Home && PermissionEvaluator.Evaluate(u, i, Capability.Approve).Allowed) a.Add("approve");
         if (idle && i.Status is ItemStatus.WithAuthor or ItemStatus.WithImporter or ItemStatus.AwaitingAssignee or ItemStatus.WithAssignee
             && PermissionEvaluator.Evaluate(u, i, Capability.Reassign).Allowed) a.Add(i.AssignedUserId is null ? "assign" : "reassign");

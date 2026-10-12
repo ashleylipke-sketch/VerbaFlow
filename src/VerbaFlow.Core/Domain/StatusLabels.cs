@@ -13,6 +13,7 @@ public static class StatusLabels
         (_, ItemStatus.ConversionFailed) => "Conversion Failed",
         (_, ItemStatus.Completed) => "Completed",
         (_, ItemStatus.Purged) => "Deleted",
+        (ItemMode.Dictate, ItemStatus.Draft) => "Unfinished",
         (_, ItemStatus.Draft) => "Draft",
         _ => status.ToString()
     };
@@ -24,6 +25,8 @@ public static class StatusLabels
             ItemStatus.WithAssignee, ItemStatus.Completed, ItemStatus.ConversionFailed, ItemStatus.Purged],
         ItemMode.Speech => [ItemStatus.Draft, ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee,
             ItemStatus.WithAssignee, ItemStatus.Completed, ItemStatus.ConversionFailed],
+        ItemMode.Dictate => [ItemStatus.Draft, ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee, ItemStatus.WithAssignee,
+            ItemStatus.Completed, ItemStatus.ConversionFailed, ItemStatus.Purged],
         _ => [ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee, ItemStatus.WithAssignee,
             ItemStatus.Completed, ItemStatus.ConversionFailed, ItemStatus.Purged]
     };

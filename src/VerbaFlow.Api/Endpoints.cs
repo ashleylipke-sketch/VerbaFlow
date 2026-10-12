@@ -20,6 +20,14 @@ public static class Endpoints
     public sealed record SavedTextBody(string? Code, string? Text);
     public sealed record LinesBody(string Lines);
 
+    /// <summary>The form of a save of an unfinished dictation: its audio file and fields.</summary>
+    private static async Task<(IFormCollection Form, Stream Audio, IFormFile File)> DraftForm(HttpContext h, CancellationToken ct)
+    {
+        var f = await h.Request.ReadFormAsync(ct);
+        var file = f.Files["audio"] ?? throw new DomainException("No audio was received.");
+        return (f, file.OpenReadStream(), file);
+    }
+
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web)
         { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
 
@@ -73,6 +81,32 @@ public static class Endpoints
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
                 f["consentNoticeGiven"] == "true", markers, f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns1) ? ns1 : null,
                 ModeOf(f["mode"]), f["clientReference"].ToString(), f["documentType"].ToString()), ct);
+            return Results.Ok(new { id });
+        }).DisableAntiforgery();
+
+        // Unfinished dictations: save now, carry on later. Nothing is converted to text until finish.
+        api.MapPost("/items/drafts", async (HttpContext h, MeetingService s, CancellationToken ct) =>
+        {
+            var (f, stream, file) = await DraftForm(h, ct);
+            await using var _ = stream;
+            var id = await s.SaveDraftAsync(h.Current(), null, new DraftUpload(stream, file.FileName, file.ContentType,
+                int.TryParse(f["lengthMs"], out var l) ? l : 0, f["name"].ToString(),
+                string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(), f["spokenLanguages"].ToString(),
+                f["clientReference"].ToString(), f["documentType"].ToString()), ct);
+            return Results.Ok(new { id });
+        }).DisableAntiforgery();
+        api.MapPost("/items/{id:guid}/draft", async (HttpContext h, MeetingService s, Guid id, CancellationToken ct) =>
+        {
+            var (f, stream, file) = await DraftForm(h, ct);
+            await using var _ = stream;
+            await s.SaveDraftAsync(h.Current(), id, new DraftUpload(stream, file.FileName, file.ContentType, int.TryParse(f["lengthMs"], out var l) ? l : 0), ct);
+            return Results.Ok(new { id });
+        }).DisableAntiforgery();
+        api.MapPost("/items/{id:guid}/draft/finish", async (HttpContext h, MeetingService s, Guid id, CancellationToken ct) =>
+        {
+            var (f, stream, file) = await DraftForm(h, ct);
+            await using var _ = stream;
+            await s.FinishDraftAsync(h.Current(), id, new DraftUpload(stream, file.FileName, file.ContentType, int.TryParse(f["lengthMs"], out var l) ? l : 0), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 

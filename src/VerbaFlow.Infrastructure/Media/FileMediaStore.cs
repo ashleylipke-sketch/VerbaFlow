@@ -45,7 +45,21 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
 
     public void Discard(StagedFile f) => TryDelete(f.Path);
 
-    public async Task<MediaAsset> CommitOriginalAsync(StagedFile staged, Guid itemId, string fileName, string contentType, string provenance)
+    public Task<MediaAsset> CommitOriginalAsync(StagedFile staged, Guid itemId, string fileName, string contentType, string provenance) =>
+        CommitAsync(staged, itemId, fileName, contentType, provenance, "original");
+
+    /// <summary>Keeps one save of an unfinished dictation. Each save is its own write-once file; earlier saves are never changed.</summary>
+    public Task<MediaAsset> CommitDraftAsync(StagedFile staged, Guid itemId, int version, string fileName, string contentType) =>
+        CommitAsync(staged, itemId, fileName, contentType, $"Unfinished dictation, save {version}", DraftKind(version));
+
+    public static string DraftKind(int version) => $"draft:{version}";
+
+    /// <summary>The newest save of an unfinished dictation.</summary>
+    public async Task<MediaAsset?> FindLatestDraftAsync(Guid itemId) =>
+        (await table.ListAsync()).Where(a => a.ItemId == itemId && a.Kind.StartsWith("draft:"))
+            .OrderByDescending(a => int.TryParse(a.Kind[6..], out var n) ? n : 0).FirstOrDefault();
+
+    private async Task<MediaAsset> CommitAsync(StagedFile staged, Guid itemId, string fileName, string contentType, string provenance, string kind)
     {
         var id = Guid.NewGuid();
         var dir = Path.Combine(root, itemId.ToString("N"));
@@ -53,7 +67,7 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
         var dest = Path.Combine(dir, id.ToString("N") + ".bin");
         File.Move(staged.Path, dest);
         File.SetAttributes(dest, FileAttributes.ReadOnly);
-        var asset = new MediaAsset(id, itemId, "original", staged.Sha256, staged.SizeBytes, fileName, contentType, provenance, clock.GetUtcNow());
+        var asset = new MediaAsset(id, itemId, kind, staged.Sha256, staged.SizeBytes, fileName, contentType, provenance, clock.GetUtcNow());
         await table.UpsertAsync(id, asset);
         return asset;
     }

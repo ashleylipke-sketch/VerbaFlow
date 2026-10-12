@@ -101,6 +101,45 @@ public sealed class Item
         DateTimeOffset now, ItemMode mode = ItemMode.Meeting) =>
         Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Recorded, null, null, mode);
 
+    /// <summary>
+    /// A dictation saved unfinished, to be carried on later. It is not converted to text until the author finishes it.
+    /// Each save keeps its audio as a new, unchangeable file (see DraftVersion).
+    /// </summary>
+    public static Item CreateDraft(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage, DateTimeOffset now)
+    {
+        var item = Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Recorded, null, null, ItemMode.Dictate);
+        item.Status = ItemStatus.Draft;
+        item.Processing = ProcessingState.Idle;
+        return item;
+    }
+
+    /// <summary>How many times the unfinished dictation has been saved. Each save's audio is kept as draft:N.</summary>
+    [JsonInclude] public int DraftVersion { get; private set; }
+
+    /// <summary>Records one more save of an unfinished dictation and returns its number.</summary>
+    public int SaveDraft(int lengthMs)
+    {
+        EnsureDraft();
+        if (lengthMs <= 0) throw new DomainException("The dictation has no length.");
+        LengthMs = lengthMs;
+        return ++DraftVersion;
+    }
+
+    /// <summary>The author has finished: the dictation goes to them for review and is converted to text.</summary>
+    public void FinishDraft(int lengthMs)
+    {
+        EnsureDraft();
+        if (lengthMs <= 0) throw new DomainException("The dictation has no length.");
+        LengthMs = lengthMs;
+        Status = Home;
+        Processing = ProcessingState.Running;
+    }
+
+    private void EnsureDraft()
+    {
+        if (Status != ItemStatus.Draft) throw new DomainException("This dictation has already been sent to be converted to text, so it can no longer be added to.");
+    }
+
     public static Item CreateImported(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage,
         DateTimeOffset now, string originalFileName, string? sourceNote, ItemMode mode = ItemMode.Meeting) =>
         Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Imported, originalFileName, sourceNote, mode);

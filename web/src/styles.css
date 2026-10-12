@@ -81,3 +81,7 @@ del { text-decoration:line-through; color:var(--del); }
 @media (max-width:600px) { .page { padding:20px 16px; } }
 .low-c-key { background:rgba(180,83,9,.14); border-radius:3px; padding:0 3px; color:var(--ink); }
 td.wrap.saved-text { white-space: pre-line; max-width: 520px; }
+.take-mode { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 12px 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.take-mode legend { font-weight: 600; padding: 0 4px; }
+.take-mode label { display: inline-flex; gap: 6px; align-items: center; }
+.take-mode .note { flex-basis: 100%; margin: 4px 0 0; }

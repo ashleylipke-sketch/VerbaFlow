@@ -10,6 +10,10 @@ public sealed record RecordingUpload(Stream Audio, string FileName, string Conte
     string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null, int? NumSpeakers = null,
     ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null);
 
+/// <summary>A save of an unfinished dictation. Name, type, reference and languages are used only on the first save.</summary>
+public sealed record DraftUpload(Stream Audio, string FileName, string ContentType, int LengthMs, string? Name = null, string OutputLanguage = "en",
+    string? SpokenLanguages = null, string? ClientReference = null, string? DocumentType = null);
+
 public sealed record ImportUpload(Stream File, string FileName, string ContentType, string? Name, int LengthMs,
     string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null, int? NumSpeakers = null,
     ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null);

@@ -179,7 +179,7 @@ export default function Record({ mode }: { mode: Mode }) {
 }
 
 /** The spoken commands, shown before and during a dictation. */
-function CommandHelp() {
+export function CommandHelp() {
   return (
     <div className="note" style={{ margin: '8px 0 12px' }}>
       <strong>Say these while dictating</strong> and they are turned into punctuation:
@@ -191,7 +191,7 @@ function CommandHelp() {
 }
 
 /** Draws a scrolling row of bars, newest on the right, tall when the microphone hears something. */
-function drawWave(canvas: HTMLCanvasElement | null, bars: number[], level: number) {
+export function drawWave(canvas: HTMLCanvasElement | null, bars: number[], level: number) {
   if (!canvas) return;
   const ratio = window.devicePixelRatio || 1;
   const w = Math.max(1, Math.floor(canvas.clientWidth * ratio)), h = Math.max(1, Math.floor(canvas.clientHeight * ratio));

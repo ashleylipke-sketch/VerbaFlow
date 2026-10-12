@@ -8,7 +8,7 @@ namespace VerbaFlow.Infrastructure.Export;
 /// <summary>Lays a <see cref="MinutesDocument"/> out as a PDF (A4).</summary>
 public static class PdfMinutesWriter
 {
-    private const string Font = "VerbaFlow Sans";
+    internal const string Font = "VerbaFlow Sans";
     private static readonly Lock Gate = new();
     private static bool fontsReady;
 
@@ -117,9 +117,9 @@ public static class PdfMinutesWriter
     }
 
     /// <summary>MigraDoc treats text as plain text already; control characters are dropped so nothing odd reaches the PDF.</summary>
-    private static string Clean(string s) => new(s.Where(c => c >= ' ' || c == '\t').ToArray());
+    internal static string Clean(string s) => new(s.Where(c => c >= ' ' || c == '\t').ToArray());
 
-    private static void EnsureFonts()
+    internal static void EnsureFonts()
     {
         lock (Gate)
         {

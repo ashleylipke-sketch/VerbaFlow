@@ -8,6 +8,7 @@ import ItemPage from './pages/ItemPage';
 import Reopen from './pages/Reopen';
 import Vocabulary from './pages/Vocabulary';
 import SavedTextPage from './pages/SavedText';
+import LetterheadPage from './pages/Letterhead';
 import Support from './pages/Support';
 
 function useHash() {
@@ -37,6 +38,7 @@ export default function App() {
           <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
           <a href="#/saved-text" className={path === '/saved-text' ? 'on' : ''}>Saved text</a>
+          <a href="#/letterhead" className={path === '/letterhead' ? 'on' : ''}>Letterhead</a>
           {support && <a href="#/support" className={path === '/support' ? 'on' : ''}>Support: errors</a>}
           {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen and delete requests</a>}
         </nav>
@@ -60,6 +62,7 @@ export default function App() {
           : path === '/reopen' ? <Reopen />
           : path === '/vocabulary' ? <Vocabulary />
           : path === '/saved-text' ? <SavedTextPage />
+          : path === '/letterhead' ? <LetterheadPage />
           : path === '/support' ? <Support />
           : <Dashboard key="meeting" mode="meeting" />}
       </main>

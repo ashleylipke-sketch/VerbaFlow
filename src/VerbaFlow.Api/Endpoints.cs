@@ -18,6 +18,7 @@ public static class Endpoints
     public sealed record NameBody(string Name);
     public sealed record TermBody(string Text, string? Note);
     public sealed record SavedTextBody(string? Code, string? Text);
+    public sealed record LetterSpaceBody(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm);
     public sealed record LinesBody(string Lines);
 
     /// <summary>The form of a save of an unfinished dictation: its audio file and fields.</summary>
@@ -56,6 +57,31 @@ public static class Endpoints
         api.MapPost("/saved-text", async (HttpContext h, SavedTextService t, SavedTextBody b) => Results.Ok(await t.AddAsync(h.Current(), b.Code, b.Text)));
         api.MapPut("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id, SavedTextBody b) => Results.Ok(await t.ChangeAsync(h.Current(), id, b.Code, b.Text)));
         api.MapDelete("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id) => { await t.RemoveAsync(h.Current(), id); return Results.NoContent(); });
+        api.MapGet("/letterhead", (LetterheadService l) => l.GetAsync());
+        // An administrator looks at the stored file to check it; it is the organisation's own letterhead, not customer content.
+        api.MapGet("/letterhead/sample", async (LetterheadService l, string? format, bool? preview) =>
+        {
+            var word = format == "docx";
+            var bytes = await l.SampleAsync(word ? LetterheadService.Word : LetterheadService.Pdf);
+            return Results.File(bytes, word ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf",
+                preview == true ? null : word ? "sample letter.docx" : "sample letter.pdf");
+        });
+        api.MapGet("/letterhead/{kind}", async (HttpContext h, LetterheadService l, string kind) =>
+        {
+            if (!h.Current().IsAdmin) throw new ForbiddenException("Only administrators can open the letterhead file.");
+            var k = kind == "pdf" ? LetterheadService.Pdf : LetterheadService.Word;
+            var bytes = await l.ReadAsync(k) ?? throw new NotFoundException("There is no letterhead of that kind.");
+            return Results.File(bytes, k == LetterheadService.Pdf ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                k == LetterheadService.Pdf ? "letterhead.pdf" : "letterhead.docx");
+        });
+        api.MapPost("/letterhead/{kind}", async (HttpContext h, LetterheadService l, string kind, IFormFile file) =>
+        {
+            await using var s = file.OpenReadStream();
+            return Results.Ok(await l.UploadAsync(h.Current(), kind, s, file.FileName));
+        }).DisableAntiforgery();
+        api.MapDelete("/letterhead/{kind}", async (HttpContext h, LetterheadService l, string kind) => Results.Ok(await l.RemoveAsync(h.Current(), kind)));
+        api.MapPut("/letterhead/space", async (HttpContext h, LetterheadService l, LetterSpaceBody b) =>
+            Results.Ok(await l.SetPdfSpaceAsync(h.Current(), b.TopFirstMm, b.TopNextMm, b.BottomMm, b.SideMm)));
 
         api.MapGet("/items", (HttpContext h, MeetingService s, string? statuses, bool? selfAssigned, string? search, string? mode) =>
         {

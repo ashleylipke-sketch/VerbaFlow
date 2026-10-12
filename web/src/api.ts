@@ -19,6 +19,8 @@ export type Transcript = {
   versions: { no: number; kind: string; capacity: string; by: string | null; at: string; note: string | null }[];
 };
 export type Outputs = { engine: string; language: string; summary: string; actionPoints: string[]; minutes: string; toneOfMeeting: string };
+export type LetterheadFile = { sha256: string; fileName: string; sizeBytes: number; uploadedBy: string; uploadedAt: string };
+export type Letterhead = { word: LetterheadFile | null; pdf: LetterheadFile | null; pdfTopFirstMm: number; pdfTopNextMm: number; pdfBottomMm: number; pdfSideMm: number };
 export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean };
 export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
 export type AuditEvent = { seq: number; at: string; actorId: string | null; capacity: string; type: string; details: string; hash: string };
@@ -93,6 +95,16 @@ export const api = {
   addSavedText: (code: string, text: string) => call<SavedText>('POST', '/saved-text', { code, text }),
   changeSavedText: (id: string, code: string, text: string) => call<SavedText>('PUT', `/saved-text/${id}`, { code, text }),
   removeSavedText: (id: string) => call<void>('DELETE', `/saved-text/${id}`),
+  letterhead: () => call<Letterhead>('GET', '/letterhead'),
+  uploadLetterhead: (kind: 'word' | 'pdf', file: File) => { const f = new FormData(); f.append('file', file); return call<Letterhead>('POST', `/letterhead/${kind}`, f); },
+  removeLetterhead: (kind: 'word' | 'pdf') => call<Letterhead>('DELETE', `/letterhead/${kind}`),
+  letterheadSpace: (s: { topFirstMm: number; topNextMm: number; bottomMm: number; sideMm: number }) => call<Letterhead>('PUT', '/letterhead/space', s),
+  /** A file from the letterhead area (the stored letterhead, or a sample letter on it). */
+  async letterheadFile(path: string): Promise<Blob> {
+    const res = await fetch(`/api/letterhead/${path}`, { headers: { 'X-Dev-User': devUser } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
+    return res.blob();
+  },
   reopenRequests: () => call<Reopen[]>('GET', '/reopen'),
   deleteRequests: () => call<DeleteRequest[]>('GET', '/delete-requests'),
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },

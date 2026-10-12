@@ -64,7 +64,8 @@ public class DictationTests
         var file = await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "docx", parts: "summary,minutes");
         using var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(new MemoryStream(file.Content), false);
         var text = doc.MainDocumentPart!.Document!.Body!.InnerText;
-        Assert.Contains("LetterPlease call me back.", text);
+        Assert.Contains("Please call me back.", text);
+        Assert.DoesNotContain("Recorded by", text); // a letter is laid out as a letter, not with the meeting details
         Assert.DoesNotContain(env.Alice.Name + ":", text);
         Assert.DoesNotContain("0:00", text);
         Assert.DoesNotContain("Contains", text);

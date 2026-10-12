@@ -165,7 +165,24 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}",
             dictation ? DocumentHeading(item.DocumentType) : "Transcript");
 
-        var bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
+        byte[] bytes;
+        if (dictation && item.DocumentType == "letter")
+        {
+            // A dictated letter goes out as a letter, on the organisation's letterhead when one is set.
+            var letterDate = item.ApprovedAt ?? item.CreatedAt;
+            var letter = new LetterDocument(item.Name,
+                TimeZoneInfo.ConvertTime(letterDate, TimeZoneInfo.Local).ToString("d MMMM yyyy", CultureInfo.InvariantCulture),
+                string.IsNullOrWhiteSpace(item.ClientReference) ? null : item.ClientReference.Trim(),
+                marker switch { "Approved" => null, "Superseded" => "Superseded: a newer version of this letter exists.", _ => "Draft: not approved yet." },
+                doc.Transcript.Select(t => t.Text).ToList());
+            var letterheads = new Services.LetterheadService(stores, clock);
+            var l = await letterheads.GetAsync();
+            bytes = format == ExportFormats.Word
+                ? LetterWriter.Word(letter, await letterheads.ReadAsync(Services.LetterheadService.Word))
+                : LetterWriter.Pdf(letter, await letterheads.ReadAsync(Services.LetterheadService.Pdf),
+                    new LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm));
+        }
+        else bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         var record = new ExportRecord(Guid.NewGuid(), id, item.VersionNo, transcript.Current.No, format, marker, sha, bytes.LongLength, actor.Id, now,
             string.Join(",", parts));

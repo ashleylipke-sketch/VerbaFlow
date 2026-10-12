@@ -103,9 +103,10 @@ public static class DictationCommands
 
     /// <summary>As <see cref="Apply(IReadOnlyList{Segment})"/>, also saying how often each command was heard (command names only, never the dictated words).</summary>
     public static (IReadOnlyList<Segment> Segments, int Applied, IReadOnlyDictionary<string, int> Heard) ApplyCounted(IReadOnlyList<Segment> segments,
-        IReadOnlyList<(string Code, string Text)>? savedText = null)
+        IReadOnlyList<(string Code, string Text)>? savedText = null, IEnumerable<string>? names = null)
     {
         var inserts = Prepare(savedText);
+        var keep = KeepCapitals(segments, names);
         var heard = new SortedDictionary<string, int>();
         var result = new List<Segment>();
         var applied = 0;
@@ -113,7 +114,7 @@ public static class DictationCommands
         var startNext = true;
         foreach (var s in segments)
         {
-            var (parts, n, breakAtStart, breakAtEnd) = Run(s, heard, inserts);
+            var (parts, n, breakAtStart, breakAtEnd) = Run(s, heard, inserts, keep);
             if (parts.Count > 0)
             {
                 result.Add(parts[0] with { NewParagraph = startNext || breakAtStart });
@@ -128,7 +129,7 @@ public static class DictationCommands
 
     public static (IReadOnlyList<Segment> Segments, int Applied) Apply(Segment s)
     {
-        var (parts, n, _, _) = Run(s, null, null);
+        var (parts, n, _, _) = Run(s, null, null, KeepCapitals([s], null));
         return (parts, n);
     }
 
@@ -165,7 +166,7 @@ public static class DictationCommands
 
     private static string NameOf(Command c) => c == SpeechServiceBreak ? "line break from the speech service" : string.Join(' ', c.Words);
 
-    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard, Inserts? inserts)
+    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard, Inserts? inserts, HashSet<string> keep)
     {
         var raw = MarkLineBreaks(s.Text).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         // Word timings line up with the spoken words, not with line breaks.
@@ -175,6 +176,7 @@ public static class DictationCommands
         var paragraphs = new List<List<Token>> { new() };
         var applied = 0;
         var capitalNext = false;
+        var lowerNext = false;
         var breakAtStart = false;
         string? openNext = null;
         for (var i = 0; i < raw.Length;)
@@ -215,6 +217,7 @@ public static class DictationCommands
             if (cmd is null)
             {
                 var text = raw[i];
+                if (lowerNext) { text = Uncapitalise(text, keep); lowerNext = false; }
                 if (openNext is not null) { text = openNext + text; openNext = null; }
                 if (capitalNext) { text = Capitalise(text); capitalNext = false; }
                 current.Add(new Token(text, timed?[wordAt[i]], i));
@@ -232,6 +235,9 @@ public static class DictationCommands
                     capitalNext = true;
                     break;
                 case Kind.Punctuation:
+                    // The speech service may have ended a sentence here ("2023. Please"); a spoken comma, colon or semicolon
+                    // takes away its full stop, so the capital it gave the next word goes too.
+                    lowerNext = cmd.Symbol is "," or ":" or ";" && prev is not null && EndsSentence(prev.Text);
                     if (prev is not null) prev.Text = prev.Text.TrimEnd(Trailing.ToCharArray()) + cmd.Symbol;
                     capitalNext = cmd.Symbol is "." or "?" or "!";
                     break;
@@ -282,6 +288,41 @@ public static class DictationCommands
 
     /// <summary>The word without the punctuation the speech service put around it.</summary>
     private static string Bare(string token) => token.Trim().Trim(Trailing.ToCharArray()).Trim('"', '(', ')').ToLowerInvariant();
+
+    private static bool EndsSentence(string word) => word.TrimEnd('"', ')', '\'', '’', '”') is { Length: > 0 } w && w[^1] is '.' or '?' or '!';
+
+    /// <summary>
+    /// Words that keep their capital after a comma: "I" and its forms, names in the custom vocabulary, words in capitals
+    /// (BBC), and any word the speech service capitalised in the middle of a sentence somewhere in the dictation (a name).
+    /// </summary>
+    private static HashSet<string> KeepCapitals(IEnumerable<Segment> segments, IEnumerable<string>? names)
+    {
+        var keep = new HashSet<string>(StringComparer.Ordinal) { "i", "i'm", "i'll", "i've", "i'd", "i’m", "i’ll", "i’ve", "i’d" };
+        foreach (var n in names ?? [])
+            foreach (var w in n.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)) keep.Add(Bare(w));
+        foreach (var seg in segments)
+        {
+            var words = MarkLineBreaks(seg.Text).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 1; i < words.Length; i++)
+            {
+                if (words[i - 1] == LineBreak || EndsSentence(words[i - 1])) continue;
+                var w = words[i].TrimStart('"', '(', '\'', '‘', '“');
+                if (w.Length > 0 && char.IsUpper(w[0])) keep.Add(Bare(w));
+            }
+        }
+        return keep;
+    }
+
+    private static string Uncapitalise(string text, HashSet<string> keep)
+    {
+        var i = 0;
+        while (i < text.Length && !char.IsLetter(text[i])) i++;
+        if (i >= text.Length || !char.IsUpper(text[i])) return text;
+        if (keep.Contains(Bare(text))) return text;
+        var letters = text.Where(char.IsLetter).ToArray();
+        if (letters.Length > 1 && letters.All(char.IsUpper)) return text; // BBC, NHS
+        return text[..i] + char.ToLower(text[i], CultureInfo.InvariantCulture) + text[(i + 1)..];
+    }
 
     private static string Capitalise(string text)
     {

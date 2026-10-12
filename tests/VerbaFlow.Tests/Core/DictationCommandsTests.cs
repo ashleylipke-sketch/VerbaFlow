@@ -65,4 +65,20 @@ public class DictationCommandsTests
     [Fact]
     public void Passages_saved_before_paragraphs_existed_each_stand_alone() =>
         Assert.Equal(2, DictationCommands.Paragraphs([Seg("one"), Seg("two")], x => x).Count);
+
+    [Theory]
+    [InlineData("As per our meeting on Thursday 22 November 2023. Comma. Please find a summary.", "As per our meeting on Thursday 22 November 2023, please find a summary.")]
+    [InlineData("Thank you. Comma, I will call you.", "Thank you, I will call you.")]
+    [InlineData("We spoke to the client. Comma. BBC staff were there.", "We spoke to the client, BBC staff were there.")]
+    [InlineData("I met Sarah today. Colon. Sarah agreed.", "I met Sarah today: Sarah agreed.")]
+    [InlineData("Is that right? Comma. It is.", "Is that right, it is.")]
+    public void A_spoken_comma_that_replaces_a_full_stop_also_takes_away_the_capital_it_gave(string spoken, string expected) =>
+        Assert.Equal(expected, Text(DictationCommands.Apply(Seg(spoken)).Segments));
+
+    [Fact]
+    public void Names_in_the_custom_vocabulary_keep_their_capital_after_a_comma()
+    {
+        var (segs, _, _) = DictationCommands.ApplyCounted([Seg("Thank you. Comma. Lee-Anne will call.")], names: ["Lee-Anne"]);
+        Assert.Equal("Thank you, Lee-Anne will call.", Text(segs));
+    }
 }

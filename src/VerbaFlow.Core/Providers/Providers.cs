@@ -121,3 +121,19 @@ public interface ILiveSpeech
     string Name { get; }
     Task<ILiveRecognition> StartAsync(LiveOptions options, CancellationToken ct);
 }
+
+/// <summary>One passage to check, with a short id the checker gives back (never the passage's own id).</summary>
+public sealed record GrammarPassage(string Id, string Text);
+
+/// <summary>The checker's corrected text for one passage, and why, in a few plain words.</summary>
+public sealed record GrammarFix(string Id, string Text, string Reason);
+
+/// <summary>
+/// Suggests grammar, spelling and punctuation corrections (Azure OpenAI in production). Only suggestions: nothing is
+/// changed until the person accepts one. The text is untrusted: it is checked, never followed.
+/// </summary>
+public interface IGrammarChecker
+{
+    string Name { get; }
+    Task<IReadOnlyList<GrammarFix>> CheckAsync(IReadOnlyList<GrammarPassage> passages, string language, CancellationToken ct);
+}

@@ -44,6 +44,9 @@ if (openAi.IsConfigured)
     builder.Services.AddHttpClient<IAiOutputService, VerbaFlow.Infrastructure.Azure.AzureOpenAiOutputService>(c => c.Timeout = TimeSpan.FromMinutes(10));
 }
 else builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
+if (openAi.IsConfigured) builder.Services.AddHttpClient<IGrammarChecker, VerbaFlow.Infrastructure.Azure.AzureOpenAiGrammarChecker>(c => c.Timeout = TimeSpan.FromMinutes(5));
+else builder.Services.AddSingleton<IGrammarChecker, StandInGrammarChecker>();
+builder.Services.AddSingleton<GrammarService>();
 builder.Services.AddSingleton<IMalwareScanner, StandInMalwareScanner>();
 var emailOptions = new VerbaFlow.Infrastructure.Azure.AzureEmailOptions(builder.Configuration["Email:ConnectionString"] ?? "", builder.Configuration["Email:Sender"] ?? "");
 var outbox = Path.Combine(dataDir, "outbox");
@@ -117,8 +120,8 @@ app.Logger.LogInformation(emailOptions.IsConfigured
     : "Email: STAND-IN. Nothing is sent; emails are saved as .eml files in {Outbox}. Set Email:ConnectionString and Email:Sender to send for real.",
     emailOptions.IsConfigured ? emailOptions.Sender : outbox);
 app.Logger.LogInformation(openAi.IsConfigured
-    ? "Summaries: using Azure OpenAI deployment {Deployment}"
-    : "Summaries: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);
+    ? "Summaries and Check grammar: using Azure OpenAI deployment {Deployment}"
+    : "Summaries and Check grammar: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);
 
 await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
 

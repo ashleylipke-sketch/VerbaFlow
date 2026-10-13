@@ -74,7 +74,7 @@ public sealed class Transcript
             v.SpeakerNames.GetValueOrDefault(Segments[id].SpeakerId, "Unknown"))).ToList();
     }
 
-    public TranscriptVersion EditSegment(Guid segmentId, string newText, Guid actor, string capacity, DateTimeOffset now)
+    public TranscriptVersion EditSegment(Guid segmentId, string newText, Guid actor, string capacity, DateTimeOffset now, string? note = null)
     {
         // Emptying a passage is allowed (its words were moved elsewhere, or should not be there): it stays in the version
         // with no text, so the tracked changes still show what was taken out and Restore brings it back.
@@ -95,7 +95,7 @@ public sealed class Transcript
         Segments[replacement.Id] = replacement;
         var ids = cur.SegmentIds.ToList();
         ids[index] = replacement.Id;
-        return Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, $"Edited passage at {old.StartMs} ms");
+        return Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, note ?? $"Edited passage at {old.StartMs} ms");
     }
 
     /// <summary>In a dictation: the passage carries on the paragraph before it instead of starting a new one. The words do not change.</summary>

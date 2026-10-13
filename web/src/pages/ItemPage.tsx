@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import LanguagePicker from '../LanguagePicker';
 import { ExportMenu } from '../ExportMenu';
+import GrammarCard from '../GrammarCard';
 import { docLabel } from '../DocumentType';
 import { paragraphMarkers, paragraphPieces, type Piece } from '../paragraphs';
 import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
@@ -192,6 +193,7 @@ export default function ItemPage({ id }: { id: string }) {
           {!d.canEditTranscript && t && <p className="note">This transcript is read-only for you right now.</p>}
         </div>
         <div>
+          {t && dictate && d.canEditTranscript && d.processingState !== 'Processing' && <GrammarCard itemId={id} onSaved={load} />}
           {t && !dictate && (o || d.canEditTranscript) && <div className="card"><h2>Summary</h2>
             {!o && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No summary yet.'}</p>}
             {o && <>

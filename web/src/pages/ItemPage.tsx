@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import LanguagePicker from '../LanguagePicker';
 import { ExportMenu } from '../ExportMenu';
 import { docLabel } from '../DocumentType';
@@ -6,6 +6,9 @@ import { paragraphPieces, type Piece } from '../paragraphs';
 import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
+
+/** Lets an Edit button pause the recording while the person types, and carry on playing once they save or cancel. */
+const EditPause = createContext<{ pause: () => void; resume: () => void }>({ pause: () => undefined, resume: () => undefined });
 
 export default function ItemPage({ id }: { id: string }) {
   const [d, setD] = useState<Detail | null>(null);
@@ -84,6 +87,12 @@ export default function ItemPage({ id }: { id: string }) {
   const editedCount = segs.filter(x => x.originalText !== null).length;
   // A person's saved corrections; the app's own versions (machine text, crossed-out restarts) do not count.
   const corrections = t ? t.versions.filter(v => v.kind !== 'MachineV1' && v.kind !== 'AutoTidy').length : 0;
+  // Only playback that Edit stopped is started again; a recording that was not playing stays stopped.
+  const pausedForEdit = useRef(false);
+  const editPause = useMemo(() => ({
+    pause: () => { const a = player.current; if (a && !a.paused) { a.pause(); pausedForEdit.current = true; } },
+    resume: () => { if (!pausedForEdit.current) return; pausedForEdit.current = false; player.current?.play().catch(() => undefined); },
+  }), []);
   const seek = (ms: number) => { const a = player.current; if (!a) return; a.currentTime = ms / 1000; a.play().catch(() => undefined); };
 
   const run = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await load(); } catch (e: any) { setError(e.message); } };
@@ -96,7 +105,7 @@ export default function ItemPage({ id }: { id: string }) {
   const dictate = d.mode === 'Dictate';
 
   return (
-    <>
+    <EditPause.Provider value={editPause}>
       <p>{dictate ? <a href="#/dictate">← Back to Dictate</a> : <a href="#/">← Back to Meeting</a>}</p>
       <div className="card">
         <div className="item-head">
@@ -233,7 +242,7 @@ export default function ItemPage({ id }: { id: string }) {
         </div>
       </div>
       </div>
-    </>
+    </EditPause.Provider>
   );
 }
 
@@ -245,6 +254,7 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
   showChanges: boolean; hideSpeaker?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const edit = useContext(EditPause);
   const [text, setText] = useState(s.text);
   const row = useRef<HTMLDivElement>(null);
   useEffect(() => setText(s.text), [s.text]);
@@ -277,15 +287,15 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
         {editing ? <>
           <textarea rows={3} value={text} autoFocus onChange={e => setText(e.target.value)} />
           <div className="actions"><button className="primary" disabled={text.trim() === s.text}
-            onClick={() => { onSave(text); setEditing(false); }}>Save</button>
-            <button onClick={() => { setText(s.text); setEditing(false); }}>Cancel</button></div>
+            onClick={() => { onSave(text); setEditing(false); edit.resume(); }}>Save</button>
+            <button onClick={() => { setText(s.text); setEditing(false); edit.resume(); }}>Cancel</button></div>
         </> : <>
           <p className="words">{ops
             ? ops.map((o, i) => o.kind === 'del' ? <span key={i}><del>{o.text}</del>{' '}</span>
               : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{' '}</span>
               : <span key={i}>{word(o.cur!)}{' '}</span>)
             : words.map((_, i) => <span key={i}>{word(i)}{' '}</span>)}</p>
-          {editable && <button onClick={() => setEditing(true)}>Edit</button>}
+          {editable && <button onClick={() => { edit.pause(); setEditing(true); }}>Edit</button>}
         </>}
         {s.lowConfidence && <div className="note">Low confidence — please check.</div>}
       </div>
@@ -334,6 +344,7 @@ function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, 
   const idx = [...new Set(pieces.map(p => p.seg))];
   const segs = idx.map(i => t.segments[i]);
   const [editing, setEditing] = useState(false);
+  const edit = useContext(EditPause);
   const [texts, setTexts] = useState(segs.map(s => s.text));
   const [saving, setSaving] = useState(false);
   const el = useRef<HTMLDivElement>(null);
@@ -357,9 +368,9 @@ function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, 
       {segs.map((s, k) => <textarea key={s.id} rows={Math.max(2, Math.ceil(texts[k].length / 80) + (texts[k].match(/\n/g)?.length ?? 0))} value={texts[k]}
         aria-label={`Sentence ${k + 1} of this paragraph`} onChange={e => setTexts(v => v.map((x, j) => j === k ? e.target.value : x))} />)}
       <div className="actions para-tools"><button className="primary" disabled={saving || outgoing().length === 0}
-        onClick={async () => { setSaving(true); try { await onSave(outgoing()); setEditing(false); onSaved(); } catch (e: any) { onError(e.message); } finally { setSaving(false); } }}>
+        onClick={async () => { setSaving(true); try { await onSave(outgoing()); setEditing(false); onSaved(); edit.resume(); } catch (e: any) { onError(e.message); } finally { setSaving(false); } }}>
         {saving ? 'Saving…' : 'Save'}</button>
-        <button onClick={() => { setTexts(segs.map(s => s.text)); setEditing(false); }}>Cancel</button></div>
+        <button onClick={() => { setTexts(segs.map(s => s.text)); setEditing(false); edit.resume(); }}>Cancel</button></div>
     </div>);
 
   return (
@@ -369,7 +380,7 @@ function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, 
         return <span key={`${s.id}-${p.from}`} className={s.lowConfidence ? 'low-c' : undefined} title={s.lowConfidence ? 'Hard to hear. Please check.' : undefined}>
           <Words s={s} words={timed[p.seg] ?? []} from={p.from} to={p.to} activeWord={pos.seg === p.seg ? pos.word : -1} canSeek={canSeek} onSeek={onSeek} showChanges={showChanges} />{' '}</span>;
       })}
-      {editable && <button className="link para-edit" onClick={() => setEditing(true)}>Edit</button>}
+      {editable && <button className="link para-edit" onClick={() => { edit.pause(); setEditing(true); }}>Edit</button>}
       {editable && onJoin && <button className="link para-edit" onClick={onJoin} title="This paragraph carries on the one above, with no break between them">Join to paragraph above</button>}
     </div>);
 }

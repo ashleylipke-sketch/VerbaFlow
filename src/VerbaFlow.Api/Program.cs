@@ -83,6 +83,10 @@ builder.Services.AddSingleton<LetterheadService>();
 // Dictations go word for word through the Speech SDK when Azure Speech and ffmpeg are both there.
 if (speech.IsConfigured && ffmpegFound)
     builder.Services.AddSingleton<IDictationSpeech>(_ => new VerbaFlow.Infrastructure.Azure.AzureWordForWordSpeech(speech, ffmpegPath));
+// Speech mode: live text as the person speaks, through Azure AI Speech real-time recognition when it is set up.
+if (speech.IsConfigured) builder.Services.AddSingleton<ILiveSpeech>(_ => new VerbaFlow.Infrastructure.Azure.AzureLiveSpeech(speech));
+else builder.Services.AddSingleton<ILiveSpeech, VerbaFlow.Infrastructure.StandIns.StandInLiveSpeech>();
+builder.Services.AddSingleton<LiveSessions>();
 builder.Services.AddSingleton<ProcessingService>(sp => new ProcessingService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<ISpeechService>(),
     sp.GetRequiredService<IAiOutputService>(), sp.GetRequiredService<IAudioEnhancer>(), sp.GetRequiredService<TimeProvider>(),
     sp.GetRequiredService<VerbaFlow.Infrastructure.Services.FailureReporter>(), sp.GetService<ISpeakerDiarizer>(), sp.GetService<VerbaFlow.Infrastructure.Services.DiarizationOptions>(),
@@ -93,6 +97,9 @@ var app = builder.Build();
 app.Logger.LogInformation(speech.IsConfigured
     ? "Speech: using Azure AI Speech at {Endpoint}"
     : "Speech: STAND-IN (placeholder text). Set Speech:Endpoint and Speech:Key to use Azure AI Speech.", speech.Endpoint);
+app.Logger.LogInformation(speech.IsConfigured
+    ? "Speech mode: live text through Azure AI Speech real-time recognition"
+    : "Speech mode: STAND-IN live text (placeholder words). Set Speech:Endpoint and Speech:Key to use Azure AI Speech.");
 app.Logger.LogInformation(ffmpegFound
     ? "Audio: ffmpeg found, so recordings are made mono, 16 kHz and levelled before transcription"
     : "Audio: ffmpeg NOT found, so recordings are sent as they are. Install ffmpeg to improve speaker separation (see docs/audio-preparation.md).");
@@ -135,12 +142,15 @@ app.UseExceptionHandler(e => e.Run(async ctx =>
     await ctx.Response.WriteAsJsonAsync(new { error = message });
 }));
 
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
 var api = app.MapGroup("/api");
 api.AddEndpointFilter(DevUsers.RequireUser);
 api.MapMeetingEndpoints();
+api.MapLiveEndpoints();
+app.MapLiveSocket();
 app.MapFallbackToFile("index.html");
 
 app.Run();

@@ -11,6 +11,11 @@ const VIEWS: Record<Mode, [string, string][]> = {
     ['Draft', 'Unfinished'], ['WithAuthor', 'With Author'], ['AwaitingAssignee', 'Awaiting Assignee'], ['WithAssignee', 'With Assignee'],
     ['ConversionFailed', 'Conversion Failed'], ['Completed', 'Completed'], ['Purged', 'Deleted'],
   ],
+  // Speech mode's text is typed live, so nothing is unfinished or imported.
+  speech: [
+    ['WithAuthor', 'Speech to Text'], ['AwaitingAssignee', 'Awaiting Assignee'], ['WithAssignee', 'With Assignee'],
+    ['ConversionFailed', 'Conversion Failed'], ['Completed', 'Completed'], ['Purged', 'Deleted'],
+  ],
 };
 const DEFAULT_ON = new Set(['Draft', 'WithAuthor', 'WithImporter', 'AwaitingAssignee', 'WithAssignee', 'ConversionFailed']);
 // Only these show in the list. Others (run again, delete) need choices or a reason, so they live on the item page.
@@ -18,6 +23,7 @@ const ACTION_LABEL: Record<string, string> = { continue: 'Carry on', open: 'Open
 
 export default function Dashboard({ mode }: { mode: Mode }) {
   const dictate = mode === 'dictate';
+  const speech = mode === 'speech';
   const [rows, setRows] = useState<Row[] | null>(null);
   const [on, setOn] = useState(new Set(DEFAULT_ON));
   const [selfOnly, setSelfOnly] = useState(false);
@@ -45,10 +51,11 @@ export default function Dashboard({ mode }: { mode: Mode }) {
   return (
     <div className="card">
       <div className="item-head">
-        <h2>{dictate ? 'Dictate' : 'Meeting'}</h2>
+        <h2>{speech ? 'Speech' : dictate ? 'Dictate' : 'Meeting'}</h2>
         <div className="actions">
+          {speech ? <a className="btn primary" href="#/speech/live">Start speaking</a> : <>
           <a className="btn primary" href={dictate ? '#/dictate/record' : '#/record'}>{dictate ? 'New dictation' : 'Record a meeting'}</a>
-          <a className="btn" href={dictate ? '#/dictate/import' : '#/import'}>{dictate ? 'Import a dictation' : 'Import a recording'}</a>
+          <a className="btn" href={dictate ? '#/dictate/import' : '#/import'}>{dictate ? 'Import a dictation' : 'Import a recording'}</a></>}
         </div>
       </div>
       <div className="toggles" role="group" aria-label="Views">
@@ -64,7 +71,7 @@ export default function Dashboard({ mode }: { mode: Mode }) {
           <thead><tr><th>Priority</th><th>Status</th><th>Length</th><th>Client Reference</th><th>Description</th><th>Author</th><th>Assigned to</th><th>Created on</th><th>Due date</th><th>Actions</th></tr></thead>
           <tbody>
             {rows === null && <tr><td colSpan={10}>Loading…</td></tr>}
-            {rows !== null && shown.length === 0 && <tr><td colSpan={10} className="note">{dictate ? 'Nothing to show with these views. Start a new dictation or import one to get started.' : 'Nothing to show with these views. Record or import a meeting to get started.'}</td></tr>}
+            {rows !== null && shown.length === 0 && <tr><td colSpan={10} className="note">{speech ? 'Nothing to show with these views. Choose Start speaking to get started.' : dictate ? 'Nothing to show with these views. Start a new dictation or import one to get started.' : 'Nothing to show with these views. Record or import a meeting to get started.'}</td></tr>}
             {shown.map(r => (
               <tr key={r.id}>
                 <td>{r.priority}</td>

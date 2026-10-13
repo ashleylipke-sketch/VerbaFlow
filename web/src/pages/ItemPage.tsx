@@ -102,11 +102,12 @@ export default function ItemPage({ id }: { id: string }) {
   const r = d.row, acts = new Set(r.actions);
   const assignee = users.filter(u => !u.isSupport);
   // A dictation is one person's text: no speakers to name, no summary, and Export gives the text alone.
-  const dictate = d.mode === 'Dictate';
+  // Speech mode's items are dictations whose text was typed live: shown and handled the same way.
+  const dictate = d.mode !== 'Meeting';
 
   return (
     <EditPause.Provider value={editPause}>
-      <p>{dictate ? <a href="#/dictate">← Back to Dictate</a> : <a href="#/">← Back to Meeting</a>}</p>
+      <p>{d.mode === 'Speech' ? <a href="#/speech">← Back to Speech</a> : dictate ? <a href="#/dictate">← Back to Dictate</a> : <a href="#/">← Back to Meeting</a>}</p>
       <div className="card">
         <div className="item-head">
           <h2>{r.name} {r.tags.map(x => <span key={x} className="tag">{x}</span>)}</h2>

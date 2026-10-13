@@ -2,6 +2,7 @@ using VerbaFlow.Core.Audit;
 using VerbaFlow.Core.Domain;
 using VerbaFlow.Core.Providers;
 using VerbaFlow.Core.Transcripts;
+using VerbaFlow.Infrastructure.Azure;
 
 namespace VerbaFlow.Infrastructure.Services;
 
@@ -39,19 +40,31 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             // Azure's own speaker labels, with the speaker limit it was given. "azure-split" was a short-lived trial (removed); items that still carry it run as "azure".
             var azureOnly = item.SpeakerMethod is "azure" or "azure-split";
             // A dictation is one person: no speaker separation, and spoken commands ("comma", "new paragraph") are applied.
-            var dictation = item.Mode == ItemMode.Dictate;
-            var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
-            // Saved text a dictation can drop in with "insert <code>"; its codes help the speech service hear them.
-            IReadOnlyList<SavedText> saved = dictation ? await stores.SavedText.ListAsync() : [];
-            phrases.AddRange(saved.Select(t => "insert " + t.Code).Distinct(StringComparer.OrdinalIgnoreCase).Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
-            // The list commands are easy to mishear ("end list" came back as "endless"), so the speech service is told to expect them.
-            if (dictation) phrases.AddRange(new[] { "bullet point", "numbered point", "end list" }.Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
+            var dictation = item.IsDictation;
+            // A dictation also needs its saved text ("insert <code>") and the list commands, which the speech service is told to expect.
+            var (phrases, saved) = dictation ? await DictationContext.LoadAsync(stores)
+                : ((await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList(), (IReadOnlyList<SavedText>)[]);
             var request = new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
                 azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases);
             // A dictation in one language goes word for word, so spoken commands reach VerbaFlow; the fast service is the fallback.
-            string? dictationService = null;
+            string? dictationService = null, liveText = null;
             TranscriptionResult? result = null;
-            if (dictation && wordForWord is not null && item.DictationService != "fast" && request.CandidateLanguages.Length == 1)
+            // Speech mode: the first conversion uses the text heard live, if it covers the whole recording. Running it
+            // again (or a changed recording) works the text out from the recording, like a dictation.
+            if (item.Mode == ItemMode.Speech && await stores.Transcripts.GetAsync(itemId) is null)
+            {
+                var live = await stores.LiveText.GetAsync(itemId);
+                var problem = live is null ? "there was no live text" : live.Problem(item.LengthMs);
+                if (problem is null)
+                {
+                    result = new TranscriptionResult(live!.Engine, [new Speaker(Guid.NewGuid(), "Speaker 1")], AzureSpeechService.MergeTurns(live.Phrases));
+                    dictationService = "live";
+                    liveText = $"used ({live.Phrases.Count} phrase{(live.Phrases.Count == 1 ? "" : "s")})";
+                }
+                else liveText = $"not used: {problem}, so the text was worked out from the recording";
+            }
+            if (result is not null) { /* the live text */ }
+            else if (dictation && wordForWord is not null && item.DictationService != "fast" && request.CandidateLanguages.Length == 1)
             {
                 try { result = await wordForWord.TranscribeAsync(copy, request, ct); dictationService = "word for word"; }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -69,7 +82,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             {
                 var (segments, applied, heard) = DictationCommands.ApplyCounted(result.Segments, saved.Select(t => (t.Code, t.Text)).ToList(), phrases,
                     // The fast service turns a spoken "comma" into "," itself, so its punctuation is the person's and stays.
-                    spokenPunctuationOnly: dictationService == "word for word");
+                    spokenPunctuationOnly: dictationService is "word for word" or "live");
                 // Which wording went in: the code and a fingerprint of the text at the time, so a later change to the saved text is traceable.
                 var used = saved.Where(t => heard.ContainsKey("insert " + t.Code))
                     .Select(t => $"{t.Code} ({SavedTextService.Fingerprint(t.Text)[..12]})").ToList();
@@ -152,7 +165,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
-                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
+                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

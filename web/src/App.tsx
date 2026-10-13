@@ -3,6 +3,7 @@ import { api, getUser, setUser, type UserView } from './api';
 import Dashboard from './pages/Dashboard';
 import Record from './pages/Record';
 import Dictate from './pages/Dictate';
+import Speech from './pages/Speech';
 import Import from './pages/Import';
 import ItemPage from './pages/ItemPage';
 import Reopen from './pages/Reopen';
@@ -35,6 +36,7 @@ export default function App() {
         <h1>VerbaFlow · Speak</h1>
         <nav>
           <a href="#/dictate" className={path.startsWith('/dictate') ? 'on' : ''}>Dictate</a>
+          <a href="#/speech" className={path.startsWith('/speech') ? 'on' : ''}>Speech</a>
           <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
           <a href="#/saved-text" className={path === '/saved-text' ? 'on' : ''}>Saved text</a>
@@ -59,6 +61,8 @@ export default function App() {
           : path === '/dictate/record' ? <Dictate key="new" />
           : path === '/dictate/import' ? <Import key="dictate" mode="dictate" />
           : path === '/dictate' ? <Dashboard key="dictate" mode="dictate" />
+          : path === '/speech/live' ? <Speech />
+          : path === '/speech' ? <Dashboard key="speech" mode="speech" />
           : path === '/reopen' ? <Reopen />
           : path === '/vocabulary' ? <Vocabulary />
           : path === '/saved-text' ? <SavedTextPage />

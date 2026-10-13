@@ -101,10 +101,10 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
 
     public static string DocumentHeading(string? type) => type switch { "letter" => "Letter", "document" => "Document", "email" => "Email", _ => "Text" };
 
-    private static string What(Item item) => item.Mode == ItemMode.Dictate ? "the dictation" : "the minutes of";
+    private static string What(Item item) => item.IsDictation ? "the dictation" : "the minutes of";
 
     private static string Subject(Item item, ExportRecord record) =>
-        $"{(item.Mode == ItemMode.Dictate ? "Dictation" : "Meeting minutes")}: {item.Name}" + (record.Marker == "Approved" ? "" : $" ({record.Marker.ToUpperInvariant()})");
+        $"{(item.IsDictation ? "Dictation" : "Meeting minutes")}: {item.Name}" + (record.Marker == "Approved" ? "" : $" ({record.Marker.ToUpperInvariant()})");
 
     /// <summary>Addresses separated by commas, semicolons, spaces or new lines. Each must be a plain, valid email address.</summary>
     public static IReadOnlyList<string> ParseRecipients(string? text)
@@ -127,7 +127,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, Capability.Export);
         // A dictation is just its text: there is no summary, minutes or tone, and no speakers or times to show.
-        var dictation = item.Mode == ItemMode.Dictate;
+        var dictation = item.IsDictation;
         if (dictation) parts = [ExportParts.Transcript];
         if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
         var transcript = await stores.Transcripts.GetAsync(id) ?? throw new DomainException("There is no transcript to export yet.");

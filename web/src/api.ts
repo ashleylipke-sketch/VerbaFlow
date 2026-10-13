@@ -11,7 +11,7 @@ export type Detail = {
   approvedAt: string | null; approvedBy: string | null; chainId: string;
   chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string; spokenLanguages: string;
   deletedAt: string | null; deletedBy: string | null; deleteReason: string | null; canExport: boolean;
-  mode: 'Dictate' | 'Meeting'; documentType: string | null; clientReference: string | null;
+  mode: 'Dictate' | 'Speech' | 'Meeting'; documentType: string | null; clientReference: string | null;
 };
 export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null; newParagraph: boolean | null; list?: 'bullet' | 'number' | null };
 export type Transcript = {
@@ -44,7 +44,7 @@ export type Reopen = { id: string; itemId: string; itemName: string; reason: str
 
 let devUser = localStorage.getItem('devUser') ?? '';
 /** Speak's modes that are built so far. */
-export type Mode = 'dictate' | 'meeting';
+export type Mode = 'dictate' | 'speech' | 'meeting';
 
 export const getUser = () => devUser;
 export const setUser = (u: string) => { devUser = u; localStorage.setItem('devUser', u); };

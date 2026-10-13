@@ -37,3 +37,17 @@ export function paragraphPieces(segs: SegText[]): Piece[][] {
   });
   return out.filter(p => p.some(x => x.to > x.from));
 }
+
+/**
+ * What goes in front of each paragraph: "•" for a bullet point, "1.", "2." for numbered points (counted afresh after
+ * anything that is not a numbered point), null for an ordinary paragraph. Only a paragraph that starts at a passage
+ * can be a list point; a line break typed inside a passage starts an ordinary paragraph.
+ */
+export function paragraphMarkers(segs: { list?: string | null }[], paras: Piece[][]): (string | null)[] {
+  let n = 0;
+  return paras.map(p => {
+    const list = p[0].from === 0 ? segs[p[0].seg].list ?? null : null;
+    n = list === 'number' ? n + 1 : 0;
+    return list === 'bullet' ? '•' : list === 'number' ? `${n}.` : null;
+  });
+}

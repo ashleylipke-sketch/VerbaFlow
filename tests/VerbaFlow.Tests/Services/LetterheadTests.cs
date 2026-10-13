@@ -152,4 +152,22 @@ public class LetterheadTests
         Assert.Null((await letterheads.RemoveAsync(env.Dave, "word")).Word);
         Assert.Contains("letterhead.removed", (await env.Stores.Audit.ListAsync(null)).Select(a => a.Type));
     }
+
+    [Fact]
+    public async Task Spoken_list_points_come_out_as_bullets_and_numbers_in_letters_and_documents()
+    {
+        using var env = new Env();
+        env.Speech.Heard = "Please bring colon bullet point your passport bullet point two photos end list then colon numbered point sign numbered point pay";
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await env.Processing.ProcessAsync(id);
+        var exports = new ExportService(env.Stores, env.Clock);
+        var body = WordBody((await exports.ExportAsync(env.Alice, id, "docx")).Content, out _);
+        Assert.Contains("|Please bring:|•Your passport|•Two photos|Then:|1.Sign|2.Pay", body); // the tab between marker and text has no text
+        using (var doc = WordprocessingDocument.Open(new MemoryStream((await exports.ExportAsync(env.Alice, id, "docx")).Content), false))
+            Assert.Equal(4, doc.MainDocumentPart!.Document!.Body!.Descendants<Indentation>().Count(x => x.Hanging?.Value == "425"));
+        using var pdf = PdfReader.Open(new MemoryStream((await exports.ExportAsync(env.Alice, id, "pdf")).Content), PdfDocumentOpenMode.Import);
+        Assert.Equal(1, pdf.PageCount);
+        var passages = ExportService.DictationText((await env.Stores.Transcripts.GetAsync(id))!);
+        Assert.Equal([null, "•", "•", null, "1.", "2."], passages.Select(p => p.Marker));
+    }
 }

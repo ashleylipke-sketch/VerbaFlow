@@ -461,7 +461,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
                 x.CreatedBy is { } u ? users.GetValueOrDefault(u) : null, x.CreatedAt, x.Note)).ToList(),
             current.Select((r, i) => new SegmentView(r.Segment.Id, r.SpeakerName, r.Segment.SpeakerId, r.Segment.Language,
                 r.Segment.StartMs, r.Segment.EndMs, r.Segment.Text, r.Segment.LowConfidence,
-                r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList(), OriginalOf(i), r.Segment.NewParagraph)).ToList(),
+                r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList(), OriginalOf(i), r.Segment.NewParagraph, r.Segment.List)).ToList(),
             t.Speakers.Select(s => new SpeakerView(s.Id, s.Label, v.SpeakerNames.GetValueOrDefault(s.Id, s.Label))).ToList(), t.Engine);
     }
 

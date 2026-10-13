@@ -76,6 +76,7 @@ del { text-decoration:line-through; color:var(--del); }
 .page .mail-head div { padding:2px 0; } .page .mail-head b { display:inline-block; min-width:72px; color:var(--muted); font-weight:600; }
 .page .para { position:relative; margin:0 0 1em; } .page .para.reading { box-shadow:-10px 0 0 -7px var(--brand); }
 .page .para .para-edit { margin-left:6px; font-size:13px; opacity:.55; } .page .para:hover .para-edit, .page .para .para-edit:focus { opacity:1; }
+.page .para.list-point { padding-left:1.8em; margin-bottom:.35em; } .page .para.list-point .list-marker { position:absolute; left:.3em; }
 .page .low-c { background:rgba(180,83,9,.14); border-radius:3px; }
 .page .para-tools { margin-top:6px; }
 @media (max-width:600px) { .page { padding:20px 16px; } }

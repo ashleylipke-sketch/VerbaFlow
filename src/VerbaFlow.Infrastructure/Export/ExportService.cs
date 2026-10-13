@@ -87,6 +87,18 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     }
 
     /// <summary>The heading over a dictation's text: what the person said it was for.</summary>
+    /// <summary>A dictation's paragraphs, with "•" or "1." in front of list points.</summary>
+    public static List<MinutesPassage> DictationText(Transcript transcript)
+    {
+        var pieces = DictationCommands.Paragraphs(transcript.Render(), r => r.Segment)
+            // A line break typed while editing is a paragraph break too; only the first piece is the list point.
+            .SelectMany(p => string.Join(" ", p.Select(r => r.Segment.Text)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select((text, k) => (text, list: k == 0 ? p[0].Segment.List : null)))
+            .ToList();
+        var markers = DictationCommands.ListMarkers(pieces.Select(x => x.list));
+        return pieces.Select((x, i) => new MinutesPassage("", "", x.text, markers[i])).ToList();
+    }
+
     public static string DocumentHeading(string? type) => type switch { "letter" => "Letter", "document" => "Document", "email" => "Email", _ => "Text" };
 
     private static string What(Item item) => item.Mode == ItemMode.Dictate ? "the dictation" : "the minutes of";
@@ -156,10 +168,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             Has(ExportParts.Tone) ? outputs?.ToneOfMeeting : null,
             Has(ExportParts.Transcript)
                 ? dictation
-                    ? DictationCommands.Paragraphs(transcript.Render(), r => r.Segment)
-                        // A line break typed while editing is a paragraph break too.
-                        .SelectMany(p => string.Join(" ", p.Select(r => r.Segment.Text)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                        .Select(text => new MinutesPassage("", "", text)).ToList()
+                    ? DictationText(transcript)
                     : transcript.Render().Where(r => r.Segment.Text.Length > 0).Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
                 : [],
             $"VerbaFlow · {item.Name} · {marker} · reference {item.Id.ToString("N")[..8].ToUpperInvariant()}",
@@ -176,7 +185,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 TimeZoneInfo.ConvertTime(letterDate, TimeZoneInfo.Local).ToString("d MMMM yyyy", CultureInfo.InvariantCulture),
                 string.IsNullOrWhiteSpace(item.ClientReference) ? null : item.ClientReference.Trim(),
                 marker switch { "Approved" => null, "Superseded" => "Superseded: a newer version of this letter exists.", _ => "Draft: not approved yet." },
-                doc.Transcript.Select(t => t.Text).ToList());
+                doc.Transcript.Select(t => t.Text).ToList(), doc.Transcript.Select(t => t.Marker).ToList());
             var letterheads = new Services.LetterheadService(stores, clock);
             var l = await letterheads.GetAsync();
             letterheadUsed = (format == ExportFormats.Word ? l.Word : l.Pdf) is null

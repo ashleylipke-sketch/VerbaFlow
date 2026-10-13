@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { breaksBefore, paragraphPieces } from './paragraphs';
+import { breaksBefore, paragraphMarkers, paragraphPieces } from './paragraphs';
 
 describe('paragraphs of a dictation', () => {
   it('finds line breaks typed inside a passage', () => {
@@ -21,5 +21,20 @@ describe('paragraphs of a dictation', () => {
   it('keeps an emptied passage with the paragraph before, so its removed words can still be shown', () => {
     const p = paragraphPieces([{ text: 'one two', newParagraph: null }, { text: '', newParagraph: null }, { text: 'three', newParagraph: null }]);
     expect(p).toEqual([[{ seg: 0, from: 0, to: 2 }, { seg: 1, from: 0, to: 0 }], [{ seg: 2, from: 0, to: 1 }]]);
+  });
+});
+
+describe('paragraphMarkers', () => {
+  it('bullets each point and counts numbered points afresh after other paragraphs', () => {
+    const segs = [
+      { text: 'Please bring:', newParagraph: true, list: null },
+      { text: 'Your passport', newParagraph: true, list: 'bullet' },
+      { text: 'Sign', newParagraph: true, list: 'number' },
+      { text: 'and date it', newParagraph: false, list: null },
+      { text: 'Pay', newParagraph: true, list: 'number' },
+      { text: 'Thanks', newParagraph: true, list: null },
+      { text: 'Again', newParagraph: true, list: 'number' },
+    ];
+    expect(paragraphMarkers(segs, paragraphPieces(segs))).toEqual([null, '•', '1.', '2.', null, '1.']);
   });
 });

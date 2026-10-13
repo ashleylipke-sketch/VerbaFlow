@@ -75,6 +75,7 @@ public static class PdfMinutesWriter
         {
             var para = section.AddParagraph();
             para.Format.SpaceAfter = Unit.FromPoint(6);
+            if (p.Marker is not null) ListPoint(para, p.Marker);
             if (p.Time.Length > 0)
             {
                 var time = para.AddFormattedText(p.Time + "  ");
@@ -163,5 +164,17 @@ public static class PdfMinutesWriter
                 }
             throw new InvalidOperationException("No font for PDF export was found on this computer (looked for Arial, Liberation Sans and DejaVu Sans).");
         }
+    }
+
+    /// <summary>Hangs a list marker ("•", "1.") to the left of the text, so wrapped lines line up under the text.</summary>
+    internal static void ListPoint(MigraDoc.DocumentObjectModel.Paragraph para, string marker)
+    {
+        var indent = Unit.FromMillimeter(7.5);
+        para.Format.LeftIndent = indent;
+        para.Format.FirstLineIndent = -indent;
+        para.Format.TabStops.AddTabStop(indent);
+        para.Format.SpaceAfter = Unit.FromPoint(3);
+        para.AddText(marker);
+        para.AddTab();
     }
 }

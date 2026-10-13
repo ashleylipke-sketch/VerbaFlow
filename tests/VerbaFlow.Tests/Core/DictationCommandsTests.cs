@@ -129,4 +129,29 @@ public class DictationCommandsTests
         Assert.Equal(2, heard[DictationCommands.RemovedPunctuation]);
         Assert.Equal(1, heard[DictationCommands.RemovedCapital]);
     }
+
+    [Fact]
+    public void Bullet_and_numbered_points_start_list_paragraphs_and_end_list_goes_back_to_ordinary_text()
+    {
+        var (segs, _, heard) = DictationCommands.ApplyCounted([
+            Seg("Please bring colon bullet point your passport bullet point two photos"),
+            Seg("end list The steps are colon numbered point. Sign the form. Number point pay the fee"),
+            Seg("new paragraph Regards")]);
+        Assert.Equal("Please bring: | Your passport | Two photos | The steps are: | Sign the form. | Pay the fee | Regards", Text(segs)); // the speech service's own full stop stays unless only spoken punctuation is kept
+        Assert.Equal([null, "bullet", "bullet", null, "number", "number", null], segs.Select(x => x.List));
+        Assert.All(segs.Skip(1), x => Assert.True(x.NewParagraph));
+        Assert.Equal(2, heard["bullet point"]);
+        Assert.Equal(["•", "•", null, "1.", "2.", null], DictationCommands.ListMarkers(["bullet", "bullet", null, "number", "number", null]).ToArray());
+    }
+
+    [Fact]
+    public void A_list_point_said_at_the_end_of_a_passage_carries_over_to_the_next_passage_and_carrying_on_text_is_not_a_new_point()
+    {
+        var (segs, _, _) = DictationCommands.ApplyCounted([Seg("Items colon numbered point"), Seg("First thing"), Seg("still the first thing")]);
+        Assert.Equal("Items: | First thing | still the first thing", Text(segs));
+        Assert.Equal([null, "number", null], segs.Select(x => x.List));
+        Assert.Equal([true, true, false], segs.Select(x => x.NewParagraph));
+        Assert.Equal(["1.", "2."], DictationCommands.ListMarkers(["number", "number"]).ToArray());
+        Assert.Equal(["1.", null, "1."], DictationCommands.ListMarkers(["number", null, "number"]).ToArray());
+    }
 }

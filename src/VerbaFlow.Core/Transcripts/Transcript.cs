@@ -10,9 +10,10 @@ public sealed record WordTiming(string Text, int StartMs, int EndMs);
 
 public sealed record Segment(Guid Id, Guid SpeakerId, string Language, int StartMs, int EndMs, string Text,
     double Confidence, bool LowConfidence, IReadOnlyList<WordTiming>? Words = null, bool? NewParagraph = null,
-    string? Inserted = null);
+    string? Inserted = null, string? List = null);
 // NewParagraph: in a dictation, true where a paragraph starts and false where the passage carries on the paragraph before it.
 // Null (meetings, and dictations saved before this existed) means every passage stands alone.
+// List: in a dictation, "bullet" or "number" on a passage that starts a list point ("bullet point", "numbered point").
 // Inserted: in a dictation, the codes of saved text dropped into this passage by "insert <code>" (e.g. "legal 1.1").
 
 /// <summary>AutoTidy: the app crossed out restarted sentences in a dictation; shown as tracked changes against version 1.</summary>
@@ -106,7 +107,7 @@ public sealed class Transcript
         if (index == 0) throw new DomainException("The first paragraph has nothing before it to join.");
         var old = Segments[segmentId];
         if (old.NewParagraph == false) throw new DomainException("This already carries on the paragraph before it.");
-        var replacement = old with { Id = Guid.NewGuid(), NewParagraph = false };
+        var replacement = old with { Id = Guid.NewGuid(), NewParagraph = false, List = null };
         Segments[replacement.Id] = replacement;
         var ids = cur.SegmentIds.ToList();
         ids[index] = replacement.Id;

@@ -58,7 +58,8 @@ public static class DocxMinutesWriter
             if (d.Transcript.Count > 0) body.Append(Heading(d.TranscriptHeading));
             foreach (var p in d.Transcript)
             {
-                var para = new Paragraph(new ParagraphProperties(new SpacingBetweenLines { After = "120" }));
+                var para = new Paragraph(ListOrPlain(p.Marker, "120"));
+                if (p.Marker is not null) para.Append(Run(p.Marker), new DocumentFormat.OpenXml.Wordprocessing.Run(new TabChar()));
                 if (p.Time.Length > 0) para.Append(Run(p.Time + "  ", size: 18, color: "666666"));
                 if (p.Speaker.Length > 0) para.Append(Run(p.Speaker + ": ", bold: true));
                 para.Append(Run(p.Text));
@@ -96,4 +97,12 @@ public static class DocxMinutesWriter
 
     /// <summary>Characters Word cannot store (control characters) are dropped.</summary>
     private static string Clean(string s) => new(s.Where(c => c >= ' ' || c == '\t').ToArray());
+
+    /// <summary>A list point hangs its marker ("•", "1.") to the left of the text, so wrapped lines line up under the text.</summary>
+    internal static ParagraphProperties ListOrPlain(string? marker, string after)
+    {
+        var props = new ParagraphProperties(new SpacingBetweenLines { After = marker is null ? after : "60" });
+        if (marker is not null) props.Append(new Indentation { Left = "425", Hanging = "425" });
+        return props;
+    }
 }

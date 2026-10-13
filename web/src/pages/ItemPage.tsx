@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import LanguagePicker from '../LanguagePicker';
 import { ExportMenu } from '../ExportMenu';
 import { docLabel } from '../DocumentType';
-import { paragraphPieces, type Piece } from '../paragraphs';
+import { paragraphMarkers, paragraphPieces, type Piece } from '../paragraphs';
 import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
@@ -312,6 +312,7 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
   onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void; onJoin: (segmentId: string) => void;
 }) {
   const paras = useMemo(() => paragraphPieces(t.segments), [t]);
+  const markers = useMemo(() => paragraphMarkers(t.segments, paras), [t, paras]);
   const type = d.documentType ?? 'document';
   const anyLow = t.segments.some(s => s.lowConfidence);
   return (
@@ -325,7 +326,7 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
           <div><b>Subject</b> {d.row.name}</div>
           {d.clientReference && <div><b>Reference</b> {d.clientReference}</div>}</div>}
         {type === 'document' && <h1 className="page-title">{d.row.name}</h1>}
-        {paras.map((pieces, k) => <Paragraph key={`${t.segments[pieces[0].seg].id}-${pieces[0].from}`} pieces={pieces} t={t} timed={timed} pos={pos} playing={playing}
+        {paras.map((pieces, k) => <Paragraph key={`${t.segments[pieces[0].seg].id}-${pieces[0].from}`} pieces={pieces} marker={markers[k]} t={t} timed={timed} pos={pos} playing={playing}
           canSeek={canSeek} onSeek={onSeek} editable={editable} showChanges={showChanges} onSave={onSave} onSaved={onSaved} onError={onError}
           onJoin={k > 0 && pieces[0].from === 0 ? () => onJoin(t.segments[pieces[0].seg].id) : undefined} />)}
       </article>
@@ -333,8 +334,8 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
   );
 }
 
-function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError, onJoin }: {
-  pieces: Piece[]; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
+function Paragraph({ pieces, marker, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError, onJoin }: {
+  pieces: Piece[]; marker: string | null; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
   onSeek: (ms: number) => void; editable: boolean; showChanges: boolean;
   onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void;
   /** Present when this paragraph starts at a passage that can carry on the paragraph above instead. */
@@ -374,7 +375,8 @@ function Paragraph({ pieces, t, timed, pos, playing, canSeek, onSeek, editable, 
     </div>);
 
   return (
-    <div className={'para' + (reading ? ' reading' : '')} ref={el}>
+    <div className={'para' + (reading ? ' reading' : '') + (marker ? ' list-point' : '')} ref={el}>
+      {marker && <span className="list-marker" aria-hidden="true">{marker}</span>}
       {pieces.map(p => {
         const s = t.segments[p.seg];
         return <span key={`${s.id}-${p.from}`} className={s.lowConfidence ? 'low-c' : undefined} title={s.lowConfidence ? 'Hard to hear. Please check.' : undefined}>

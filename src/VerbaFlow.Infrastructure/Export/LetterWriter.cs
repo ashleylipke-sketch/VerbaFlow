@@ -10,7 +10,9 @@ namespace VerbaFlow.Infrastructure.Export;
 
 /// <summary>A dictated letter, ready to lay out: the date and reference at the top, then the paragraphs. All plain text.</summary>
 /// <param name="Note">A line printed above the date when the letter is not approved ("Draft: not approved yet."), otherwise null.</param>
-public sealed record LetterDocument(string Title, string Date, string? OurRef, string? Note, IReadOnlyList<string> Paragraphs);
+/// <param name="Markers">"•" or "1." in front of each paragraph that is a list point (same order as Paragraphs), or null.</param>
+public sealed record LetterDocument(string Title, string Date, string? OurRef, string? Note, IReadOnlyList<string> Paragraphs,
+    IReadOnlyList<string?>? Markers = null);
 
 /// <summary>The space a PDF letterhead leaves for the letter, in millimetres from the edges of the page.</summary>
 public sealed record LetterSpace(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm);
@@ -88,7 +90,19 @@ public static class LetterWriter
         if (d.Note is not null) yield return Para(d.Note, plain, right: false, after: 240, size: 18, color: "B3261E", bold: true);
         yield return Para(d.Date, plain, right: true, after: d.OurRef is null ? 360 : 0);
         if (d.OurRef is not null) yield return Para("Our ref: " + d.OurRef, plain, right: true, after: 360);
-        foreach (var p in d.Paragraphs) yield return Para(p, plain, right: false, after: 200);
+        for (var i = 0; i < d.Paragraphs.Count; i++)
+        {
+            var marker = d.Markers is { } m && i < m.Count ? m[i] : null;
+            var para = Para(d.Paragraphs[i], plain, right: false, after: 200);
+            if (marker is not null)
+            {
+                para.ParagraphProperties = DocxMinutesWriter.ListOrPlain(marker, "200");
+                var first = para.GetFirstChild<W.Run>()!;
+                first.InsertBeforeSelf(new W.Run((RunProperties)first.RunProperties!.CloneNode(true), new W.Text(marker)));
+                first.InsertBeforeSelf(new W.Run(new W.TabChar()));
+            }
+            yield return para;
+        }
     }
 
     private static W.Paragraph Para(string text, bool plain, bool right, int after, int? size = null, string? color = null, bool bold = false)
@@ -158,7 +172,12 @@ public static class LetterWriter
             r.Format.Alignment = ParagraphAlignment.Right;
             r.Format.SpaceAfter = Unit.FromPoint(18);
         }
-        foreach (var p in letter.Paragraphs) section.AddParagraph(PdfMinutesWriter.Clean(p));
+        for (var i = 0; i < letter.Paragraphs.Count; i++)
+        {
+            var para = section.AddParagraph();
+            if (letter.Markers is { } m && i < m.Count && m[i] is { } marker) PdfMinutesWriter.ListPoint(para, marker);
+            para.AddText(PdfMinutesWriter.Clean(letter.Paragraphs[i]));
+        }
 
         var renderer = new PdfDocumentRenderer { Document = doc };
         renderer.RenderDocument();

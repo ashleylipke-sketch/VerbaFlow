@@ -11,13 +11,15 @@ namespace VerbaFlow.Core.Transcripts;
 /// </summary>
 public static class DictationCommands
 {
-    private enum Kind { Break, Punctuation, Open, Close }
+    private enum Kind { Break, Punctuation, Open, Close, ListPoint }
 
     private sealed record Command(string[] Words, Kind Kind, string Symbol = "");
 
     /// <summary>Longest first, so "question mark" wins over a shorter command starting the same way.</summary>
     private static readonly Command[] Commands = new Command[]
     {
+        new(["bullet", "point"], Kind.ListPoint, Bullet), new(["numbered", "point"], Kind.ListPoint, Number), new(["number", "point"], Kind.ListPoint, Number),
+        new(["end", "list"], Kind.Break), new(["end", "of", "list"], Kind.Break),
         new(["new", "paragraph"], Kind.Break), new(["next", "paragraph"], Kind.Break), new(["new", "line"], Kind.Break), new(["next", "line"], Kind.Break),
         new(["full", "stop"], Kind.Punctuation, "."), new(["question", "mark"], Kind.Punctuation, "?"),
         new(["exclamation", "mark"], Kind.Punctuation, "!"), new(["comma"], Kind.Punctuation, ","),
@@ -34,12 +36,31 @@ public static class DictationCommands
     /// <summary>The commands a person can say, for showing on screen.</summary>
     public static readonly IReadOnlyList<(string Say, string Gives)> Help =
     [
-        ("new paragraph / new line", "starts a new paragraph"), ("full stop", "."), ("comma", ","), ("question mark", "?"),
+        ("new paragraph / new line", "starts a new paragraph"), ("bullet point", "starts a bulleted point"),
+        ("numbered point", "starts the next numbered point (1, 2, 3 counted for you)"), ("end list", "back to ordinary paragraphs"), ("full stop", "."), ("comma", ","), ("question mark", "?"),
         ("exclamation mark", "!"), ("colon", ":"), ("semicolon", ";"), ("open bracket / close bracket", "( )"),
         ("open quote / close quote", "\" \""),
     ];
 
     private const string Trailing = ".,;:!?";
+    public const string Bullet = "bullet";
+    public const string Number = "number";
+
+    /// <summary>
+    /// What goes in front of each paragraph: "•" for a bullet point, "1.", "2." for numbered points (counted afresh after
+    /// anything that is not a numbered point), null for an ordinary paragraph.
+    /// </summary>
+    public static List<string?> ListMarkers(IEnumerable<string?> lists)
+    {
+        var result = new List<string?>();
+        var n = 0;
+        foreach (var l in lists)
+        {
+            n = l == Number ? n + 1 : 0;
+            result.Add(l switch { Bullet => "•", Number => $"{n}.", _ => null });
+        }
+        return result;
+    }
 
     private sealed class Token(string text, WordTiming? timing, int index, string? insert = null)
     {
@@ -113,17 +134,24 @@ public static class DictationCommands
         var applied = 0;
         // The speech service splits speech into passages at pauses; in a dictation only "new paragraph" starts a new paragraph.
         var startNext = true;
+        string? nextList = null; // the kind of list point the next paragraph starts, when "bullet point" ended a passage
         foreach (var s in segments)
         {
             if (startNext) flow.LowerNext = false;
-            var (parts, n, breakAtStart, breakAtEnd) = Run(s, heard, inserts, keep, flow);
+            var (parts, n, breakAtStart, breakAtEnd, startList, endList) = Run(s, heard, inserts, keep, flow);
             if (parts.Count > 0)
             {
-                result.Add(parts[0] with { NewParagraph = startNext || breakAtStart });
+                var first = breakAtStart ? startList : startNext ? nextList : null;
+                result.Add(parts[0] with { NewParagraph = startNext || breakAtStart, List = startNext || breakAtStart ? first : null });
                 result.AddRange(parts.Skip(1).Select(x => x with { NewParagraph = true }));
                 startNext = breakAtEnd;
+                nextList = breakAtEnd ? endList : null;
             }
-            else startNext = startNext || breakAtStart || breakAtEnd;
+            else
+            {
+                if (breakAtEnd) nextList = endList; else if (breakAtStart) nextList = startList;
+                startNext = startNext || breakAtStart || breakAtEnd;
+            }
             applied += n;
         }
         return (result, applied, heard);
@@ -131,7 +159,7 @@ public static class DictationCommands
 
     public static (IReadOnlyList<Segment> Segments, int Applied) Apply(Segment s)
     {
-        var (parts, n, _, _) = Run(s, null, null, KeepCapitals([s], null), new Flow(false));
+        var (parts, n, _, _, _, _) = Run(s, null, null, KeepCapitals([s], null), new Flow(false));
         return (parts, n);
     }
 
@@ -198,7 +226,7 @@ public static class DictationCommands
         return body + text[close..];
     }
 
-    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd) Run(Segment s, IDictionary<string, int>? heard, Inserts? inserts, HashSet<string> keep, Flow flow)
+    private static (List<Segment> Segments, int Applied, bool BreakAtStart, bool BreakAtEnd, string? StartList, string? EndList) Run(Segment s, IDictionary<string, int>? heard, Inserts? inserts, HashSet<string> keep, Flow flow)
     {
         var touched = false;
         var raw = MarkLineBreaks(s.Text).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -207,6 +235,7 @@ public static class DictationCommands
         for (int i = 0, n = 0; i < raw.Length; i++) wordAt[i] = raw[i] == LineBreak ? -1 : n++;
         var timed = s.Words is { } w && w.Count == raw.Count(x => x != LineBreak) ? w : null;
         var paragraphs = new List<List<Token>> { new() };
+        var lists = new List<string?> { null }; // the list point each paragraph starts, if any
         var applied = 0;
         var capitalNext = false;
         var lowerNext = false;
@@ -229,7 +258,7 @@ public static class DictationCommands
                     var n = 0;
                     for (var p = 0; p < hit.Insert.Paragraphs.Count; p++)
                     {
-                        if (p > 0 && paragraphs[^1].Count > 0) paragraphs.Add([]);
+                        if (p > 0 && paragraphs[^1].Count > 0) { paragraphs.Add([]); lists.Add(null); }
                         foreach (var word in hit.Insert.Paragraphs[p])
                         {
                             var text = word;
@@ -289,8 +318,11 @@ public static class DictationCommands
             switch (cmd.Kind)
             {
                 case Kind.Break:
-                    if (current.Count > 0) paragraphs.Add([]);
+                case Kind.ListPoint:
+                    // "bullet point" and "numbered point" start a paragraph that is a list point; "new paragraph" and "end list" an ordinary one.
+                    if (current.Count > 0) { paragraphs.Add([]); lists.Add(null); }
                     else if (paragraphs.Count == 1) breakAtStart = true;
+                    lists[^1] = cmd.Kind == Kind.ListPoint ? cmd.Symbol : null;
                     capitalNext = true;
                     break;
                 case Kind.Punctuation:
@@ -311,11 +343,12 @@ public static class DictationCommands
                     break;
             }
         }
-        if (applied == 0 && !touched) return ([s], 0, false, false);
+        if (applied == 0 && !touched) return ([s], 0, false, false, null, null);
 
         var breakAtEnd = paragraphs.Count > 1 && paragraphs[^1].Count == 0;
-        var kept = paragraphs.Where(p => p.Count > 0).ToList();
-        if (kept.Count == 0) return ([], applied, breakAtStart, false); // the passage was nothing but commands
+        var keptAt = Enumerable.Range(0, paragraphs.Count).Where(p => paragraphs[p].Count > 0).ToList();
+        var kept = keptAt.Select(p => paragraphs[p]).ToList();
+        if (kept.Count == 0) return ([], applied, breakAtStart, false, lists[0], null); // the passage was nothing but commands
         var segments = new List<Segment>();
         for (var p = 0; p < kept.Count; p++)
         {
@@ -328,10 +361,11 @@ public static class DictationCommands
             {
                 Id = Guid.NewGuid(),
                 Text = string.Join(' ', tokens.Select(t => t.Text)), StartMs = start, EndMs = Math.Max(start, end), Words = words,
-                Inserted = codes.Count == 0 ? null : string.Join(", ", codes)
+                Inserted = codes.Count == 0 ? null : string.Join(", ", codes),
+                List = lists[keptAt[p]]
             });
         }
-        return (segments, applied, breakAtStart, breakAtEnd);
+        return (segments, applied, breakAtStart, breakAtEnd, lists[0], breakAtEnd ? lists[^1] : null);
     }
 
     private static void Count(IDictionary<string, int>? heard, string name)

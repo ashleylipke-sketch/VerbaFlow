@@ -22,7 +22,8 @@ public sealed record MinutesDocument(
     string Footer,
     string TranscriptHeading = "Transcript");
 
-public sealed record MinutesPassage(string Time, string Speaker, string Text);
+/// <param name="Marker">In a dictation, "•" or "1." in front of a list point; null otherwise.</param>
+public sealed record MinutesPassage(string Time, string Speaker, string Text, string? Marker = null);
 
 /// <summary>The parts a person can choose to include. The title, marker and details are always included.</summary>
 public static class ExportParts

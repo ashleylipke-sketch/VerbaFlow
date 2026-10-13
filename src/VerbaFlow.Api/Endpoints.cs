@@ -10,9 +10,20 @@ public static class Endpoints
     public sealed record AssignBody(Guid? UserId, string? Reason);
     public sealed record ReasonBody(string Reason);
     public sealed record TextBody(string Text);
-    /// <summary>"dictate" or "meeting" (the default when nothing is given).</summary>
-    private static ItemMode ModeOf(string? mode) => string.IsNullOrWhiteSpace(mode) ? ItemMode.Meeting
-        : mode.Trim().ToLowerInvariant() switch { "dictate" => ItemMode.Dictate, "meeting" => ItemMode.Meeting, _ => throw new DomainException("Unknown mode.") };
+    /// <summary>"dictate", "speech" or "meeting" (the default when nothing is given).</summary>
+    /// <summary>
+    /// Speech mode: the text heard live so far, sent with a save. An unfinished save keeps the session going (the person may
+    /// speak again); finishing ends it. Null when no live session was named.
+    /// </summary>
+    private static LiveUpload? LiveSoFar(HttpContext h, LiveSessions live, IFormCollection f, bool take)
+    {
+        if (!Guid.TryParse(f["liveSession"], out var sid)) return null;
+        var text = take ? live.Take(h.Current(), sid, Guid.Empty) : live.Peek(h.Current(), sid, Guid.Empty);
+        return new LiveUpload(text, int.TryParse(f["delayMedianMs"], out var dm) ? dm : null, int.TryParse(f["delayWorstMs"], out var dw) ? dw : null);
+    }
+
+    internal static ItemMode ModeOf(string? mode) => string.IsNullOrWhiteSpace(mode) ? ItemMode.Meeting
+        : mode.Trim().ToLowerInvariant() switch { "dictate" => ItemMode.Dictate, "speech" => ItemMode.Speech, "meeting" => ItemMode.Meeting, _ => throw new DomainException("Unknown mode.") };
 
     public sealed record EmailBody(string? Format, string? To, string? Note, string? Parts = null);
     public sealed record NameBody(string Name);
@@ -95,9 +106,13 @@ public static class Endpoints
         api.MapGet("/items/{id:guid}", (HttpContext h, MeetingService s, Guid id) => s.GetItemAsync(h.Current(), id));
 
         // Capture. Audio arrives as multipart so it can be streamed to quarantine rather than held in memory.
-        api.MapPost("/items/recordings", async (HttpContext h, MeetingService s, CancellationToken ct) =>
+        api.MapPost("/items/recordings", async (HttpContext h, MeetingService s, LiveSessions live, CancellationToken ct) =>
         {
             var f = await h.Request.ReadFormAsync(ct);
+            // Speech mode: the text heard live goes with the recording; the session ends here.
+            LiveUpload? heard = ModeOf(f["mode"]) != ItemMode.Speech ? null : new LiveUpload(
+                Guid.TryParse(f["liveSession"], out var sid) ? live.Take(h.Current(), sid, Guid.Empty) : null,
+                int.TryParse(f["delayMedianMs"], out var dm) ? dm : null, int.TryParse(f["delayWorstMs"], out var dw) ? dw : null);
             var file = f.Files["audio"] ?? throw new DomainException("No audio was received.");
             var markers = string.IsNullOrWhiteSpace(f["markers"]) ? [] :
                 JsonSerializer.Deserialize<List<MarkerInput>>(f["markers"].ToString(), Web) ?? [];
@@ -106,33 +121,36 @@ public static class Endpoints
                 f["name"].ToString(), int.TryParse(f["lengthMs"], out var l) ? l : 0,
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
                 f["consentNoticeGiven"] == "true", markers, f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns1) ? ns1 : null,
-                ModeOf(f["mode"]), f["clientReference"].ToString(), f["documentType"].ToString()), ct);
+                ModeOf(f["mode"]), f["clientReference"].ToString(), f["documentType"].ToString(), heard), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 
         // Unfinished dictations: save now, carry on later. Nothing is converted to text until finish.
-        api.MapPost("/items/drafts", async (HttpContext h, MeetingService s, CancellationToken ct) =>
+        api.MapPost("/items/drafts", async (HttpContext h, MeetingService s, LiveSessions live, CancellationToken ct) =>
         {
             var (f, stream, file) = await DraftForm(h, ct);
             await using var _ = stream;
             var id = await s.SaveDraftAsync(h.Current(), null, new DraftUpload(stream, file.FileName, file.ContentType,
                 int.TryParse(f["lengthMs"], out var l) ? l : 0, f["name"].ToString(),
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(), f["spokenLanguages"].ToString(),
-                f["clientReference"].ToString(), f["documentType"].ToString()), ct);
+                f["clientReference"].ToString(), f["documentType"].ToString(), ModeOf(f["mode"]) == ItemMode.Speech ? ItemMode.Speech : ItemMode.Dictate,
+                LiveSoFar(h, live, f, take: false)), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
-        api.MapPost("/items/{id:guid}/draft", async (HttpContext h, MeetingService s, Guid id, CancellationToken ct) =>
+        api.MapPost("/items/{id:guid}/draft", async (HttpContext h, MeetingService s, LiveSessions live, Guid id, CancellationToken ct) =>
         {
             var (f, stream, file) = await DraftForm(h, ct);
             await using var _ = stream;
-            await s.SaveDraftAsync(h.Current(), id, new DraftUpload(stream, file.FileName, file.ContentType, int.TryParse(f["lengthMs"], out var l) ? l : 0), ct);
+            await s.SaveDraftAsync(h.Current(), id, new DraftUpload(stream, file.FileName, file.ContentType, int.TryParse(f["lengthMs"], out var l) ? l : 0,
+                Live: LiveSoFar(h, live, f, take: false)), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
-        api.MapPost("/items/{id:guid}/draft/finish", async (HttpContext h, MeetingService s, Guid id, CancellationToken ct) =>
+        api.MapPost("/items/{id:guid}/draft/finish", async (HttpContext h, MeetingService s, LiveSessions live, Guid id, CancellationToken ct) =>
         {
             var (f, stream, file) = await DraftForm(h, ct);
             await using var _ = stream;
-            await s.FinishDraftAsync(h.Current(), id, new DraftUpload(stream, file.FileName, file.ContentType, int.TryParse(f["lengthMs"], out var l) ? l : 0), ct);
+            await s.FinishDraftAsync(h.Current(), id, new DraftUpload(stream, file.FileName, file.ContentType, int.TryParse(f["lengthMs"], out var l) ? l : 0,
+                Live: LiveSoFar(h, live, f, take: true)), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 

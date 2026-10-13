@@ -90,3 +90,34 @@ public interface IEmailSender
     /// <summary>Hands the message to the mail service and returns its reference for the audit trail.</summary>
     Task<string> SendAsync(EmailMessage message, CancellationToken ct);
 }
+
+/// <param name="Languages">The locales the person will speak (one, or a few to switch between).</param>
+/// <param name="Phrases">Names and terms the speech service should expect.</param>
+/// <param name="FromMs">Where in the recording this audio starts (after a lost connection, it is sent again from the last finished phrase).</param>
+public sealed record LiveOptions(string[] Languages, IReadOnlyList<string>? Phrases = null, int FromMs = 0);
+
+public enum LiveEventKind { Partial, Final, Failed }
+
+/// <summary>
+/// One thing a live recogniser has to say. Times are from the start of the audio written to this recognition.
+/// Partial: the words heard so far in the phrase being spoken (they can still change). Final: a finished phrase.
+/// Failed: the service stopped working; <paramref name="Failure"/> is technical detail for support only.
+/// </summary>
+public sealed record LiveEvent(LiveEventKind Kind, string Text = "", int StartMs = 0, int EndMs = 0, Segment? Phrase = null, string? Failure = null);
+
+/// <summary>One live recognition: 16 kHz, 16-bit, mono PCM goes in as it is recorded, words come out as they are heard.</summary>
+public interface ILiveRecognition : IAsyncDisposable
+{
+    /// <summary>What the recogniser hears, in order. Completes when the recognition has finished or failed.</summary>
+    System.Threading.Channels.ChannelReader<LiveEvent> Events { get; }
+    void Write(ReadOnlySpan<byte> pcm);
+    /// <summary>No more audio is coming: the recogniser finishes the last phrase and <see cref="Events"/> completes.</summary>
+    Task CompleteAsync(CancellationToken ct);
+}
+
+/// <summary>Speech to text while the person speaks (Azure AI Speech real-time recognition in production). One voice.</summary>
+public interface ILiveSpeech
+{
+    string Name { get; }
+    Task<ILiveRecognition> StartAsync(LiveOptions options, CancellationToken ct);
+}

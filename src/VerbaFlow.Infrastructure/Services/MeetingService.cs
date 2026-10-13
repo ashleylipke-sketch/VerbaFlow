@@ -24,7 +24,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     public async Task<Guid> CreateRecordingAsync(User actor, RecordingUpload up, CancellationToken ct = default)
     {
         // A dictation is one person speaking, so there is nobody else to tell and no consent notice or markers.
-        var dictation = up.Mode == ItemMode.Dictate;
+        var dictation = up.Mode is ItemMode.Dictate or ItemMode.Speech;
         if (!dictation && !up.ConsentNoticeGiven)
             throw new DomainException("Confirm that everyone was told the meeting is being recorded before saving.");
         if (up.LengthMs <= 0) throw new DomainException("The recording has no length.");
@@ -46,9 +46,13 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         }
 
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Recorded in app");
+        // Speech mode: the text heard live is kept with the item before it is queued, so the conversion can use it.
+        var live = up.Mode == ItemMode.Speech ? up.Live?.Text is { } heard ? heard with { ItemId = id } : null : null;
+        if (live is not null) await stores.LiveText.UpsertAsync(id, live);
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, "author", id, "item.created", ("source", "Recorded in app"), ("sha256", asset.Sha256),
             ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs), ("mode", up.Mode.ToString()), ("consentNoticeConfirmed", dictation ? null : true));
+        if (up.Mode == ItemMode.Speech) await AuditLiveAsync(actor, id, live, up.Live, up.LengthMs);
         foreach (var m in item.Markers.Where(m => m.Type is MarkerType.Objection or MarkerType.Pause))
             await Audit(actor, "author", id, m.Type == MarkerType.Objection ? "recording.objection_logged" : "recording.paused",
                 ("offsetMs", m.OffsetMs), ("note", m.Note));
@@ -74,7 +78,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         {
             CheckDictation(up.Name, up.DocumentType);
             if (up.LengthMs <= 0) throw new DomainException("The dictation has no length.");
-            item = Item.CreateDraft(Guid.NewGuid(), actor.Id, up.Name!, up.LengthMs, up.OutputLanguage, clock.GetUtcNow());
+            item = Item.CreateDraft(Guid.NewGuid(), actor.Id, up.Name!, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), up.Mode);
             if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
             item.SetDocumentType(up.DocumentType);
             item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
@@ -82,6 +86,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var version = item.SaveDraft(up.LengthMs);
         var staged = await StageAndScanAsync(actor, up.Audio, up.FileName, "recording", ct);
         var asset = await stores.Media.CommitDraftAsync(staged, item.Id, version, SafeName(up.FileName), up.ContentType);
+        await KeepLiveTextAsync(item, up.Live);
         await stores.Items.UpsertAsync(item.Id, item);
         if (id is null) await Audit(actor, "author", item.Id, "item.created", ("source", "Recorded in app"), ("mode", item.Mode.ToString()), ("unfinished", true));
         await Audit(actor, "author", item.Id, "draft.saved", ("save", version), ("sha256", asset.Sha256), ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs));
@@ -96,9 +101,11 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         item.FinishDraft(up.LengthMs);
         var staged = await StageAndScanAsync(actor, up.Audio, up.FileName, "recording", ct);
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, "Recorded in app");
+        var live = await KeepLiveTextAsync(item, up.Live);
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, "author", id, "draft.finished", ("savesBefore", item.DraftVersion), ("sha256", asset.Sha256),
             ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs));
+        if (item.Mode == ItemMode.Speech) await AuditLiveAsync(actor, id, live, up.Live, up.LengthMs);
         queue.Enqueue(id);
     }
 
@@ -126,6 +133,28 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         queue.Enqueue(id);
     }
 
+    /// <summary>
+    /// Speech mode: keeps the text heard live with the item, so its conversion (and carrying on later) can use it. Without new
+    /// live text (the session had ended) the text saved before stays; whether it covers the recording is checked on conversion.
+    /// </summary>
+    private async Task<LiveTranscript?> KeepLiveTextAsync(Item item, LiveUpload? live)
+    {
+        if (item.Mode != ItemMode.Speech) return null;
+        if (live?.Text is { } heard)
+        {
+            var t = heard with { ItemId = item.Id };
+            await stores.LiveText.UpsertAsync(item.Id, t);
+            return t;
+        }
+        return await stores.LiveText.GetAsync(item.Id);
+    }
+
+    private Task AuditLiveAsync(User actor, Guid id, LiveTranscript? live, LiveUpload? up, int lengthMs) =>
+        Audit(actor, "author", id, "speech.live", ("liveEngine", live?.Engine), ("livePhrases", live?.Phrases.Count),
+            ("liveFinished", live?.Finished), ("liveCoveredMs", live?.CoveredMs), ("reconnects", live?.Reconnects), ("liveFailure", live?.FailureReference),
+            ("liveText", live is null ? "none (the live session had ended)" : live.Problem(lengthMs) is { } why ? $"not usable: {why}" : "complete"),
+            ("textDelayMedianMs", up?.DelayMedianMs), ("textDelayWorstMs", up?.DelayWorstMs));
+
     private static void RequireDraftAuthor(User actor, Item item)
     {
         if (item.OwnerId != actor.Id) throw new ForbiddenException("Only the person who dictated this can carry on with it.");
@@ -139,6 +168,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var ext = Path.GetExtension(up.FileName);
         if (!MediaExtensions.Contains(ext) && !(up.ContentType.StartsWith("audio/") || up.ContentType.StartsWith("video/")))
             throw new DomainException("Only audio and video files can be imported. Attach documents to an existing item instead.");
+        if (up.Mode == ItemMode.Speech) throw new DomainException("Speech mode is for speaking live. Import a recording as a dictation instead.");
         if (up.Mode == ItemMode.Dictate) CheckDictation(up.Name, up.DocumentType);
 
         var staged = await StageAndScanAsync(actor, up.File, up.FileName, "import", ct);
@@ -199,11 +229,11 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         item.SetNumSpeakers(numSpeakers);
         item.SetSpeakerMethod(method);
         item.SetSpeechAudio(audio);
-        if (item.Mode == ItemMode.Dictate) item.SetDictationService(dictationService);
+        if (item.IsDictation) item.SetDictationService(dictationService);
         if (!string.IsNullOrWhiteSpace(spokenLanguages)) item.SetSpokenLanguages(spokenLanguages);
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, CapacityOf(actor, item), id, "processing.rerun_requested", ("numSpeakers", numSpeakers), ("method", item.SpeakerMethod), ("audio", item.SpeechAudio ?? "prepared"),
-            ("speechService", item.Mode == ItemMode.Dictate ? item.DictationService ?? "word for word" : null), ("replacedEdits", edits));
+            ("speechService", item.IsDictation ? item.DictationService ?? "word for word" : null), ("replacedEdits", edits));
         queue.Enqueue(id);
     }
 
@@ -435,6 +465,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             await stores.Items.UpsertAsync(i.Id, i);
             await stores.Transcripts.DeleteAsync(i.Id);
             await stores.Outputs.DeleteAsync(i.Id);
+            await stores.LiveText.DeleteAsync(i.Id);
             await Audit(actor, CapacityOf(actor, i), i.Id, "item.deleted", ("reason", reason), ("requestId", requestId),
                 ("agreedBy", string.Join(", ", agreedBy.Select(a => users.GetValueOrDefault(a, "?")))), ("versions", chain.Count),
                 ("audioFilesRemoved", removedFiles), ("audioFilesNotRemoved", stuckFiles == 0 ? null : stuckFiles));
@@ -632,7 +663,18 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return new ItemRow(i.Id, i.Name, i.Priority.ToString(), StatusLabels.For(i.Mode, i.Status), i.Status, i.LengthMs,
             i.ClientReference, i.Description, i.AssignedUserId is { } a ? users.GetValueOrDefault(a)?.Name : null,
             users.GetValueOrDefault(i.OwnerId)?.Name, i.CreatedAt,
-            i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo);
+            i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo, i.FailureReason, IsOutstanding(actor, i, superseded));
+    }
+
+    /// <summary>
+    /// Speech mode's Outstanding Tasks: what needs this person's attention now. Their own items that are unfinished, with
+    /// them (Speech to Text) or failed, and items assigned to them that they have not finished. Never Completed or Deleted.
+    /// </summary>
+    private static bool IsOutstanding(User u, Item i, bool superseded)
+    {
+        if (superseded || i.Status is ItemStatus.Completed or ItemStatus.Purged) return false;
+        if (i.AssignedUserId == u.Id && i.Status is ItemStatus.AwaitingAssignee or ItemStatus.WithAssignee) return true;
+        return i.OwnerId == u.Id && i.Status is ItemStatus.Draft or ItemStatus.WithAuthor or ItemStatus.WithImporter or ItemStatus.ConversionFailed;
     }
 
     private static IReadOnlyList<string> ActionsFor(User u, Item i, bool superseded)
@@ -643,7 +685,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var idle = i.Processing == ProcessingState.Idle;
         if (i.Status == ItemStatus.ConversionFailed && ownerOrAdmin) a.Add("retry");
         if (i.Status == ItemStatus.Draft && role == ItemRole.Owner) a.Add("continue"); // an unfinished dictation: only its author carries on
-        if (i.Mode == ItemMode.Dictate && i.Status == ItemStatus.WithAuthor && idle && !superseded && role == ItemRole.Owner) a.Add("change-recording");
+        if (i.IsDictation && i.Status == ItemStatus.WithAuthor && idle && !superseded && role == ItemRole.Owner) a.Add("change-recording");
         if (idle && ownerOrAdmin && i.Status is not (ItemStatus.ConversionFailed or ItemStatus.Completed or ItemStatus.Draft)) a.Add("rerun");
         if (idle && i.Status == i.Home && PermissionEvaluator.Evaluate(u, i, Capability.Approve).Allowed) a.Add("approve");
         if (idle && i.Status is ItemStatus.WithAuthor or ItemStatus.WithImporter or ItemStatus.AwaitingAssignee or ItemStatus.WithAssignee

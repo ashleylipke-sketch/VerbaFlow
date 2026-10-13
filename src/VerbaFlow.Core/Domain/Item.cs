@@ -93,7 +93,9 @@ public sealed class Item
 
     /// <summary>The status where the author/importer reviews and approves.</summary>
     /// <remarks>An imported dictation (from a dictaphone, say) is still the author's own: it goes to With Author.</remarks>
-    [JsonIgnore] public ItemStatus Home => Source == SourceKind.Imported && Mode != ItemMode.Dictate ? ItemStatus.WithImporter : ItemStatus.WithAuthor;
+    [JsonIgnore] public ItemStatus Home => Source == SourceKind.Imported && !IsDictation ? ItemStatus.WithImporter : ItemStatus.WithAuthor;
+    /// <summary>One person speaking text to be written (Dictate, or Speech where the text appears live): no speakers, spoken commands applied.</summary>
+    [JsonIgnore] public bool IsDictation => Mode is ItemMode.Dictate or ItemMode.Speech;
     [JsonIgnore] public bool IsLocked => Status is ItemStatus.Completed or ItemStatus.Purged;
     [JsonIgnore] public bool IsSelfAssigned => AssignedUserId is { } a && a == OwnerId;
 
@@ -105,9 +107,10 @@ public sealed class Item
     /// A dictation saved unfinished, to be carried on later. It is not converted to text until the author finishes it.
     /// Each save keeps its audio as a new, unchangeable file (see DraftVersion).
     /// </summary>
-    public static Item CreateDraft(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage, DateTimeOffset now)
+    public static Item CreateDraft(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage, DateTimeOffset now, ItemMode mode = ItemMode.Dictate)
     {
-        var item = Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Recorded, null, null, ItemMode.Dictate);
+        if (mode is not (ItemMode.Dictate or ItemMode.Speech)) throw new DomainException("Only a dictation can be saved unfinished.");
+        var item = Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Recorded, null, null, mode);
         item.Status = ItemStatus.Draft;
         item.Processing = ProcessingState.Idle;
         return item;
@@ -145,7 +148,7 @@ public sealed class Item
     public int ReplaceRecording(int lengthMs)
     {
         EnsureNotLocked();
-        if (Mode != ItemMode.Dictate) throw new DomainException("Only a dictation's recording can be changed.");
+        if (!IsDictation) throw new DomainException("Only a dictation's recording can be changed.");
         if (Status != ItemStatus.WithAuthor) throw new DomainException("The recording can be changed only while the dictation is with its author and not yet approved.");
         if (Processing == ProcessingState.Running) throw new DomainException("The item is still being processed.");
         if (lengthMs <= 0) throw new DomainException("The dictation has no length.");
@@ -168,7 +171,6 @@ public sealed class Item
         int lengthMs, string outputLanguage, DateTimeOffset now, SourceKind source, string? fileName, string? note,
         ItemMode mode = ItemMode.Meeting)
     {
-        if (mode == ItemMode.Speech) throw new DomainException("Speech mode is not available yet.");
         if (string.IsNullOrWhiteSpace(name)) throw new DomainException("A name is required.");
         var item = new Item
         {

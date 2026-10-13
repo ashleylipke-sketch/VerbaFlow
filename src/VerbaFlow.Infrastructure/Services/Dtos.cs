@@ -8,11 +8,18 @@ public sealed record MarkerInput(MarkerType Type, int OffsetMs, string? Note);
 
 public sealed record RecordingUpload(Stream Audio, string FileName, string ContentType, string Name, int LengthMs,
     string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null, int? NumSpeakers = null,
-    ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null);
+    ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null, LiveUpload? Live = null);
+
+/// <summary>
+/// Speech mode: the text heard live (null when the live session had already ended, for example after a restart) and how
+/// far behind the speaker the text appeared on the person's screen, measured by their browser.
+/// </summary>
+public sealed record LiveUpload(LiveTranscript? Text, int? DelayMedianMs = null, int? DelayWorstMs = null);
 
 /// <summary>A save of an unfinished dictation. Name, type, reference and languages are used only on the first save.</summary>
+/// <param name="Live">Speech mode: the text heard live so far, kept with each save.</param>
 public sealed record DraftUpload(Stream Audio, string FileName, string ContentType, int LengthMs, string? Name = null, string OutputLanguage = "en",
-    string? SpokenLanguages = null, string? ClientReference = null, string? DocumentType = null);
+    string? SpokenLanguages = null, string? ClientReference = null, string? DocumentType = null, ItemMode Mode = ItemMode.Dictate, LiveUpload? Live = null);
 
 public sealed record ImportUpload(Stream File, string FileName, string ContentType, string? Name, int LengthMs,
     string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null, int? NumSpeakers = null,
@@ -29,7 +36,7 @@ public sealed record ListQuery(IReadOnlySet<ItemStatus>? Statuses, bool? SelfAss
 public sealed record ItemRow(
     Guid Id, string Name, string Priority, string Status, ItemStatus StatusCode, int LengthMs, string? ClientReference,
     string? Description, string? AssignedTo, string? Author, DateTimeOffset CreatedOn, DateOnly? DueDate, bool Overdue,
-    IReadOnlyList<string> Tags, IReadOnlyList<string> Actions, int VersionNo);
+    IReadOnlyList<string> Tags, IReadOnlyList<string> Actions, int VersionNo, string? FailureReason = null, bool Outstanding = false);
 
 public sealed record MarkerView(string Type, int OffsetMs, string? Note, string By, DateTimeOffset At);
 

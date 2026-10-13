@@ -25,6 +25,8 @@ public sealed class Stores
     public string LetterheadRoot { get; }
     public DocTable<SupportError> SupportErrors { get; }
     public DocTable<Export.ExportRecord> Exports { get; }
+    /// <summary>Speech mode: the text heard live while the person spoke, kept with the item it was saved as.</summary>
+    public DocTable<LiveTranscript> LiveText { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -43,6 +45,7 @@ public sealed class Stores
         LetterheadRoot = Path.Combine(mediaRoot, "letterhead");
         SupportErrors = new(db, "doc_support_errors");
         Exports = new(db, "doc_exports");
+        LiveText = new(db, "doc_live_text");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

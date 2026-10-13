@@ -3,6 +3,7 @@ import { api, getUser, setUser, type UserView } from './api';
 import Dashboard from './pages/Dashboard';
 import Record from './pages/Record';
 import Dictate from './pages/Dictate';
+import Speech from './pages/Speech';
 import Import from './pages/Import';
 import ItemPage from './pages/ItemPage';
 import Reopen from './pages/Reopen';
@@ -26,6 +27,7 @@ export default function App() {
   const path = hash.replace(/^#/, '');
   const item = path.match(/^\/items\/([0-9a-f-]{36})$/);
   const draft = path.match(/^\/dictate\/record\/([0-9a-f-]{36})$/);
+  const carryOn = /^\/speech\/live\/([0-9a-f-]{36})$/.exec(path);
   const admin = users.find(u => key(u) === me)?.isAdmin;
   const support = users.find(u => key(u) === me)?.isSupport;
 
@@ -35,6 +37,7 @@ export default function App() {
         <h1>VerbaFlow · Speak</h1>
         <nav>
           <a href="#/dictate" className={path.startsWith('/dictate') ? 'on' : ''}>Dictate</a>
+          <a href="#/speech" className={path.startsWith('/speech') ? 'on' : ''}>Speech</a>
           <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
           <a href="#/saved-text" className={path === '/saved-text' ? 'on' : ''}>Saved text</a>
@@ -59,6 +62,9 @@ export default function App() {
           : path === '/dictate/record' ? <Dictate key="new" />
           : path === '/dictate/import' ? <Import key="dictate" mode="dictate" />
           : path === '/dictate' ? <Dashboard key="dictate" mode="dictate" />
+          : carryOn ? <Speech key={carryOn[1]} draftId={carryOn[1]} />
+          : path === '/speech/live' ? <Speech key="new" />
+          : path === '/speech' ? <Dashboard key="speech" mode="speech" />
           : path === '/reopen' ? <Reopen />
           : path === '/vocabulary' ? <Vocabulary />
           : path === '/saved-text' ? <SavedTextPage />

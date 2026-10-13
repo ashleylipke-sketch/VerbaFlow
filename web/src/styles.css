@@ -93,3 +93,7 @@ td.wrap.saved-text { white-space: pre-line; max-width: 520px; }
 .wave-editor canvas:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
 .wave-bar { align-items:center; }
 .w.marked:not(.now) { background:rgba(214, 69, 65, 0.18); }
+
+/* Speech mode: words still being heard are lighter until the speech service settles on them. */
+.page .pending { color:var(--muted); }
+.live-page { margin:12px 0; min-height:120px; }

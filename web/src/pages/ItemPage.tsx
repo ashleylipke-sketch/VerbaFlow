@@ -102,11 +102,12 @@ export default function ItemPage({ id }: { id: string }) {
   const r = d.row, acts = new Set(r.actions);
   const assignee = users.filter(u => !u.isSupport);
   // A dictation is one person's text: no speakers to name, no summary, and Export gives the text alone.
-  const dictate = d.mode === 'Dictate';
+  // Speech mode's items are dictations whose text was typed live: shown and handled the same way.
+  const dictate = d.mode !== 'Meeting';
 
   return (
     <EditPause.Provider value={editPause}>
-      <p>{dictate ? <a href="#/dictate">← Back to Dictate</a> : <a href="#/">← Back to Meeting</a>}</p>
+      <p>{d.mode === 'Speech' ? <a href="#/speech">← Back to Speech</a> : dictate ? <a href="#/dictate">← Back to Dictate</a> : <a href="#/">← Back to Meeting</a>}</p>
       <div className="card">
         <div className="item-head">
           <h2>{r.name} {r.tags.map(x => <span key={x} className="tag">{x}</span>)}</h2>
@@ -119,8 +120,9 @@ export default function ItemPage({ id }: { id: string }) {
         </div>
         {d.deletedAt && <div className="banner">This recording was deleted by {d.deletedBy} on {fmtDate(d.deletedAt)}. Reason: {d.deleteReason}. Its audio, transcript and summary have been removed; the history below is kept.</div>}
         {acts.has('change-recording') && <p className="note">Need to add something or re-record part of it? <a className="btn primary" href={`#/dictate/record/${id}`}>Insert or Amend</a></p>}
-        {r.statusCode === 'Draft' && <div className="banner">This dictation is not finished yet, so it has not been converted to text.
-          {acts.has('continue') ? <> <a className="btn primary" href={`#/dictate/record/${id}`}>Carry on dictating</a></> : ' Only the person who dictated it can carry on with it.'}</div>}
+        {r.statusCode === 'Draft' && <div className="banner">This {d.mode === 'Speech' ? 'item' : 'dictation'} is not finished yet, so it has not been converted to text.
+          {acts.has('continue') ? <> <a className="btn primary" href={d.mode === 'Speech' ? `#/speech/live/${id}` : `#/dictate/record/${id}`}>{d.mode === 'Speech' ? 'Carry on speaking' : 'Carry on dictating'}</a></>
+            : ` Only the person who ${d.mode === 'Speech' ? 'spoke' : 'dictated'} it can carry on with it.`}</div>}
         {d.processingState === 'Processing' && <div className="banner">Transcribing… this page updates itself when it is ready.</div>}
         {d.failureReason && <div className="banner">Conversion failed: {d.failureReason}
           {acts.has('retry') && <div className="actions" style={{ marginTop: 8 }}>

@@ -39,6 +39,9 @@ export function describeAudit(a: AuditEvent): string {
 }
 export type DeleteRequest = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null };
 export type Lang = { code: string; name: string; supported: boolean };
+export type WidgetPolicy = { blockedSites: string[]; canChange: boolean; changedBy: string | null; changedAt: string | null };
+export type WidgetUse = { id: string; user: string | null; site: string; device: string; languages: string; startedAt: string; endedAt: string | null;
+  outcome: string; listens: number; spokenMs: number | null; words: number | null };
 export type SavedText = { id: string; code: string; text: string; addedBy: string; addedAt: string; changedBy: string | null; changedAt: string | null };
 export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
@@ -92,6 +95,9 @@ export const api = {
   addTerm: (text: string, note: string) => call<Term>('POST', '/vocabulary', { text, note: note || null }),
   importTerms: (lines: string) => call<{ added: number; skipped: string[] }>('POST', '/vocabulary/import', { lines }),
   removeTerm: (id: string) => call<void>('DELETE', `/vocabulary/${id}`),
+  widgetPolicy: () => call<WidgetPolicy>('GET', '/widget/policy'),
+  setWidgetBlocked: (blockedSites: string[]) => call<WidgetPolicy>('PUT', '/widget/policy', { blockedSites }),
+  widgetUses: () => call<WidgetUse[]>('GET', '/widget/sessions'),
   savedText: () => call<SavedText[]>('GET', '/saved-text'),
   addSavedText: (code: string, text: string) => call<SavedText>('POST', '/saved-text', { code, text }),
   changeSavedText: (id: string, code: string, text: string) => call<SavedText>('PUT', `/saved-text/${id}`, { code, text }),

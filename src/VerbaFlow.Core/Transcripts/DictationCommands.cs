@@ -19,7 +19,9 @@ public static class DictationCommands
     private static readonly Command[] Commands = new Command[]
     {
         new(["bullet", "point"], Kind.ListPoint, Bullet), new(["numbered", "point"], Kind.ListPoint, Number), new(["number", "point"], Kind.ListPoint, Number),
-        new(["end", "list"], Kind.Break), new(["end", "of", "list"], Kind.Break),
+        // The speech service sometimes hears the singular as a plural ("numbered points").
+        new(["bullet", "points"], Kind.ListPoint, Bullet), new(["numbered", "points"], Kind.ListPoint, Number), new(["number", "points"], Kind.ListPoint, Number),
+        new(["end", "list"], Kind.Break), new(["end", "lists"], Kind.Break), new(["end", "of", "list"], Kind.Break),
         new(["new", "paragraph"], Kind.Break), new(["next", "paragraph"], Kind.Break), new(["new", "line"], Kind.Break), new(["next", "line"], Kind.Break),
         new(["full", "stop"], Kind.Punctuation, "."), new(["question", "mark"], Kind.Punctuation, "?"),
         new(["exclamation", "mark"], Kind.Punctuation, "!"), new(["comma"], Kind.Punctuation, ","),
@@ -178,6 +180,8 @@ public static class DictationCommands
     /// <summary>Stands for a line break the speech service itself put in its text (it may turn "new paragraph" into one).</summary>
     private const string LineBreak = "\uE000";
     private static readonly Command SpeechServiceBreak = new([LineBreak], Kind.Break);
+    /// <summary>"End list" as the speech service sometimes writes it; only taken as the command while a list point is open.</summary>
+    private static readonly Command Endless = new(["endless"], Kind.Break);
     /// <summary>Every kind of line or paragraph break a service might write: \n, \r, Unicode line and paragraph separators, vertical tab, form feed, next line.</summary>
     public static readonly char[] LineBreakChars = ['\n', '\r', '\u2028', '\u2029', '\v', '\f', '\u0085'];
 
@@ -194,7 +198,8 @@ public static class DictationCommands
         return sb.ToString();
     }
 
-    private static string NameOf(Command c) => c == SpeechServiceBreak ? "line break from the speech service" : string.Join(' ', c.Words);
+    private static string NameOf(Command c) => c == SpeechServiceBreak ? "line break from the speech service"
+        : c == Endless ? "end list (heard as endless)" : string.Join(' ', c.Words);
 
     /// <summary>
     /// Carried from passage to passage. With spoken punctuation only, the speech service's own . , ? ! ; : are taken away
@@ -205,6 +210,8 @@ public static class DictationCommands
         public readonly bool SpokenOnly = spokenOnly;
         /// <summary>The speech service ended a sentence on the last word and that ending was taken away.</summary>
         public bool LowerNext;
+        /// <summary>The paragraph being written is a bullet or numbered point.</summary>
+        public bool InList;
     }
 
     public const string RemovedPunctuation = "punctuation from the speech service removed";
@@ -276,7 +283,8 @@ public static class DictationCommands
                 }
                 if (i + 1 < raw.Length && inserts.FirstWords.Contains(SpokenCodes.Key([raw[i + 1]]).Split(' ')[0])) Count(heard, NoMatch);
             }
-            var cmd = raw[i] == LineBreak ? SpeechServiceBreak : Commands.FirstOrDefault(c => Matches(raw, i, c.Words));
+            var cmd = raw[i] == LineBreak ? SpeechServiceBreak : Commands.FirstOrDefault(c => Matches(raw, i, c.Words))
+                ?? (flow.InList && Matches(raw, i, Endless.Words) ? Endless : null);
             var current = paragraphs[^1];
             var prev = current.Count > 0 ? current[^1] : null;
             if (cmd is null)
@@ -323,6 +331,7 @@ public static class DictationCommands
                     if (current.Count > 0) { paragraphs.Add([]); lists.Add(null); }
                     else if (paragraphs.Count == 1) breakAtStart = true;
                     lists[^1] = cmd.Kind == Kind.ListPoint ? cmd.Symbol : null;
+                    flow.InList = cmd.Kind == Kind.ListPoint;
                     capitalNext = true;
                     break;
                 case Kind.Punctuation:
@@ -387,7 +396,7 @@ public static class DictationCommands
     public const string LoweredName = "small letter after a spoken comma";
     public const string KeptName = "capital kept after a spoken comma";
     /// <summary>The last word of every spoken command: a capital straight after one was given by the speech service, not a name.</summary>
-    private static readonly HashSet<string> CommandEnds = Commands.Select(c => c.Words[^1]).ToHashSet();
+    private static readonly HashSet<string> CommandEnds = Commands.Select(c => c.Words[^1]).Append(Endless.Words[0]).ToHashSet();
 
     private static bool EndsSentence(string word) => word.TrimEnd('"', ')', '\'', '’', '”') is { Length: > 0 } w && w[^1] is '.' or '?' or '!';
 

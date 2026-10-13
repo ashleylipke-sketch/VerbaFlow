@@ -154,4 +154,22 @@ public class DictationCommandsTests
         Assert.Equal(["1.", "2."], DictationCommands.ListMarkers(["number", "number"]).ToArray());
         Assert.Equal(["1.", null, "1."], DictationCommands.ListMarkers(["number", null, "number"]).ToArray());
     }
+
+    [Fact]
+    public void Plural_points_and_endless_inside_a_list_are_taken_as_list_commands()
+    {
+        var (segs, _, heard) = DictationCommands.ApplyCounted([
+            Seg("The steps are colon numbered point sign the form numbered points pay the fee endless regards")], spokenPunctuationOnly: true);
+        Assert.Equal("The steps are: | Sign the form | Pay the fee | Regards", Text(segs));
+        Assert.Equal([null, "number", "number", null], segs.Select(x => x.List));
+        Assert.Equal(1, heard["numbered points"]);
+        Assert.Equal(1, heard["end list (heard as endless)"]);
+    }
+
+    [Fact]
+    public void Endless_outside_a_list_stays_a_word()
+    {
+        var (segs, _, _) = DictationCommands.ApplyCounted([Seg("The choice is endless")]);
+        Assert.Equal("The choice is endless", Text(segs));
+    }
 }

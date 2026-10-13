@@ -44,6 +44,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             // Saved text a dictation can drop in with "insert <code>"; its codes help the speech service hear them.
             IReadOnlyList<SavedText> saved = dictation ? await stores.SavedText.ListAsync() : [];
             phrases.AddRange(saved.Select(t => "insert " + t.Code).Distinct(StringComparer.OrdinalIgnoreCase).Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
+            // The list commands are easy to mishear ("end list" came back as "endless"), so the speech service is told to expect them.
+            if (dictation) phrases.AddRange(new[] { "bullet point", "numbered point", "end list" }.Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
             var request = new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
                 azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases);
             // A dictation in one language goes word for word, so spoken commands reach VerbaFlow; the fast service is the fallback.

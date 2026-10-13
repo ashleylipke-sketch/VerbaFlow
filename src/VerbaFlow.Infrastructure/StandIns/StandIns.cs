@@ -89,3 +89,30 @@ public sealed class StandInAudioEnhancer : IAudioEnhancer
     public string Name => "stand-in:none";
     public Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct) => Task.FromResult(new EnhancedAudio(original, "none"));
 }
+
+/// <summary>
+/// STAND-IN grammar check, for trying the page without Azure OpenAI: a capital at the start of each passage and for a
+/// lone "i", and one space between words. Real grammar needs the AI service connected.
+/// </summary>
+public sealed class StandInGrammarChecker : IGrammarChecker
+{
+    public string Name => "stand-in-grammar-v0";
+
+    public Task<IReadOnlyList<GrammarFix>> CheckAsync(IReadOnlyList<GrammarPassage> passages, string language, CancellationToken ct)
+    {
+        var fixes = new List<GrammarFix>();
+        foreach (var p in passages)
+        {
+            var words = p.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) continue;
+            var reasons = new List<string>();
+            if (char.IsLower(words[0][0])) { words[0] = char.ToUpperInvariant(words[0][0]) + words[0][1..]; reasons.Add("capital at the start"); }
+            for (var i = 0; i < words.Length; i++)
+                if (words[i] is "i" or "i'm" or "i've" or "i'll" or "i'd") { words[i] = "I" + words[i][1..]; if (!reasons.Contains("capital I")) reasons.Add("capital I"); }
+            var text = string.Join(' ', words);
+            if (text != p.Text && reasons.Count == 0) reasons.Add("one space between words");
+            if (text != p.Text) fixes.Add(new GrammarFix(p.Id, text, "[Stand-in] " + string.Join(", ", reasons)));
+        }
+        return Task.FromResult<IReadOnlyList<GrammarFix>>(fixes);
+    }
+}

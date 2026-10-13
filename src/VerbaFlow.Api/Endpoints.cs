@@ -22,6 +22,8 @@ public static class Endpoints
         return new LiveUpload(text, int.TryParse(f["delayMedianMs"], out var dm) ? dm : null, int.TryParse(f["delayWorstMs"], out var dw) ? dw : null);
     }
 
+    public sealed record GrammarApplyBody(Guid SegmentId, string? Expected, string? Text);
+
     internal static ItemMode ModeOf(string? mode) => string.IsNullOrWhiteSpace(mode) ? ItemMode.Meeting
         : mode.Trim().ToLowerInvariant() switch { "dictate" => ItemMode.Dictate, "speech" => ItemMode.Speech, "meeting" => ItemMode.Meeting, _ => throw new DomainException("Unknown mode.") };
 
@@ -215,6 +217,13 @@ public static class Endpoints
         { await s.JoinParagraphAsync(h.Current(), id, segId); return Results.NoContent(); });
         api.MapPut("/items/{id:guid}/segments/{segId:guid}", async (HttpContext h, MeetingService s, Guid id, Guid segId, TextBody b) =>
         { await s.EditSegmentAsync(h.Current(), id, segId, b.Text); return Results.NoContent(); });
+        // Check grammar: suggestions only; each accepted change is saved as a tracked edit.
+        api.MapPost("/items/{id:guid}/grammar", (HttpContext h, GrammarService g, Guid id, CancellationToken ct) => g.CheckAsync(h.Current(), id, ct));
+        api.MapPost("/items/{id:guid}/grammar/apply", async (HttpContext h, GrammarService g, Guid id, GrammarApplyBody b) =>
+        {
+            var (segmentId, text) = await g.ApplyAsync(h.Current(), id, b.SegmentId, b.Expected ?? "", b.Text ?? "");
+            return Results.Ok(new { segmentId, text });
+        });
         api.MapPut("/items/{id:guid}/speakers/{spId:guid}", async (HttpContext h, MeetingService s, Guid id, Guid spId, NameBody b) =>
         { await s.RenameSpeakerAsync(h.Current(), id, spId, b.Name); return Results.NoContent(); });
         api.MapPost("/items/{id:guid}/versions/{no:int}/restore", async (HttpContext h, MeetingService s, Guid id, int no) =>

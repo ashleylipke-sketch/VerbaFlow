@@ -38,3 +38,7 @@ Run `run.cmd`. The startup log should say `Summaries: using Azure OpenAI deploym
 
 - Cost: billed per token. Check current pricing for your model.
 - The transcript text is sent to Azure OpenAI. Audio is not. Production should use keyless Microsoft Entra authentication instead of a key.
+
+## Check grammar
+
+The same Azure OpenAI deployment also powers **Check grammar** on dictations and Speech items. Nothing extra to set up. Each time someone presses Check grammar, the text is sent once (one request per 20,000 characters), so it costs a small amount each time. The suggestions are only shown: the text changes only when someone accepts a change.

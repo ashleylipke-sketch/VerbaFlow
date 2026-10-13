@@ -109,7 +109,33 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
                        "minutes":{"type":"string"},"tone":{"type":"string"}}}
         """)!;
 
-    private async Task<Parts> CallAsync(string system, string user, CancellationToken ct)
+    private async Task<Parts> CallAsync(string system, string user, CancellationToken ct) =>
+        ParseParts(await ChatAsync(http, options, system, user, "meeting_record", Schema, "summarise this meeting", "summary", Delay, ct));
+
+    internal static Parts ParseReply(string json) => ParseParts(ReadContent(json, "summarise this meeting", "summary"));
+
+    private static Parts ParseParts(string content)
+    {
+        try
+        {
+            using var inner = JsonDocument.Parse(content);
+            var r = inner.RootElement;
+            return new Parts(r.GetProperty("summary").GetString()!.Trim(),
+                r.GetProperty("actionPoints").EnumerateArray().Select(x => x.GetString()!.Trim()).Where(x => x.Length > 0).ToList(),
+                r.GetProperty("minutes").GetString()!.Trim(), r.GetProperty("tone").GetString()!.Trim());
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or NullReferenceException)
+        {
+            throw new ProviderException(FaultKind.Other, "Azure OpenAI's summary was not in the expected form.");
+        }
+    }
+
+    /// <summary>
+    /// One chat call that must answer in JSON matching <paramref name="schema"/>; returns that JSON. Busy or failing
+    /// service: retried with growing waits. <paramref name="task"/> and <paramref name="what"/> only word the error text.
+    /// </summary>
+    internal static async Task<string> ChatAsync(HttpClient http, AzureOpenAiOptions options, string system, string user, string schemaName,
+        JsonNode schema, string task, string what, Func<TimeSpan, CancellationToken, Task> delay, CancellationToken ct)
     {
         var url = $"{options.Endpoint.TrimEnd('/')}/openai/v1/chat/completions";
         var body = new JsonObject
@@ -122,7 +148,7 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
             ["response_format"] = new JsonObject
             {
                 ["type"] = "json_schema",
-                ["json_schema"] = new JsonObject { ["name"] = "meeting_record", ["strict"] = true, ["schema"] = JsonNode.Parse(Schema.ToJsonString()) },
+                ["json_schema"] = new JsonObject { ["name"] = schemaName, ["strict"] = true, ["schema"] = JsonNode.Parse(schema.ToJsonString()) },
             },
         }.ToJsonString();
 
@@ -132,16 +158,17 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
             req.Headers.Add("api-key", options.Key);
             using var res = await http.SendAsync(req, ct);
             var text = await res.Content.ReadAsStringAsync(ct);
-            if (res.IsSuccessStatusCode) return ParseReply(text);
+            if (res.IsSuccessStatusCode) return ReadContent(text, task, what);
             var retriable = res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
                 or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
-            if (retriable && attempt < RetryDelays.Length) { await Delay(RetryDelays[attempt], ct); continue; }
+            if (retriable && attempt < RetryDelays.Length) { await delay(RetryDelays[attempt], ct); continue; }
             var blocked = res.StatusCode == HttpStatusCode.BadRequest && text.Contains("content_filter", StringComparison.OrdinalIgnoreCase);
             throw new ProviderException(blocked ? FaultKind.Blocked : res.StatusCode == HttpStatusCode.BadRequest ? FaultKind.Other : Services.FailureReporter.ForStatus(res.StatusCode), Describe(res.StatusCode, text));
         }
     }
 
-    internal static Parts ParseReply(string json)
+    /// <summary>The JSON the model wrote, from a chat completion reply; a refusal, filter or cut-off answer is an error.</summary>
+    internal static string ReadContent(string json, string task, string what)
     {
         JsonElement msg;
         string? finish;
@@ -157,23 +184,13 @@ public sealed class AzureOpenAiOutputService(HttpClient http, AzureOpenAiOptions
             throw new ProviderException(FaultKind.Other, "Azure OpenAI sent a reply this app could not read.");
         }
         if (msg.TryGetProperty("refusal", out var refusal) && refusal.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(refusal.GetString()))
-            throw new ProviderException(FaultKind.Blocked, "Azure OpenAI declined to summarise this meeting: " + refusal.GetString());
+            throw new ProviderException(FaultKind.Blocked, $"Azure OpenAI declined to {task}: " + refusal.GetString());
         if (finish is not null && finish != "stop")
             throw new ProviderException(finish == "content_filter" ? FaultKind.Blocked : FaultKind.Other, finish == "content_filter"
-                ? "Azure OpenAI's content filter stopped the summary."
-                : "The summary was cut short because it was too long. Try again, or summarise a shorter meeting.");
-        try
-        {
-            using var inner = JsonDocument.Parse(msg.GetProperty("content").GetString() ?? "");
-            var r = inner.RootElement;
-            return new Parts(r.GetProperty("summary").GetString()!.Trim(),
-                r.GetProperty("actionPoints").EnumerateArray().Select(x => x.GetString()!.Trim()).Where(x => x.Length > 0).ToList(),
-                r.GetProperty("minutes").GetString()!.Trim(), r.GetProperty("tone").GetString()!.Trim());
-        }
-        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or NullReferenceException)
-        {
-            throw new ProviderException(FaultKind.Other, "Azure OpenAI's summary was not in the expected form.");
-        }
+                ? $"Azure OpenAI's content filter stopped the {what}."
+                : $"The {what} was cut short because it was too long.");
+        return msg.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() ?? ""
+            : throw new ProviderException(FaultKind.Other, $"Azure OpenAI's {what} was not in the expected form.");
     }
 
     private static string Describe(HttpStatusCode code, string body)

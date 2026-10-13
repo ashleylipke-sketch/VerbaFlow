@@ -158,4 +158,75 @@ public class SpeechModeTests
         await Assert.ThrowsAsync<DomainException>(() => env.Meeting.ImportAsync(env.Alice, env.Import("memo.m4a") with { Mode = ItemMode.Speech, Name = "Memo", DocumentType = "letter" }));
         await Assert.ThrowsAsync<DomainException>(() => env.Meeting.CreateRecordingAsync(env.Alice, Speech(env, null, 5000) with { DocumentType = null }));
     }
+
+    private static DraftUpload SpeechDraft(int lengthMs, LiveTranscript? live) =>
+        new(Env.Audio("speech"), "speech.wav", "audio/wav", lengthMs, "Letter to Mr Smith", "en", "en-GB", "ACME-042", "letter", ItemMode.Speech, new LiveUpload(live));
+
+    [Fact]
+    public async Task A_speech_item_saved_as_a_draft_is_carried_on_with_its_text_and_new_speech_is_added_at_the_end()
+    {
+        using var env = new Env();
+        var sessions = new LiveSessions(env.Stores, new StandInLiveSpeech(), env.Clock);
+        var (s, _) = await sessions.StartAsync(env.Alice, "en-GB");
+        await SpeakAsync(sessions, s, 0, 12, end: true);
+        var id = await env.Meeting.SaveDraftAsync(env.Alice, null, SpeechDraft(12 * 400, sessions.Peek(env.Alice, s.Id, Guid.Empty)));
+        Assert.NotNull(sessions.Peek(env.Alice, s.Id, Guid.Empty)); // saving a draft keeps the session going
+        sessions.Discard(env.Alice, s.Id);
+        var row = (await env.Meeting.ListAsync(env.Alice, new ListQuery(null, null, null, ItemMode.Speech))).Single();
+        Assert.Equal("Draft", row.Status);
+        Assert.True(row.Outstanding);
+        Assert.Contains("continue", row.Actions);
+        Assert.Null(await env.Stores.Transcripts.GetAsync(id));
+
+        // Later: the saved text comes back and the person speaks again from where it ends.
+        var item = await env.Item(id);
+        var (c, _) = await sessions.StartAsync(env.Alice, item.SpokenLanguages, await env.Stores.LiveText.GetAsync(id), item.LengthMs);
+        var from = c.Snapshot().HeardToMs;
+        Assert.Equal("stand-in live text, the speech service is not connected.", string.Join(" ", c.Snapshot().Text.Select(x => x.Text)));
+        await SpeakAsync(sessions, c, from, 4, end: true);
+
+        env.Speech.Fail = true; // the recording is not converted again
+        await env.Meeting.FinishDraftAsync(env.Alice, id, new DraftUpload(Env.Audio("speech and more"), "speech.wav", "audio/wav", from + 4 * 400,
+            Live: new LiveUpload(sessions.Take(env.Alice, c.Id, Guid.Empty))));
+        await env.Processing.ProcessAsync(id);
+        Assert.Equal("Speech to Text", (await env.Meeting.GetItemAsync(env.Alice, id)).Row.Status);
+        var text = string.Join(" ", (await env.Stores.Transcripts.GetAsync(id))!.Render().Select(t => t.Segment.Text));
+        Assert.StartsWith("stand-in live text, the speech service is not connected. each word", text); // stand-in phrases start in lower case
+        var audit = await env.Stores.Audit.ListAsync(id);
+        Assert.Contains("\"reconnects\":0", audit.Single(a => a.Type == "speech.live").Details); // carrying on is not a lost connection
+        Assert.Contains("\"liveText\":\"used", audit.Last().Details);
+    }
+
+    [Fact]
+    public async Task A_draft_whose_live_text_was_incomplete_is_converted_from_the_recording_unless_the_rest_is_sent_again()
+    {
+        using var env = new Env();
+        var sessions = new LiveSessions(env.Stores, new StandInLiveSpeech(), env.Clock);
+        var (s, _) = await sessions.StartAsync(env.Alice, "en-GB");
+        await SpeakAsync(sessions, s, 0, 11, end: false); // the connection went before the end
+        var id = await env.Meeting.SaveDraftAsync(env.Alice, null, SpeechDraft(11 * 400, sessions.Take(env.Alice, s.Id, Guid.Empty)));
+
+        // Carried on and finished without speaking again: the saved text is incomplete, so the recording is converted.
+        var (c, _) = await sessions.StartAsync(env.Alice, "en-GB", await env.Stores.LiveText.GetAsync(id), 11 * 400);
+        Assert.NotNull(c.ToTranscript(id).Problem(11 * 400));
+
+        // Speaking again sends everything after the finished text, so the gap is filled.
+        await SpeakAsync(sessions, c, c.Snapshot().HeardToMs, 5, end: true);
+        var t = c.ToTranscript(id);
+        Assert.Null(t.Problem(t.CoveredMs));
+        Assert.Equal(0, t.Reconnects);
+    }
+
+    [Fact]
+    public async Task Outstanding_tasks_are_what_needs_each_person_now()
+    {
+        using var env = new Env();
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, Speech(env, new LiveUpload(null), 5000));
+        await env.Processing.ProcessAsync(id);
+        async Task<bool> For(User u) => (await env.Meeting.ListAsync(u, new ListQuery(null, null, null, ItemMode.Speech))).Single(r => r.Id == id).Outstanding;
+        Assert.True(await For(env.Alice)); // Speech to Text: with its author
+        await env.Meeting.AssignAsync(env.Alice, id, env.Bob.Id, null);
+        Assert.False(await For(env.Alice));
+        Assert.True(await For(env.Bob));    // waiting for the assignee
+    }
 }

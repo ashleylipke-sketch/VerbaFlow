@@ -120,8 +120,9 @@ export default function ItemPage({ id }: { id: string }) {
         </div>
         {d.deletedAt && <div className="banner">This recording was deleted by {d.deletedBy} on {fmtDate(d.deletedAt)}. Reason: {d.deleteReason}. Its audio, transcript and summary have been removed; the history below is kept.</div>}
         {acts.has('change-recording') && <p className="note">Need to add something or re-record part of it? <a className="btn primary" href={`#/dictate/record/${id}`}>Insert or Amend</a></p>}
-        {r.statusCode === 'Draft' && <div className="banner">This dictation is not finished yet, so it has not been converted to text.
-          {acts.has('continue') ? <> <a className="btn primary" href={`#/dictate/record/${id}`}>Carry on dictating</a></> : ' Only the person who dictated it can carry on with it.'}</div>}
+        {r.statusCode === 'Draft' && <div className="banner">This {d.mode === 'Speech' ? 'item' : 'dictation'} is not finished yet, so it has not been converted to text.
+          {acts.has('continue') ? <> <a className="btn primary" href={d.mode === 'Speech' ? `#/speech/live/${id}` : `#/dictate/record/${id}`}>{d.mode === 'Speech' ? 'Carry on speaking' : 'Carry on dictating'}</a></>
+            : ` Only the person who ${d.mode === 'Speech' ? 'spoke' : 'dictated'} it can carry on with it.`}</div>}
         {d.processingState === 'Processing' && <div className="banner">Transcribing… this page updates itself when it is ready.</div>}
         {d.failureReason && <div className="banner">Conversion failed: {d.failureReason}
           {acts.has('retry') && <div className="actions" style={{ marginTop: 8 }}>

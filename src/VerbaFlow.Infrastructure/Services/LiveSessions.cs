@@ -16,12 +16,14 @@ namespace VerbaFlow.Infrastructure.Services;
 /// <param name="CoveredMs">How much of the recording reached the live service.</param>
 /// <param name="Reconnects">How often the connection was lost and made again while speaking.</param>
 /// <param name="FailureReference">Set when the live service stopped working (the VF- reference of the report).</param>
+/// <param name="EarlierGap">Set when an unfinished Speech item was carried on and the text saved before was already incomplete (why).</param>
 public sealed record LiveTranscript(Guid ItemId, string Engine, IReadOnlyList<Segment> Phrases, bool Finished, int CoveredMs,
-    int Reconnects, string? FailureReference)
+    int Reconnects, string? FailureReference, string? EarlierGap = null)
 {
     /// <summary>Why the live text cannot stand as the item's text, in plain words, or null when it can.</summary>
     public string? Problem(int lengthMs) =>
-        FailureReference is not null ? $"the live speech service stopped ({FailureReference})"
+        EarlierGap is not null ? $"the text saved earlier was incomplete ({EarlierGap})"
+        : FailureReference is not null ? $"the live speech service stopped ({FailureReference})"
         : !Finished ? "the live text was not finished (the connection was lost at the end)"
         : CoveredMs < lengthMs - 1500 ? "part of the recording did not reach the live speech service"
         : Phrases.Count == 0 ? "no words were heard live"
@@ -56,8 +58,25 @@ public sealed class LiveSession
     private int _generation, _fromMs, _reconnects, _connections;
     private long _bytes;
     private bool _finished;
-    private string? _failure;
+    private string? _failure, _earlierGap;
     private CancellationTokenSource? _current;
+
+    /// <summary>
+    /// Carrying on with an unfinished Speech item: the text saved with it comes back, so new speech is added after it.
+    /// </summary>
+    public void Seed(LiveTranscript saved, int lengthMs)
+    {
+        lock (_gate)
+        {
+            _phrases.AddRange(saved.Phrases);
+            _fromMs = saved.CoveredMs;
+            _finished = saved.Finished;
+            _reconnects = saved.Reconnects;
+            _earlierGap = saved.EarlierGap ?? (saved.Problem(lengthMs) is { } why ? why : null);
+            _connections = 1;
+            _resuming = true; // the first connection now is a carry-on, not a lost one
+        }
+    }
 
     public Guid Id { get; } = Guid.NewGuid();
     public required Guid OwnerId { get; init; }
@@ -77,11 +96,15 @@ public sealed class LiveSession
         {
             _current?.Cancel();
             _current = new CancellationTokenSource();
-            if (_connections++ > 0) _reconnects++;
+            if (_connections++ > 0 && !_resuming) _reconnects++;
+            _resuming = false;
             _fromMs = Math.Max(0, fromMs);
             _bytes = 0;
             _finished = false;
             _phrases.RemoveAll(p => p.EndMs > _fromMs + 50);
+            // Everything after the kept text is sent again, so a gap left in a carried-on item is filled now.
+            if (_fromMs <= (_phrases.Count == 0 ? 0 : _phrases.Max(p => p.EndMs)) + 1500) _earlierGap = null;
+            _failure = null;
             return (++_generation, _current.Token);
         }
     }
@@ -119,10 +142,14 @@ public sealed class LiveSession
     public LiveTranscript ToTranscript(Guid itemId)
     {
         lock (_gate)
-            return new LiveTranscript(itemId, Engine, [.. _phrases.OrderBy(p => p.StartMs)], _finished, _fromMs + (int)(_bytes / 32), _reconnects, _failure);
+            return new LiveTranscript(itemId, Engine, [.. _phrases.OrderBy(p => p.StartMs)], _finished, _fromMs + (int)(_bytes / 32), _reconnects, _failure, _earlierGap);
     }
 
     public void Close() { lock (_gate) _current?.Cancel(); }
+
+    private bool _resuming;
+    /// <summary>The person is speaking again after Stop (or after carrying on): the next connection is not a lost one.</summary>
+    public void Resume() { lock (_gate) _resuming = true; }
 }
 
 /// <summary>
@@ -136,7 +163,7 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
 
     public string EngineName => live.Name;
 
-    public async Task<(LiveSession Session, string Ticket)> StartAsync(User user, string? spokenLanguages)
+    public async Task<(LiveSession Session, string Ticket)> StartAsync(User user, string? spokenLanguages, LiveTranscript? carryOn = null, int carryOnLengthMs = 0)
     {
         Tidy();
         var languages = (spokenLanguages ?? "").Split(new[] { ',', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -147,6 +174,7 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
             throw new DomainException($"Choose at most {SpokenLanguageCatalogue.MaxPerRecording} languages.");
         var (phrases, saved) = await DictationContext.LoadAsync(stores);
         var s = new LiveSession { OwnerId = user.Id, Languages = languages, Engine = live.Name, Phrases = phrases, Saved = saved, LastUsed = clock.GetUtcNow() };
+        if (carryOn is not null) s.Seed(carryOn, carryOnLengthMs);
         _sessions[s.Id] = s;
         return (s, Ticket(s));
     }
@@ -170,6 +198,12 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
         s.Close();
         return s.ToTranscript(itemId);
     }
+
+    /// <summary>The session's text so far, for saving an unfinished Speech item; the session carries on.</summary>
+    public LiveTranscript? Peek(User user, Guid id, Guid itemId) =>
+        _sessions.TryGetValue(id, out var s) && s.OwnerId == user.Id ? s.ToTranscript(itemId) : null;
+
+    public void Resume(User user, Guid id) => Require(user, id).Resume();
 
     public void Discard(User user, Guid id)
     {

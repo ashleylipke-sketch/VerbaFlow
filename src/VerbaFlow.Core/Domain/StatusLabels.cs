@@ -23,8 +23,9 @@ public static class StatusLabels
     {
         ItemMode.Meeting => [ItemStatus.WithAuthor, ItemStatus.WithImporter, ItemStatus.AwaitingAssignee,
             ItemStatus.WithAssignee, ItemStatus.Completed, ItemStatus.ConversionFailed, ItemStatus.Purged],
-        ItemMode.Speech => [ItemStatus.Draft, ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee,
-            ItemStatus.WithAssignee, ItemStatus.Completed, ItemStatus.ConversionFailed],
+        // The owner's list (2026-10-13), plus Outstanding Tasks, which is a view across these, not a status.
+        ItemMode.Speech => [ItemStatus.Draft, ItemStatus.WithAuthor, ItemStatus.ConversionFailed, ItemStatus.AwaitingAssignee,
+            ItemStatus.WithAssignee, ItemStatus.Completed],
         ItemMode.Dictate => [ItemStatus.Draft, ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee, ItemStatus.WithAssignee,
             ItemStatus.Completed, ItemStatus.ConversionFailed, ItemStatus.Purged],
         _ => [ItemStatus.WithAuthor, ItemStatus.AwaitingAssignee, ItemStatus.WithAssignee,

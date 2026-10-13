@@ -2,6 +2,7 @@ export type Row = {
   id: string; name: string; priority: string; status: string; statusCode: string; lengthMs: number;
   clientReference: string | null; description: string | null; assignedTo: string | null; author: string | null; createdOn: string;
   dueDate: string | null; overdue: boolean; tags: string[]; actions: string[]; versionNo: number;
+  failureReason?: string | null; outstanding?: boolean;
 };
 export type Detail = {
   row: Row; owner: string; ownerRole: string; processingState: string | null; failureReason: string | null;

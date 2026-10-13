@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using VerbaFlow.Core.Domain;
 using VerbaFlow.Core.Providers;
 using VerbaFlow.Core.Transcripts;
 using VerbaFlow.Infrastructure.Services;
@@ -15,18 +16,31 @@ namespace VerbaFlow.Api;
 /// </summary>
 public static class LiveEndpoints
 {
-    public sealed record StartBody(string? SpokenLanguages);
+    public sealed record StartBody(string? SpokenLanguages, Guid? CarryOn = null);
     private sealed record Para(string Text, bool? NewParagraph, string? List);
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     public static void MapLiveEndpoints(this RouteGroupBuilder api)
     {
-        api.MapPost("/live", async (HttpContext h, LiveSessions l, StartBody b) =>
+        api.MapPost("/live", async (HttpContext h, LiveSessions l, Stores stores, StartBody b) =>
         {
-            var (s, ticket) = await l.StartAsync(h.Current(), b.SpokenLanguages);
-            return Results.Ok(new { id = s.Id, ticket, engine = l.EngineName });
+            var user = h.Current();
+            if (b.CarryOn is not { } itemId)
+            {
+                var (s, ticket) = await l.StartAsync(user, b.SpokenLanguages);
+                return Results.Ok(new { id = s.Id, ticket, engine = l.EngineName });
+            }
+            // Carrying on with an unfinished Speech item: its languages, and the text heard before, come back.
+            var item = await stores.RequireItemAsync(itemId);
+            if (item.OwnerId != user.Id) throw new ForbiddenException("Only the person who spoke this can carry on with it.");
+            if (item.Mode != ItemMode.Speech || item.Status != ItemStatus.Draft) throw new DomainException("This item cannot be carried on.");
+            var saved = await stores.LiveText.GetAsync(itemId);
+            var (c, t) = await l.StartAsync(user, item.SpokenLanguages, saved ?? new LiveTranscript(itemId, l.EngineName, [], true, 0, 0, null), item.LengthMs);
+            var (text, heardTo) = c.Snapshot();
+            return Results.Ok(new { id = c.Id, ticket = t, engine = l.EngineName, segments = Shown(text), finalToMs = heardTo, spokenLanguages = item.SpokenLanguages });
         });
+        api.MapPost("/live/{id:guid}/resume", (HttpContext h, LiveSessions l, Guid id) => { l.Resume(h.Current(), id); return Results.NoContent(); });
         api.MapPost("/live/{id:guid}/ticket", (HttpContext h, LiveSessions l, Guid id) => Results.Ok(new { ticket = l.NewTicket(h.Current(), id) }));
         api.MapPost("/live/{id:guid}/discard", (HttpContext h, LiveSessions l, Guid id) => { l.Discard(h.Current(), id); return Results.NoContent(); });
     }

@@ -8,7 +8,24 @@ Choose **Speech** at the top, then **Start speaking**. Choose Letter, Word docum
 
 The text appears on the page as you speak, laid out as the letter, document or email. Words still being worked out are shown lighter and settle within a second or so. The spoken commands from Dictate all work: "comma", "full stop", "new paragraph", "bullet point", "insert legal 1.1" and the rest.
 
-Press **Stop** when you are done, then **Save**. The item then works like a dictation: listen and follow along, edit, assign to a typist, approve, export on the letterhead.
+Press **Stop** when you are done. Then:
+- **Finish**: the item goes to **Speech to Text** and works like a dictation: listen and follow along, edit, assign to a typist, approve, export on the letterhead.
+- **Carry on speaking**: the microphone starts again and what you say is added at the end.
+- **Save as draft**: the recording and the text so far are saved under **Draft**. Later, choose **Carry on** in the Speech list (or **Carry on speaking** on the item): the text comes back, and you can speak more, then Finish. Only the person who spoke it can carry on.
+- **Discard** (or **Delete draft** once saved).
+
+## The Speech list (agreed with the owner, 2026-10-13)
+
+Same columns and headings as Dictate. Views, each a button you turn on or off:
+- **Draft**: saved but not finished; the author can carry on.
+- **Speech to Text**: with the author (Speech mode's name for With Author). Self-assigned items sit here with a Self-assigned tag; returned items come back here.
+- **Awaiting Assignee**, **With Assignee**.
+- **Conversion Failed**: the original recording is kept and Retry is possible; point at the status to see the reason.
+- **Completed**: off by default.
+- **Outstanding Tasks**: not a status. Everything that needs you now: your own items in Draft, Speech to Text or Conversion Failed, and items assigned to you that are Awaiting or With Assignee. Never Completed. Turning it on shows only those; turning on any other view goes back to the normal views.
+- **Self-assigned only** narrows any of these.
+
+The views you pick are remembered on this computer, separately for each mode. Overdue items show ⚠ Overdue in the Due date column. An item being converted (again) has a Processing tag. Permissions and actions are the same as Dictate. Deleted items are not listed in Speech mode.
 
 ## The recording is kept
 

@@ -107,9 +107,10 @@ public sealed class Item
     /// A dictation saved unfinished, to be carried on later. It is not converted to text until the author finishes it.
     /// Each save keeps its audio as a new, unchangeable file (see DraftVersion).
     /// </summary>
-    public static Item CreateDraft(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage, DateTimeOffset now)
+    public static Item CreateDraft(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage, DateTimeOffset now, ItemMode mode = ItemMode.Dictate)
     {
-        var item = Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Recorded, null, null, ItemMode.Dictate);
+        if (mode is not (ItemMode.Dictate or ItemMode.Speech)) throw new DomainException("Only a dictation can be saved unfinished.");
+        var item = Create(id, id, 1, null, ownerId, name, lengthMs, outputLanguage, now, SourceKind.Recorded, null, null, mode);
         item.Status = ItemStatus.Draft;
         item.Processing = ProcessingState.Idle;
         return item;

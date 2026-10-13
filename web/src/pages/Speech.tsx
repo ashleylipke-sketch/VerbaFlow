@@ -3,12 +3,12 @@ import { api, fmtLen } from '../api';
 import LanguagePicker from '../LanguagePicker';
 import DocumentTypePicker, { docLabel, type DocType } from '../DocumentType';
 import { summaryLanguage } from '../languages';
-import { RATE, msOf, samplesAt, toWav } from '../takes';
+import { RATE, decode, msOf, samplesAt, toWav } from '../takes';
 import { Downsampler, TAP, from, join, median, retryDelay, toPcm16 } from '../live';
 import { paragraphMarkers, paragraphPieces } from '../paragraphs';
 import { CommandHelp, drawWave } from './Record';
 
-type Phase = 'setup' | 'starting' | 'live' | 'paused' | 'finishing' | 'review' | 'saving';
+type Phase = 'loading' | 'setup' | 'starting' | 'live' | 'paused' | 'finishing' | 'review' | 'saving';
 /** The connection to the live speech service: being made, working, lost (being made again), stopped for good, or finished. */
 type Link = 'connecting' | 'live' | 'lost' | 'off' | 'done';
 export type LiveSeg = { text: string; newParagraph: boolean | null; list?: 'bullet' | 'number' | null };
@@ -17,13 +17,16 @@ export type LiveSeg = { text: string; newParagraph: boolean | null; list?: 'bull
  * Speech mode: the text is typed as the person speaks. The microphone goes to the live speech service and is kept,
  * untouched apart from being made 16 kHz mono, as the recording. If the connection drops, recording carries on and the
  * text catches up when it is back; if it never comes back, the text is worked out from the recording on saving.
+ * It can be saved as a Draft and carried on later (draftId): the saved recording and text come back and new speech is added at the end.
  */
-export default function Speech() {
+export default function Speech({ draftId }: { draftId?: string }) {
   const [name, setName] = useState('');
   const [clientRef, setClientRef] = useState('');
   const [docType, setDocType] = useState<DocType | ''>('');
   const [spoken, setSpoken] = useState('en-GB');
-  const [phase, setPhase] = useState<Phase>('setup');
+  const [phase, setPhase] = useState<Phase>(draftId ? 'loading' : 'setup');
+  const [id, setId] = useState<string | null>(draftId ?? null);
+  const [dirty, setDirty] = useState(false);
   const [link, setLink] = useState<Link>('connecting');
   const [segs, setSegs] = useState<LiveSeg[]>([]);
   const [pending, setPending] = useState(0);
@@ -33,6 +36,7 @@ export default function Speech() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [message, setMessage] = useState('');
 
   const session = useRef<string | null>(null);
   const ws = useRef<WebSocket | null>(null);
@@ -48,6 +52,7 @@ export default function Speech() {
   const retryTimer = useRef(0);
   const finishTimer = useRef(0);
   const delays = useRef<number[]>([]);
+  const pendingTicket = useRef<string | undefined>(undefined);
   const paused = useRef(false);
   const stream = useRef<MediaStream | null>(null);
   const audioCtx = useRef<AudioContext | null>(null);
@@ -67,7 +72,7 @@ export default function Speech() {
   useEffect(() => () => { stopMic(); closeLink(); }, []);
 
   // Until it is saved, the recording exists only in this browser tab, so the browser asks before it is lost.
-  const unsaved = phase !== 'setup' && phase !== 'saving';
+  const unsaved = phase !== 'setup' && phase !== 'saving' && phase !== 'loading' && (dirty || !id);
   useEffect(() => {
     if (!unsaved) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
@@ -80,6 +85,28 @@ export default function Speech() {
     const t = setInterval(() => setElapsed(msOf(samples.current)), 200);
     return () => clearInterval(t);
   }, [phase]);
+
+  // Carrying on with a Draft: its details, its newest saved recording and the text heard before.
+  useEffect(() => {
+    if (!draftId) return;
+    (async () => {
+      try {
+        const d = await api.item(draftId);
+        if (d.row.statusCode !== 'Draft') { location.hash = `#/items/${draftId}`; return; }
+        if (!d.row.actions.includes('continue')) { setError('Only the person who spoke this can carry on with it.'); setPhase('setup'); return; }
+        setName(d.row.name); setClientRef(d.clientReference ?? ''); setDocType((d.documentType ?? 'document') as DocType); setSpoken(d.spokenLanguages);
+        const audio = await decode(await api.audio(draftId));
+        chunks.current = [audio]; samples.current = audio.length; setElapsed(msOf(audio.length));
+        stopping.current = true; finished.current = true;
+        try {
+          const r = await api.post('/live', { carryOn: draftId });
+          session.current = r.id; pendingTicket.current = r.ticket;
+          setSegs(r.segments ?? []); finalTo.current = r.finalToMs ?? 0;
+        } catch (e: any) { liveOff.current = true; setLink('off'); setNotice(e?.message || 'The live text could not be started.'); }
+        setPhase('review');
+      } catch (e: any) { setError(e?.message || 'This could not be opened. Try again.'); setPhase('setup'); }
+    })();
+  }, [draftId]);
 
   const retry = () => {
     clearTimeout(retryTimer.current);
@@ -137,11 +164,8 @@ export default function Speech() {
     };
   };
 
-  const start = async () => {
-    setError(''); setNotice(''); setPhase('starting');
-    chunks.current = []; samples.current = 0; finalTo.current = 0; catchUpTo.current = 0; delays.current = []; attempt.current = 0;
-    stopping.current = false; finished.current = false; liveOff.current = false; paused.current = false;
-    setSegs([]); setPending(0); setDelay(null); setElapsed(0); setLink('connecting');
+  /** Starts the microphone; what it hears is added to the end of the recording. False if it could not be started. */
+  const openMic = async (back: Phase) => {
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
       stream.current = s;
@@ -179,11 +203,20 @@ export default function Speech() {
       };
       loop();
     } catch (e: any) {
-      stopMic(); setPhase('setup');
+      stopMic(); setPhase(back);
       setError(e?.name === 'NotAllowedError' ? 'VerbaFlow does not have permission to use the microphone. Allow it in your browser, then try again.' : 'The microphone could not be started. Check that one is connected and not in use by another app, then try again.');
-      return;
+      return false;
     }
-    setPhase('live');
+    setPhase('live'); setDirty(true);
+    return true;
+  };
+
+  const start = async () => {
+    setError(''); setNotice(''); setMessage(''); setPhase('starting');
+    chunks.current = []; samples.current = 0; finalTo.current = 0; catchUpTo.current = 0; delays.current = []; attempt.current = 0;
+    stopping.current = false; finished.current = false; liveOff.current = false; paused.current = false;
+    setSegs([]); setPending(0); setDelay(null); setElapsed(0); setLink('connecting');
+    if (!await openMic('setup')) return;
     // Recording has started. The text follows once the live connection is made; anything said before then is sent when it is.
     try {
       const r = await api.post('/live', { spokenLanguages: spoken });
@@ -193,6 +226,21 @@ export default function Speech() {
       liveOff.current = true; setLink('off');
       setNotice(e?.message || 'The live text could not be started.');
     }
+  };
+
+  // Speaking again after Stop, or after carrying on with a Draft: the new speech goes at the end, and the live text
+  // carries on from where the finished text ends (anything after that is sent again, so nothing is missed).
+  const speakMore = async () => {
+    setError(''); setMessage(''); setPhase('starting');
+    stopping.current = false; finished.current = false; paused.current = false; attempt.current = 0;
+    catchUpTo.current = msOf(samples.current);
+    if (!await openMic('review')) { stopping.current = true; finished.current = true; return; }
+    if (liveOff.current || !session.current) return;
+    setLink('connecting');
+    try { if (!pendingTicket.current) await api.post(`/live/${session.current}/resume`); }
+    catch { liveOff.current = true; setLink('off'); setNotice('The live text has stopped.'); return; }
+    const t = pendingTicket.current; pendingTicket.current = undefined;
+    connect(t);
   };
 
   const pause = () => { paused.current = true; setPhase('paused'); };
@@ -208,25 +256,58 @@ export default function Speech() {
     finishTimer.current = window.setTimeout(() => setPhase(p => p === 'finishing' ? 'review' : p), 20_000);
   };
 
+  const form = () => {
+    const track = join(chunks.current);
+    const f = new FormData();
+    f.append('audio', toWav(track), 'speech.wav');
+    f.append('lengthMs', String(Math.max(1, msOf(track.length))));
+    f.append('name', name.trim()); f.append('documentType', docType);
+    if (clientRef.trim()) f.append('clientReference', clientRef.trim());
+    f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken);
+    f.append('mode', 'speech'); f.append('consentNoticeGiven', 'false'); f.append('markers', '[]');
+    if (session.current) f.append('liveSession', session.current);
+    const m = median(delays.current);
+    if (m !== null) { f.append('delayMedianMs', String(m)); f.append('delayWorstMs', String(Math.max(...delays.current))); }
+    return f;
+  };
+
+  // Finish: the text goes to Speech to Text (or is worked out from the recording if the live text is not complete).
   const save = async () => {
+    setPhase('saving'); setError(''); setMessage('');
+    try {
+      const f = form();
+      closeLink();
+      const target = id ? (await api.form(`/items/${id}/draft/finish`, f), id) : (await api.form('/items/recordings', f)).id;
+      session.current = null; setDirty(false);
+      location.hash = `#/items/${target}`;
+    } catch (e: any) { setError(e.message); setPhase('review'); }
+  };
+
+  // Draft: saved, not finished. The recording and the text so far are kept; carry on later from the Speech list.
+  const saveDraft = async () => {
+    setPhase('saving'); setError(''); setMessage('');
+    try {
+      if (id) await api.form(`/items/${id}/draft`, form());
+      else {
+        const r = await api.form('/items/drafts', form());
+        setId(r.id);
+        window.history.replaceState(null, '', `#/speech/live/${r.id}`);
+      }
+      setDirty(false);
+      setMessage('Saved as a draft. Carry on speaking now, or come back to it later from the Speech list.');
+    } catch (e: any) { setError(e.message); }
+    setPhase('review');
+  };
+
+  const removeDraft = async () => {
     setPhase('saving'); setError('');
     try {
-      const track = join(chunks.current);
-      const f = new FormData();
-      f.append('audio', toWav(track), 'speech.wav');
-      f.append('lengthMs', String(Math.max(1, msOf(track.length))));
-      f.append('name', name.trim()); f.append('documentType', docType);
-      if (clientRef.trim()) f.append('clientReference', clientRef.trim());
-      f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken);
-      f.append('mode', 'speech'); f.append('consentNoticeGiven', 'false'); f.append('markers', '[]');
-      if (session.current) f.append('liveSession', session.current);
-      const m = median(delays.current);
-      if (m !== null) { f.append('delayMedianMs', String(m)); f.append('delayWorstMs', String(Math.max(...delays.current))); }
       closeLink();
-      const { id } = await api.form('/items/recordings', f);
-      session.current = null;
-      location.hash = `#/items/${id}`;
-    } catch (e: any) { setError(e.message); setPhase('review'); }
+      if (session.current) api.post(`/live/${session.current}/discard`).catch(() => {});
+      await api.post(`/items/${id}/delete`, { reason: 'Draft deleted by its author' });
+      setDirty(false);
+      location.hash = '#/speech';
+    } catch (e: any) { setError(e.message); setPhase('review'); setConfirmDiscard(false); }
   };
 
   const discard = () => {
@@ -243,7 +324,8 @@ export default function Speech() {
 
   return (
     <div className="card">
-      <h2>Speech to text</h2>
+      <h2>{id ? 'Carry on speaking' : 'Speech to text'}</h2>
+      {phase === 'loading' && <p>Opening the draft…</p>}
       {phase === 'setup' && <>
         <p className="note">The text is typed as you speak. Say "comma", "full stop" or "new paragraph" for punctuation, as when dictating.</p>
         <DocumentTypePicker value={docType} onChange={setDocType} />
@@ -256,7 +338,7 @@ export default function Speech() {
       </>}
       {phase === 'starting' && <p>Starting the microphone…</p>}
 
-      {phase !== 'setup' && phase !== 'starting' && <p className="note"><strong>{name}</strong> · {docLabel(docType)}{clientRef ? ` · ${clientRef}` : ''}</p>}
+      {phase !== 'setup' && phase !== 'starting' && phase !== 'loading' && <p className="note"><strong>{name}</strong> · {docLabel(docType)}{clientRef ? ` · ${clientRef}` : ''}</p>}
 
       {speaking && <>
         <div className="timer" aria-live="off">{fmtLen(elapsed)} {phase === 'paused' && <span className="tag warn">Paused</span>}</div>
@@ -272,21 +354,25 @@ export default function Speech() {
       </>}
       {phase === 'finishing' && <p role="status">{link === 'lost' ? 'Finishing the text. The connection was lost; trying again…' : 'Finishing the text…'}</p>}
 
-      {phase !== 'setup' && phase !== 'starting' && <LiveText segs={segs} pending={phase === 'review' || phase === 'saving' ? 0 : pending}
+      {phase !== 'setup' && phase !== 'starting' && phase !== 'loading' && <LiveText segs={segs} pending={phase === 'review' || phase === 'saving' ? 0 : pending}
         type={docType || 'document'} name={name} clientRef={clientRef} empty={speaking ? 'Start speaking: the text appears here.' : 'No words were heard.'} />}
 
       {(phase === 'review' || phase === 'saving') && <>
         <p className="note">Length {fmtLen(elapsed)}.{' '}
-          {finished.current ? 'Save it to correct, approve, assign or export it like a dictation.'
-            : 'The live text did not finish, so when you save, the text is worked out again from the recording. That takes a little longer.'}</p>
+          {finished.current ? 'Finish it to correct, approve, assign or export it like a dictation. It then shows under Speech to Text.'
+            : 'The live text did not finish, so when you finish, the text is worked out again from the recording. That takes a little longer.'}</p>
         {notice && <div className="banner" role="status">{notice}</div>}
         {!confirmDiscard && <div className="actions">
-          <button className="primary" disabled={phase === 'saving'} onClick={save}>{phase === 'saving' ? 'Saving…' : 'Save'}</button>
-          <button className="danger" disabled={phase === 'saving'} onClick={() => setConfirmDiscard(true)}>Discard</button>
+          <button className="primary" disabled={phase === 'saving'} onClick={save}>{phase === 'saving' ? 'Saving…' : 'Finish'}</button>
+          <button disabled={phase === 'saving'} onClick={speakMore}>Carry on speaking</button>
+          <button disabled={phase === 'saving' || (!dirty && !!id)} onClick={saveDraft}>Save as draft</button>
+          <button className="danger" disabled={phase === 'saving'} onClick={() => setConfirmDiscard(true)}>{id ? 'Delete draft' : 'Discard'}</button>
         </div>}
-        {confirmDiscard && <div className="banner"><strong>Discard this recording and its text?</strong> Nothing has been saved, so it cannot be recovered.
-          <div className="actions" style={{ marginTop: 8 }}><button className="danger" onClick={discard}>Yes, discard it</button><button onClick={() => setConfirmDiscard(false)}>No, keep it</button></div></div>}
+        {confirmDiscard && <div className="banner"><strong>{id ? 'Delete this draft?' : 'Discard this recording and its text?'}</strong>{' '}
+          {id ? 'Every saved part is deleted. This cannot be undone.' : 'Nothing has been saved, so it cannot be recovered.'}
+          <div className="actions" style={{ marginTop: 8 }}><button className="danger" onClick={id ? removeDraft : discard}>{id ? 'Yes, delete it' : 'Yes, discard it'}</button><button onClick={() => setConfirmDiscard(false)}>No, keep it</button></div></div>}
       </>}
+      {message && <div className="ok" role="status">{message}</div>}
       {error && <div className="error">{error}</div>}
     </div>
   );

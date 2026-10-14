@@ -63,6 +63,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       case 'stop': if (active?.widgetId === msg.widgetId) toMic({ type: 'stop' }); return {};
       case 'end': if (active?.widgetId === msg.widgetId) await finish(msg.outcome, msg.counts ?? {}); return {};
       case 'settings': chrome.runtime.openOptionsPage(); return {};
+      case 'mic-test': await ensureOffscreen(); return (await chrome.runtime.sendMessage({ to: 'mic', type: 'test' })) ?? { ok: false };
+      case 'mic-setting': {
+        // The browser's own page where the microphone can be allowed for the Widget for good.
+        const scheme = /Edg\//.test(navigator.userAgent) ? 'edge' : 'chrome';
+        await chrome.tabs.create({ url: `${scheme}://settings/content/siteDetails?site=${encodeURIComponent(`chrome-extension://${chrome.runtime.id}`)}` });
+        return {};
+      }
     }
     return {};
   };

@@ -32,15 +32,34 @@ $('save').onclick = async () => {
   await fill();
 };
 
+const micNote = (text, ok) => { $('micStatus').textContent = text; $('micStatus').className = `note ${ok ? 'ok' : 'bad'}`; };
+const bg = msg => chrome.runtime.sendMessage({ ...msg, to: 'bg' });
+
+// The settings page may be allowed while the hidden page that does the listening is not (for example when the
+// browser was told "Allow this time"), so the check is made from there.
+async function checkMic() {
+  const r = await bg({ type: 'mic-test' }).catch(() => null);
+  if (r?.ok) { micNote('The microphone is allowed. The Widget can hear you.', true); $('micFix').hidden = true; return true; }
+  micNote('The browser allowed the microphone only for now, so the Widget cannot hear you yet. Click Open the microphone setting, set Microphone to Allow, then come back and click Allow the microphone again.', false);
+  $('micFix').hidden = false;
+  return false;
+}
+
 $('mic').onclick = async () => {
   try {
     const s = await navigator.mediaDevices.getUserMedia({ audio: true });
     s.getTracks().forEach(t => t.stop());
-    $('micStatus').textContent = 'The microphone is allowed.'; $('micStatus').className = 'note ok';
   } catch {
-    $('micStatus').textContent = 'The microphone was not allowed. Choose Allow when the browser asks, or allow it in the browser’s site settings for this extension.'; $('micStatus').className = 'note bad';
+    micNote('The microphone was not allowed. Click Allow the microphone again and choose Allow, or click Open the microphone setting and set Microphone to Allow.', false);
+    $('micFix').hidden = false;
+    return;
   }
+  await checkMic();
+};
+$('micFix').onclick = async () => {
+  const r = await bg({ type: 'mic-setting' }).catch(() => null);
+  if (!r?.ok) micNote('Open Settings in the browser, then Cookies and site permissions (Edge) or Privacy and security (Chrome), Microphone, and allow VerbaFlow Widget.', false);
 };
 
-navigator.permissions?.query({ name: 'microphone' }).then(p => { if (p.state === 'granted') { $('micStatus').textContent = 'The microphone is allowed.'; $('micStatus').className = 'note ok'; } }).catch(() => {});
+navigator.permissions?.query({ name: 'microphone' }).then(p => { if (p.state === 'granted') checkMic(); }).catch(() => {});
 fill();

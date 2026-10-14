@@ -14,6 +14,7 @@
   label { display:block; margin:10px 0 4px; font-weight:600; font-size:14px; }
   input, select { width:100%; padding:8px; font:inherit; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); }
   button { font:inherit; padding:8px 14px; border-radius:6px; border:1px solid var(--brand); background:var(--brand); color:#fff; cursor:pointer; margin-top:12px; }
+  button.secondary { background:#fff; color:var(--brand); margin-left:8px; }
   .note { color:var(--muted); font-size:13px; } .ok { color:var(--ok); } .bad { color:var(--bad); }
   ul { padding-left:20px; margin:6px 0; }
 </style>
@@ -25,8 +26,9 @@
 
   <div class="card">
     <h2>1. Allow the microphone</h2>
-    <p class="note">The browser asks once. The Widget only listens while the red Listening panel is showing.</p>
+    <p class="note">The browser asks once: choose <strong>Allow</strong> (not "Allow this time"). The Widget only listens while the red Listening panel is showing.</p>
     <button id="mic">Allow the microphone</button>
+    <button id="micFix" class="secondary" hidden>Open the microphone setting</button>
     <p id="micStatus" class="note" role="status"></p>
   </div>
 

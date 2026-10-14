@@ -111,7 +111,7 @@ Tests: `dotnet test` (356 pass) and `cd web && npx vitest run` (47 pass). Always
 
 ## Working agreements
 - **Customers never see technical error text, including their administrators.** They get a plain sentence plus a reference code (VF-XXXXXX). Technical detail goes to the support-only error table and the server log under the same code. Pass failures through `FailureReporter` (see `docs/support-and-errors.md`). Do not put `ex.Message`, provider responses or setup advice (keys, pricing tiers) in anything a customer can read.
-- Commit and push after each finished piece. Commit messages end with the attribution lines the session gives you.
+- Commit and push after each finished piece, **straight to `main`** (owner asked 2026-10-14: no pull requests; the owner then runs `git pull` and `run.cmd`). Commit messages end with the attribution lines the session gives you.
 - Never commit keys. Keep docs and README status in step with the code.
 - Treat transcript text as untrusted when sending it to an AI model.
 - Say plainly what has and has not been tested against real Azure.

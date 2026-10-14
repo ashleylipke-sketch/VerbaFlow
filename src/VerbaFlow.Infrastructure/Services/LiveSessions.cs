@@ -40,7 +40,7 @@ public static class DictationContext
         var saved = await stores.SavedText.ListAsync();
         phrases.AddRange(saved.Select(t => "insert " + t.Code).Distinct(StringComparer.OrdinalIgnoreCase).Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
         // The list commands are easy to mishear ("end list" came back as "endless"), so the speech service is told to expect them.
-        phrases.AddRange(new[] { "bullet point", "numbered point", "end list" }.Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
+        phrases.AddRange(new[] { "bullet point", "numbered point", "end list", "scratch that" }.Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
         return (phrases, saved);
     }
 

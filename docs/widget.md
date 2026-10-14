@@ -26,6 +26,12 @@ Worked: live text in the email body, "new line" after "Dear George,", and "inser
 - An email address said in the To box came out as "Ashley dot Lipke @btinternet.com". Now a spoken address becomes one word (ashley.lipke@btinternet.com) in every dictation: words joined by spoken "dot", "underscore" or "dash" before an "@" (or a spoken "at" after a spoken "dot"), with a domain containing a dot. "find it at example.com" stays as said. History `commandsHeard` "email address joined".
 - After stopping to correct the text and choosing Speak more, "colon new paragraph" did nothing: each Speak more is a new listen, and a command said before any word had nothing to attach to. Now a comma, colon and the like said first is kept and joins the text already there, and the live messages say `startsWithBreak` so the Widget puts a paragraph break after the existing text.
 
+## Correcting by voice (owner asked 2026-10-14; unit-tested only, untested on real Azure)
+Works in the Widget, Speech mode and Dictate.
+- **"scratch that"** removes the last phrase (the words since the comma, full stop or other punctuation before it), or a whole piece of saved text if that came last. "Dear George comma I hope this finds you scratch that I hope you are well" gives "Dear George, I hope you are well".
+- **"replace Tuesday with Thursday"** or **"correct Tuesday to Thursday"** changes the last "Tuesday" in the same paragraph. The old words can be up to 6; the new words end at a pause, a command or a sentence end, so pause briefly after them. Capitals and punctuation around the old words are kept. If the old words are not found, everything stays as said (History `commandsHeard` "replace, words not found").
+- "delete that" is not a command (too common in ordinary speech).
+
 ## What is kept
 Nothing the person said. The live session is thrown away on Accept or Cancel (and when the tab closes). VerbaFlow keeps:
 - `doc_widget_sessions`: user, site (host only, e.g. `mail.example.com`), browser and system (e.g. "Edge on Windows"), languages, start, end, outcome (accepted/cancelled), number of listens, seconds spoken, number of words, reconnects.

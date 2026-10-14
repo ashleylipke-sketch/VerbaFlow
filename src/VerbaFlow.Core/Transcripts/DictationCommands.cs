@@ -42,6 +42,8 @@ public static class DictationCommands
         ("numbered point", "starts the next numbered point (1, 2, 3 counted for you)"), ("end list", "back to ordinary paragraphs"), ("full stop", "."), ("comma", ","), ("question mark", "?"),
         ("exclamation mark", "!"), ("colon", ":"), ("semicolon", ";"), ("open bracket / close bracket", "( )"),
         ("open quote / close quote", "\" \""),
+        ("scratch that", "takes away what you said since the last punctuation mark"),
+        ("replace Tuesday with Thursday", "changes the last \"Tuesday\" you said"),
     ];
 
     private const string Trailing = ".,;:!?";
@@ -298,6 +300,27 @@ public static class DictationCommands
                 }
                 if (i + 1 < raw.Length && inserts.FirstWords.Contains(SpokenCodes.Key([raw[i + 1]]).Split(' ')[0])) Count(heard, NoMatch);
             }
+            if (raw[i] != LineBreak && Matches(raw, i, ScratchThat))
+            {
+                applied++;
+                Count(heard, "scratch that");
+                capitalNext = ScratchLast(paragraphs, lists) || capitalNext;
+                lowerNext = false; afterComma = false; openNext = null; flow.LowerNext = false;
+                i += 2;
+                continue;
+            }
+            if (raw[i] != LineBreak && ReplaceWords.ContainsKey(Bare(raw[i])) && FindReplacement(raw, i, timed, wordAt) is { } rep)
+            {
+                if (Replace(paragraphs, rep.Old, rep.New, flow.SpokenOnly))
+                {
+                    applied++;
+                    Count(heard, "replace");
+                    lowerNext = false; afterComma = false;
+                    i = rep.End;
+                    continue;
+                }
+                Count(heard, ReplaceNotFound);
+            }
             var cmd = raw[i] == LineBreak ? SpeechServiceBreak : Commands.FirstOrDefault(c => Matches(raw, i, c.Words))
                 ?? (flow.InList && Matches(raw, i, Endless.Words) ? Endless : null);
             var current = paragraphs[^1];
@@ -399,6 +422,106 @@ public static class DictationCommands
             });
         }
         return (segments, applied, breakAtStart, breakAtEnd, lists[0], breakAtEnd ? lists[^1] : null);
+    }
+
+    // ---------- correcting by voice ----------
+
+    public const string ReplaceNotFound = "replace, words not found";
+    /// <summary>"replace X with Y" and "correct X to Y".</summary>
+    private static readonly Dictionary<string, string> ReplaceWords = new() { ["replace"] = "with", ["correct"] = "to" };
+    private const int MaxReplaceWords = 6;
+    /// <summary>Not "delete that": "please delete that file" is ordinary speech.</summary>
+    private static readonly string[] ScratchThat = ["scratch", "that"];
+    /// <summary>A pause this long after the new words ends them ("replace Tuesday with Thursday ... and then").</summary>
+    private const int ReplacePauseMs = 350;
+
+    /// <summary>
+    /// "scratch that": takes away what was said since the last punctuation mark (in the paragraph being written), or,
+    /// said straight after one, the words before it back to the mark before that. Saved text put in with
+    /// "insert" goes as a whole. Returns whether the next word starts a sentence.
+    /// </summary>
+    private static bool ScratchLast(List<List<Token>> paragraphs, List<string?> lists)
+    {
+        // Nothing in the paragraph being written: the last thing said is at the end of the paragraph before.
+        while (paragraphs.Count > 1 && paragraphs[^1].Count == 0) { paragraphs.RemoveAt(paragraphs.Count - 1); lists.RemoveAt(lists.Count - 1); }
+        var tokens = paragraphs[^1];
+        if (tokens.Count == 0) return true;
+        var cut = tokens.Count;
+        if (tokens[^1].Insert is { } code)
+            while (cut > 0 && tokens[cut - 1].Insert == code) cut--;
+        else
+        {
+            cut--; // the last word goes, even when it ends a sentence
+            while (cut > 0 && !EndsPhrase(tokens[cut - 1].Text) && tokens[cut - 1].Insert is null) cut--;
+        }
+        tokens.RemoveRange(cut, tokens.Count - cut);
+        return cut == 0 || EndsSentence(tokens[cut - 1].Text);
+    }
+
+    private static bool EndsPhrase(string word) => word.TrimEnd('"', ')', '\'', '’', '”') is { Length: > 0 } w && Trailing.Contains(w[^1]);
+
+    private sealed record Replacement(string[] Old, string[] New, int End);
+
+    /// <summary>"replace" + old words + "with" + new words, the new words ending at a pause, a command, a sentence end or the passage end.</summary>
+    private static Replacement? FindReplacement(string[] raw, int at, IReadOnlyList<WordTiming>? timed, int[] wordAt)
+    {
+        var joiner = ReplaceWords[Bare(raw[at])];
+        for (var k = at + 2; k <= Math.Min(raw.Length - 2, at + 1 + MaxReplaceWords); k++)
+        {
+            if (raw[k] == LineBreak) return null;
+            if (Bare(raw[k]) != joiner) continue;
+            var end = k + 1;
+            while (end < raw.Length && end - (k + 1) < MaxReplaceWords && raw[end] != LineBreak
+                   && !Commands.Any(c => Matches(raw, end, c.Words)) && !Matches(raw, end, ScratchThat))
+            {
+                end++;
+                if (EndsSentence(raw[end - 1])) break;
+                if (timed is not null && end < raw.Length && raw[end] != LineBreak && wordAt[end] >= 0 && wordAt[end - 1] >= 0
+                    && timed[wordAt[end]].StartMs - timed[wordAt[end - 1]].EndMs >= ReplacePauseMs) break;
+            }
+            if (end == k + 1) return null;
+            // Without timings or a clear end, only short replacements count, so ordinary speech is left alone.
+            if (end - (k + 1) >= MaxReplaceWords && end < raw.Length) return null;
+            var old = raw[(at + 1)..k].Select(Bare).Where(w => w.Length > 0).ToArray();
+            var replacement = raw[(k + 1)..end].Select(w => w.Trim()).ToArray();
+            return old.Length == 0 ? null : new Replacement(old, replacement, end);
+        }
+        return null;
+    }
+
+    /// <summary>Changes the last place the old words were said (in one paragraph) to the new words. False when they were not found.</summary>
+    private static bool Replace(List<List<Token>> paragraphs, string[] old, string[] words, bool spokenOnly)
+    {
+        for (var p = paragraphs.Count - 1; p >= 0; p--)
+        {
+            var tokens = paragraphs[p];
+            for (var at = tokens.Count - old.Length; at >= 0; at--)
+            {
+                if (!Enumerable.Range(0, old.Length).All(n => Bare(tokens[at + n].Text) == old[n])) continue;
+                var first = tokens[at];
+                var lastText = tokens[at + old.Length - 1].Text;
+                // Punctuation around the old words stays: an opening quote or bracket before, a comma or full stop after.
+                var lead = new string(first.Text.TakeWhile(ch => ch is '"' or '(' or '\'' or '‘' or '“').ToArray());
+                var core = lastText.TrimEnd('"', ')', '\'', '’', '”');
+                var tail = lastText[core.TrimEnd(Trailing.ToCharArray()).Length..];
+                var fresh = words.Select(w => spokenOnly ? WithoutServicePunctuation(w) : w).Select(w => w.TrimEnd(Trailing.ToCharArray()))
+                    .Where(w => w.Length > 0).ToList();
+                if (fresh.Count == 0) return false;
+                var startsCapital = first.Text.FirstOrDefault(char.IsLetter) is var f && char.IsUpper(f);
+                fresh[0] = startsCapital ? Capitalise(fresh[0]) : fresh[0];
+                fresh[0] = lead + fresh[0];
+                fresh[^1] += tail;
+                // The new words share out the time the old ones took, so highlighting still follows the recording.
+                var from = first.Timing?.StartMs ?? 0;
+                var to = tokens[at + old.Length - 1].Timing?.EndMs ?? 0;
+                var made = fresh.Select((w, n) => new Token(w, first.Timing is null ? null
+                    : first.Timing with { Text = w, StartMs = from + (to - from) * n / fresh.Count, EndMs = from + (to - from) * (n + 1) / fresh.Count }, first.Index)).ToList();
+                tokens.RemoveRange(at, old.Length);
+                tokens.InsertRange(at, made);
+                return true;
+            }
+        }
+        return false;
     }
 
     public const string EmailJoined = "email address joined";

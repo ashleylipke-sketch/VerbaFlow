@@ -204,4 +204,57 @@ public class DictationCommandsTests
     [InlineData("the information", false)]
     public void Starts_with_break_tells_whether_speech_began_with_new_paragraph(string spoken, bool expected) =>
         Assert.Equal(expected, DictationCommands.StartsWithBreak([spoken]));
+
+    [Theory]
+    [InlineData("I will see you on Tuesday full stop we can meet at ten scratch that we can meet at noon full stop",
+        "I will see you on Tuesday. We can meet at noon.")]
+    [InlineData("I will see you on Tuesday full stop scratch that I will see you on Thursday full stop", "I will see you on Thursday.")]
+    [InlineData("the price is high comma scratch that low", "Low")]
+    [InlineData("Dear George comma I hope this finds you scratch that I hope you are well", "Dear George, I hope you are well")]
+    [InlineData("scratch that hello", "Hello")]
+    public void Scratch_that_takes_away_what_was_said_since_the_last_sentence_end(string spoken, string expected)
+    {
+        var (segs, _, heard) = DictationCommands.ApplyCounted([Seg(spoken)], spokenPunctuationOnly: true);
+        Assert.Equal(expected, Text(segs));
+        Assert.Equal(1, heard["scratch that"]);
+        Assert.Equal(segs.Sum(s => s.Text.Split(' ').Length), segs.Sum(s => s.Words!.Count));
+    }
+
+    [Fact]
+    public void Scratch_that_after_a_new_paragraph_goes_back_into_the_paragraph_before()
+    {
+        var (segs, _, _) = DictationCommands.ApplyCounted([Seg("Dear George comma new paragraph scratch that new paragraph Hello")], spokenPunctuationOnly: true);
+        Assert.Equal("Hello", Text(segs));
+    }
+
+    [Fact]
+    public void Scratch_that_takes_away_saved_text_as_a_whole()
+    {
+        var (segs, _, _) = DictationCommands.ApplyCounted([Seg("Thanks full stop insert disclaimer one scratch that Regards")],
+            [("disclaimer 1", "No advice is given. Read it carefully.")], spokenPunctuationOnly: true);
+        Assert.Equal("Thanks. Regards", Text(segs));
+    }
+
+    [Theory]
+    [InlineData("we meet on Tuesday at noon full stop replace Tuesday with Thursday", "we meet on Thursday at noon.")]
+    [InlineData("Dear Jon comma replace Jon with John", "Dear John,")]
+    [InlineData("the fee is fifty pounds full stop correct fifty pounds to sixty pounds", "the fee is sixty pounds.")]
+    [InlineData("please replace the old policy with the new one", "please replace the old policy with the new one")]
+    public void Replace_changes_the_last_place_the_words_were_said(string spoken, string expected)
+    {
+        var (segs, _, heard) = DictationCommands.ApplyCounted([Seg(spoken)], spokenPunctuationOnly: true);
+        Assert.Equal(expected, Text(segs));
+        Assert.Equal(expected.Contains("replace") ? 1 : 0, heard.GetValueOrDefault(DictationCommands.ReplaceNotFound));
+        Assert.Equal(segs[0].Text.Split(' ').Length, segs[0].Words!.Count);
+    }
+
+    [Fact]
+    public void Replace_stops_at_a_pause_so_the_dictation_carries_on()
+    {
+        var words = "we meet on Tuesday replace Tuesday with Thursday and then lunch".Split(' ');
+        var timings = words.Select((w, i) => new WordTiming(w, i * 500 + (i >= 8 ? 1000 : 0), i * 500 + 400 + (i >= 8 ? 1000 : 0))).ToList();
+        var seg = new Segment(Guid.NewGuid(), Guid.NewGuid(), "en", 0, 7000, string.Join(' ', words), 0.9, false, timings);
+        var (segs, _, _) = DictationCommands.ApplyCounted([seg], spokenPunctuationOnly: true);
+        Assert.Equal("we meet on Thursday and then lunch", Text(segs));
+    }
 }

@@ -53,7 +53,7 @@ export default function WidgetPage() {
           <li><strong>Green</strong>: the words are in the box. A one-line box or plain text area is then locked; double-click it to change it.
             To replace part of what is there, select it first, then click the microphone.</li>
         </ol>
-        <p className="note">The button never appears in password, card number or one-time code boxes. Spoken commands ("comma", "new paragraph") and saved text work as in Dictate.</p>
+        <p className="note">The button never appears in password, card number or one-time code boxes. Spoken commands ("comma", "new paragraph") and saved text work as in Dictate. To correct by voice, say "scratch that" or "replace Tuesday with Thursday".</p>
       </div>
 
       <div className="card">

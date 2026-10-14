@@ -21,6 +21,11 @@ The listening is done by a hidden extension page, not the settings page. If the 
 - Spoken commands, saved text and custom vocabulary work as in Dictate (the live session is the same as Speech mode's).
 - Never offered in password boxes, boxes marked for card numbers, card codes or one-time codes, or boxes whose name or label suggests them.
 
+## Owner's first real use (2026-10-14, Chrome, Outlook web, real Azure)
+Worked: live text in the email body, "new line" after "Dear George,", and "insert disclaimer 1.1" put the saved disclaimer in. Two problems, both fixed and **not yet confirmed**:
+- An email address said in the To box came out as "Ashley dot Lipke @btinternet.com". Now a spoken address becomes one word (ashley.lipke@btinternet.com) in every dictation: words joined by spoken "dot", "underscore" or "dash" before an "@" (or a spoken "at" after a spoken "dot"), with a domain containing a dot. "find it at example.com" stays as said. History `commandsHeard` "email address joined".
+- After stopping to correct the text and choosing Speak more, "colon new paragraph" did nothing: each Speak more is a new listen, and a command said before any word had nothing to attach to. Now a comma, colon and the like said first is kept and joins the text already there, and the live messages say `startsWithBreak` so the Widget puts a paragraph break after the existing text.
+
 ## What is kept
 Nothing the person said. The live session is thrown away on Accept or Cancel (and when the tab closes). VerbaFlow keeps:
 - `doc_widget_sessions`: user, site (host only, e.g. `mail.example.com`), browser and system (e.g. "Edge on Windows"), languages, start, end, outcome (accepted/cancelled), number of listens, seconds spoken, number of words, reconnects.

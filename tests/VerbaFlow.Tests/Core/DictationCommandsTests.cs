@@ -172,4 +172,36 @@ public class DictationCommandsTests
         var (segs, _, _) = DictationCommands.ApplyCounted([Seg("The choice is endless")]);
         Assert.Equal("The choice is endless", Text(segs));
     }
+
+    [Theory]
+    [InlineData("Ashley dot Lipke @btinternet.com", "ashley.lipke@btinternet.com")]
+    [InlineData("send it to Ashley dot Lipke @btinternet.com full stop", "send it to ashley.lipke@btinternet.com.")]
+    [InlineData("ashley dot lipke at btinternet dot com", "ashley.lipke@btinternet.com")]
+    [InlineData("j underscore smith @example dot co dot uk comma thanks", "j_smith@example.co.uk, thanks")]
+    [InlineData("Lipke@BTinternet.com", "lipke@btinternet.com")]
+    [InlineData("you can find it at example.com", "you can find it at example.com")]
+    [InlineData("meet me at home", "meet me at home")]
+    public void Spoken_email_addresses_become_one_word(string spoken, string expected)
+    {
+        var (segs, _, heard) = DictationCommands.ApplyCounted([Seg(spoken)], spokenPunctuationOnly: true);
+        Assert.Equal(expected, Text(segs));
+        if (expected.Contains('@')) Assert.True(heard.ContainsKey(DictationCommands.EmailJoined));
+        Assert.Equal(segs[0].Text.Split(' ').Length, segs[0].Words!.Count);
+    }
+
+    [Fact]
+    public void A_comma_or_colon_said_before_any_word_is_kept_for_the_text_already_in_the_box()
+    {
+        var (segs, _, _) = DictationCommands.ApplyCounted([Seg("colon new paragraph the information provided")], spokenPunctuationOnly: true);
+        Assert.Equal(": | The information provided", Text(segs));
+        Assert.Equal([":"], segs[0].Words!.Select(w => w.Text));
+    }
+
+    [Theory]
+    [InlineData("new paragraph the information", true)]
+    [InlineData("bullet point first", true)]
+    [InlineData("colon new paragraph the information", false)]
+    [InlineData("the information", false)]
+    public void Starts_with_break_tells_whether_speech_began_with_new_paragraph(string spoken, bool expected) =>
+        Assert.Equal(expected, DictationCommands.StartsWithBreak([spoken]));
 }

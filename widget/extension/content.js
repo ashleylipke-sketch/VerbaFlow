@@ -97,7 +97,7 @@
   // ---------- state ----------
   // phase: idle | starting | red (listening) | finishing | amber (check, then Accept) | green
   let box = null, focused = null, phase = 'idle', widgetId = null, range = null, sel = null;
-  let prefix = '', segments = [], pending = 0, spokenMs = 0, reconnects = 0, amend = false, link = '';
+  let prefix = '', segments = [], pending = 0, leadBreak = false, spokenMs = 0, reconnects = 0, amend = false, link = '';
 
   // ---------- following the focused box ----------
 
@@ -151,14 +151,21 @@
   }
   const isPlain = () => box instanceof HTMLInputElement;
   const joinParas = ps => ps.join(isPlain() ? ' ' : '\n\n');
-  const heard = () => joinParas(paragraphs());
-  const fullText = () => [prefix.trim(), heard()].filter(Boolean).join(isPlain() ? ' ' : prefix.endsWith('\n') ? '' : ' ');
+  // "new paragraph" said first breaks after the text already there; a comma or colon said first joins it.
+  const heard = () => { const h = joinParas(paragraphs()); return h && leadBreak && !isPlain() ? '\n\n' + h : h; };
+  const joinsOn = h => /^\s/.test(h) || /^[.,;:!?)\]"”’]/.test(h);
+  const fullText = () => {
+    const p = prefix.trimEnd(), h = heard();
+    if (!h) return p.trim();
+    if (!p.trim()) return h;
+    return joinsOn(h) || p.endsWith('\n') ? p + h : p + ' ' + h;
+  };
   const words = t => t.split(/\s+/).filter(Boolean).length;
 
   function renderLive() {
     liveEl.textContent = '';
-    if (prefix.trim()) liveEl.append(prefix.trim() + ' ');
     const text = heard();
+    if (prefix.trim()) liveEl.append(prefix.trim() + (joinsOn(text) ? '' : ' '));
     const all = text.split(/(\s+)/);
     let wordsLeft = words(text) - pending, firm = '';
     const out = [];
@@ -224,7 +231,7 @@
       if (!withPrefix && range && !range.collapsed) withPrefix = range.toString();
     }
     amend = !!withPrefix;
-    prefix = withPrefix; segments = []; pending = 0; spokenMs = 0; reconnects = 0; link = '';
+    prefix = withPrefix; segments = []; pending = 0; leadBreak = false; spokenMs = 0; reconnects = 0; link = '';
     show('starting');
     const r = await send({ type: 'start', site: location.hostname });
     if (!r.ok) { editEl.value = prefix; show('amber', r.error || 'The Widget could not start.', true); return; }
@@ -234,7 +241,7 @@
   function stop() { if (phase !== 'red') return; show('finishing'); send({ type: 'stop', widgetId }); }
 
   function speakMore() {
-    prefix = editEl.value; segments = []; pending = 0; link = '';
+    prefix = editEl.value; segments = []; pending = 0; leadBreak = false; link = '';
     show('starting');
     if (!widgetId) return start(prefix);
     send({ type: 'again', widgetId }).then(r => { if (!r.ok) show('amber', r.error, true); });
@@ -248,7 +255,7 @@
 
   function reset() {
     // The Widget holds nothing once a dictation is accepted or cancelled.
-    widgetId = null; prefix = ''; segments = []; pending = 0; editEl.value = ''; liveEl.textContent = ''; range = null; sel = null; amend = false;
+    widgetId = null; prefix = ''; segments = []; pending = 0; leadBreak = false; editEl.value = ''; liveEl.textContent = ''; range = null; sel = null; amend = false;
     phase = 'idle'; panel.style.display = 'none';
     const b = box; box = null;
     if (b?.isConnected) { b.focus({ preventScroll: true }); }
@@ -292,7 +299,7 @@
 
   // A space between what was already there and the new words, as a person typing would leave one.
   function spaced(before, text) {
-    return before && !/\s$/.test(before) && !/^\s/.test(text) ? ' ' + text : text;
+    return before && !/\s$/.test(before) && !/^\s/.test(text) && !/^[.,;:!?)\]"”’]/.test(text) ? ' ' + text : text;
   }
 
   // A plain box the Widget filled is locked, so it is not changed by accident; double-click it to change it.
@@ -332,7 +339,7 @@
     if (!widgetId || msg.widgetId !== widgetId) return;
     if (msg.type === 'listening') { show('red'); }
     else if (msg.type === 'link') { link = msg.link; if (phase === 'red') noteEl.textContent = link === 'lost' ? 'Connection lost: still recording' : 'Alt+Shift+D to stop'; }
-    else if (msg.type === 'text') { segments = msg.segments ?? []; pending = msg.pendingWords ?? 0; if (phase === 'red' || phase === 'finishing') renderLive(); }
+    else if (msg.type === 'text') { segments = msg.segments ?? []; pending = msg.pendingWords ?? 0; leadBreak = !!msg.startsWithBreak; if (phase === 'red' || phase === 'finishing') renderLive(); }
     else if (msg.type === 'stopped') {
       spokenMs += msg.spokenMs ?? 0; reconnects = msg.reconnects ?? reconnects; pending = 0;
       editEl.value = fullText();

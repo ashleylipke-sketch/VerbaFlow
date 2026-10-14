@@ -159,6 +159,18 @@ public static class DictationCommands
         return (result, applied, heard);
     }
 
+    /// <summary>
+    /// Whether the speech starts with "new paragraph" (or "bullet point" and the like). The first passage always starts a
+    /// paragraph, so this is how the Widget knows to put a break between text already in the box and what was said next.
+    /// </summary>
+    public static bool StartsWithBreak(IEnumerable<string> texts)
+    {
+        var raw = MarkLineBreaks(string.Join(' ', texts.Take(3))).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (raw.Length == 0) return false;
+        if (raw[0] == LineBreak) return true;
+        return Commands.FirstOrDefault(c => Matches(raw, 0, c.Words)) is { Kind: Kind.Break or Kind.ListPoint };
+    }
+
     public static (IReadOnlyList<Segment> Segments, int Applied) Apply(Segment s)
     {
         var (parts, n, _, _, _, _) = Run(s, null, null, KeepCapitals([s], null), new Flow(false));
@@ -212,6 +224,8 @@ public static class DictationCommands
         public bool LowerNext;
         /// <summary>The paragraph being written is a bullet or numbered point.</summary>
         public bool InList;
+        /// <summary>No word written yet: a comma or colon said first belongs after text already in the box (Widget, Speak more).</summary>
+        public bool NothingYet = true;
     }
 
     public const string RemovedPunctuation = "punctuation from the speech service removed";
@@ -274,6 +288,7 @@ public static class DictationCommands
                             WordTiming? timing = timed is null ? null
                                 : new(text, from + (int)((long)(to - from) * n / total), from + (int)((long)(to - from) * (n + 1) / total));
                             paragraphs[^1].Add(new Token(text, timing, i, hit.Insert.Code));
+                            flow.NothingYet = false;
                             n++;
                         }
                     }
@@ -313,6 +328,7 @@ public static class DictationCommands
                     if (bare != text) { Count(heard, RemovedPunctuation); touched = true; text = bare; }
                 }
                 current.Add(new Token(text, timed?[wordAt[i]], i));
+                flow.NothingYet = false;
                 i++;
                 continue;
             }
@@ -341,6 +357,12 @@ public static class DictationCommands
                         && (serviceEnded || EndsSentence(prev.Text) || raw.Skip(i - cmd.Words.Length).Take(cmd.Words.Length).Any(EndsSentence));
                     afterComma = cmd.Symbol is "," or ":" or ";";
                     if (prev is not null) prev.Text = prev.Text.TrimEnd(Trailing.ToCharArray()) + cmd.Symbol;
+                    else if (flow.NothingYet && paragraphs.Count == 1)
+                    {
+                        // Said before any word: kept on its own, to join the text the person already has.
+                        var at = wordAt[i - cmd.Words.Length];
+                        current.Add(new Token(cmd.Symbol, timed is null || at < 0 ? null : timed[at] with { Text = cmd.Symbol }, i - cmd.Words.Length));
+                    }
                     capitalNext = cmd.Symbol is "." or "?" or "!";
                     break;
                 case Kind.Open:
@@ -352,6 +374,8 @@ public static class DictationCommands
                     break;
             }
         }
+        foreach (var para in paragraphs)
+            for (var joined = JoinEmailAddresses(para); joined > 0; joined--) { Count(heard, EmailJoined); touched = true; }
         if (applied == 0 && !touched) return ([s], 0, false, false, null, null);
 
         var breakAtEnd = paragraphs.Count > 1 && paragraphs[^1].Count == 0;
@@ -375,6 +399,87 @@ public static class DictationCommands
             });
         }
         return (segments, applied, breakAtStart, breakAtEnd, lists[0], breakAtEnd ? lists[^1] : null);
+    }
+
+    public const string EmailJoined = "email address joined";
+    private static readonly HashSet<string> EmailSeparators = ["dot", "underscore", "dash", "hyphen"];
+    private static string SeparatorSymbol(string word) => word switch { "dot" => ".", "underscore" => "_", _ => "-" };
+    /// <summary>Exactly this word, in any case, with nothing attached.</summary>
+    private static bool IsWord(string text, string word) => string.Equals(text, word, StringComparison.OrdinalIgnoreCase);
+    private static bool IsAddressPart(string text) => text.Length > 0 && text.All(ch => char.IsLetterOrDigit(ch) || ch is '.' or '_' or '-');
+
+    /// <summary>
+    /// A spoken email address ("ashley dot lipke at btinternet dot com", or as the speech service often writes it,
+    /// "Ashley dot Lipke @btinternet.com") made into one word: ashley.lipke@btinternet.com. Needs an "@", or a spoken
+    /// "at" after a spoken "dot", with a domain containing a dot after it, so ordinary speech is left alone. Returns how
+    /// many addresses were joined.
+    /// </summary>
+    private static int JoinEmailAddresses(List<Token> tokens)
+    {
+        var count = 0;
+        for (var j = 0; j < tokens.Count; j++)
+        {
+            var word = tokens[j].Text;
+            var core = word.TrimEnd(Trailing.ToCharArray());
+            var tail = word[core.Length..]; // a spoken comma or full stop after the address stays after it
+            string local, domain;
+            int from, to;
+            var atSign = core.IndexOf('@');
+            if (atSign >= 0)
+            {
+                local = core[..atSign]; domain = core[(atSign + 1)..];
+                if (local.Length > 0 && !IsAddressPart(local) || domain.Length > 0 && !IsAddressPart(domain)) continue;
+            }
+            else if (IsWord(word, "at") && j > 0 && j + 1 < tokens.Count) { local = ""; domain = ""; }
+            else continue;
+
+            // Backwards: the words of the part before the @, joined by spoken "dot", "underscore" or "dash".
+            from = j;
+            var localWords = new List<string>();
+            if (local.Length == 0)
+            {
+                var k = j - 1;
+                if (k < 0 || !IsAddressPart(tokens[k].Text)) continue;
+                localWords.Add(tokens[k].Text); from = k;
+            }
+            while (from >= 2 && EmailSeparators.Any(sep => IsWord(tokens[from - 1].Text, sep)) && IsAddressPart(tokens[from - 2].Text))
+            {
+                localWords.Insert(0, SeparatorSymbol(Bare(tokens[from - 1].Text)));
+                localWords.Insert(0, tokens[from - 2].Text);
+                from -= 2;
+            }
+            local = string.Concat(localWords) + local;
+
+            // Forwards: the domain, with spoken "dot"s.
+            to = j;
+            if (domain.Length == 0)
+            {
+                if (to + 1 >= tokens.Count) continue;
+                var d = tokens[to + 1].Text.TrimEnd(Trailing.ToCharArray());
+                if (!IsAddressPart(d)) continue;
+                domain = d; tail = tokens[to + 1].Text[d.Length..]; to++;
+            }
+            while (tail.Length == 0 && to + 2 < tokens.Count && IsWord(tokens[to + 1].Text, "dot"))
+            {
+                var d = tokens[to + 2].Text.TrimEnd(Trailing.ToCharArray());
+                if (!IsAddressPart(d)) break;
+                domain += "." + d; tail = tokens[to + 2].Text[d.Length..]; to += 2;
+            }
+            if (local.Length == 0 || !domain.Contains('.') || domain.StartsWith('.') || domain.EndsWith('.')) continue;
+            // A spoken "at" (not "@") only counts with a spoken "dot" before it, so "find it at example.com" stays as said.
+            if (atSign < 0 && localWords.Count < 3) continue;
+            if (from == j && to == j && atSign >= 0 && localWords.Count == 0 && core == core.ToLowerInvariant()) continue; // already one word
+
+            var first = tokens[from].Timing;
+            var last = tokens[to].Timing;
+            var text = (local + "@" + domain).ToLowerInvariant() + tail;
+            var timing = first is null ? null : first with { Text = text, EndMs = last?.EndMs ?? first.EndMs };
+            tokens[from] = new Token(text, timing, tokens[from].Index, tokens[from].Insert);
+            tokens.RemoveRange(from + 1, to - from);
+            j = from;
+            count++;
+        }
+        return count;
     }
 
     private static void Count(IDictionary<string, int>? heard, string name)

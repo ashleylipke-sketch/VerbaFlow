@@ -86,7 +86,7 @@ public static class LiveEndpoints
                     if (!session.AddFinal(gen, Shift(p, offset))) break; // a newer connection has taken over
                     (finals, finalTo) = session.Snapshot();
                     finalWords = Words(finals);
-                    await SendAsync(ws, new { type = "text", segments = Shown(finals), pendingWords = 0, finalToMs = finalTo, heardToMs = offset + e.EndMs }, cts.Token);
+                    await SendAsync(ws, new { type = "text", segments = Shown(finals), pendingWords = 0, finalToMs = finalTo, heardToMs = offset + e.EndMs, startsWithBreak = StartsWithBreak(session.PhrasesSoFar()) }, cts.Token);
                 }
                 else if (e.Kind == LiveEventKind.Partial && !string.IsNullOrWhiteSpace(e.Text))
                 {
@@ -94,7 +94,7 @@ public static class LiveEndpoints
                     var partial = new Segment(Guid.Empty, Guid.Empty, "", offset + e.StartMs, offset + e.EndMs, e.Text.Trim(), 1, false);
                     List<Segment> with = [.. session.PhrasesSoFar(), partial];
                     var shown = DictationContext.Apply(with, session.Saved, session.Phrases);
-                    await SendAsync(ws, new { type = "text", segments = Shown(shown), pendingWords = Math.Max(0, Words(shown) - finalWords), finalToMs = finalTo, heardToMs = offset + e.EndMs }, cts.Token);
+                    await SendAsync(ws, new { type = "text", segments = Shown(shown), pendingWords = Math.Max(0, Words(shown) - finalWords), finalToMs = finalTo, heardToMs = offset + e.EndMs, startsWithBreak = StartsWithBreak(with) }, cts.Token);
                 }
             }
         }
@@ -108,7 +108,7 @@ public static class LiveEndpoints
             (finals, finalTo) = session.Snapshot();
             try
             {
-                await SendAsync(ws, new { type = "done", segments = Shown(finals), finalToMs = finalTo }, CancellationToken.None);
+                await SendAsync(ws, new { type = "done", segments = Shown(finals), finalToMs = finalTo, startsWithBreak = StartsWithBreak(session.PhrasesSoFar()) }, CancellationToken.None);
                 await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
             }
             catch (WebSocketException) { /* gone already */ }
@@ -169,6 +169,8 @@ public static class LiveEndpoints
     };
 
     private static List<Para> Shown(IEnumerable<Segment> segments) => segments.Select(s => new Para(s.Text, s.NewParagraph, s.List)).ToList();
+    /// <summary>Whether the person began with "new paragraph": the Widget then breaks after text already in the box.</summary>
+    private static bool StartsWithBreak(IEnumerable<Segment> phrases) => DictationCommands.StartsWithBreak(phrases.OrderBy(p => p.StartMs).Select(p => p.Text));
     private static int Words(IEnumerable<Segment> segments) => segments.Sum(s => s.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length);
 
     private static Task SendAsync(WebSocket ws, object message, CancellationToken ct) =>

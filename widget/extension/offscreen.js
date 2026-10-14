@@ -101,11 +101,11 @@ async function connect(l, firstTicket) {
       if (l.stopping) ws.send(JSON.stringify({ type: 'end' }));
     } else if (m.type === 'text') {
       l.finalTo = m.finalToMs ?? l.finalTo;
-      toBox({ type: 'text', segments: m.segments, pendingWords: m.pendingWords ?? 0 });
+      toBox({ type: 'text', segments: m.segments, pendingWords: m.pendingWords ?? 0, startsWithBreak: !!m.startsWithBreak });
     } else if (m.type === 'done') {
       l.finished = true;
       l.finalTo = m.finalToMs ?? l.finalTo;
-      toBox({ type: 'text', segments: m.segments, pendingWords: 0 });
+      toBox({ type: 'text', segments: m.segments, pendingWords: 0, startsWithBreak: !!m.startsWithBreak });
       stopped(l, true);
     } else if (m.type === 'error') {
       l.off = true;

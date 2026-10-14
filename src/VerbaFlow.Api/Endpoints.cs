@@ -22,6 +22,9 @@ public static class Endpoints
         return new LiveUpload(text, int.TryParse(f["delayMedianMs"], out var dm) ? dm : null, int.TryParse(f["delayWorstMs"], out var dw) ? dw : null);
     }
 
+    public sealed record WidgetStartBody(string? Site, string? Device, string? SpokenLanguages);
+    public sealed record WidgetEndBody(string? Outcome, int? SpokenMs, int? Words, int? Reconnects);
+    public sealed record WidgetPolicyBody(List<string>? BlockedSites);
     public sealed record GrammarApplyBody(Guid SegmentId, string? Expected, string? Text);
 
     internal static ItemMode ModeOf(string? mode) => string.IsNullOrWhiteSpace(mode) ? ItemMode.Meeting
@@ -66,6 +69,16 @@ public static class Endpoints
         api.MapPost("/vocabulary/import", async (HttpContext h, VocabularyService v, LinesBody b) => Results.Ok(await v.ImportAsync(h.Current(), b.Lines)));
         api.MapDelete("/vocabulary/{id:guid}", async (HttpContext h, VocabularyService v, Guid id) => { await v.RemoveAsync(h.Current(), id); return Results.NoContent(); });
         // Saved text for "insert <code>" in a dictation: anyone signed in can read it, administrators change it.
+        // Widget (browser extension): live dictation into any website's text box. Nothing is kept but facts about each use.
+        api.MapPost("/widget/start", async (HttpContext h, WidgetService w, WidgetStartBody b) =>
+            Results.Ok(await w.StartAsync(h.Current(), b.Site, b.Device, b.SpokenLanguages)));
+        api.MapPost("/widget/{id:guid}/listen-again", async (HttpContext h, WidgetService w, Guid id) => Results.Ok(await w.ListenAgainAsync(h.Current(), id)));
+        api.MapPost("/widget/{id:guid}/end", async (HttpContext h, WidgetService w, Guid id, WidgetEndBody b) =>
+        { await w.EndAsync(h.Current(), id, b.Outcome, b.SpokenMs, b.Words, b.Reconnects); return Results.NoContent(); });
+        api.MapGet("/widget/policy", (HttpContext h, WidgetService w) => w.GetPolicyAsync(h.Current()));
+        api.MapPut("/widget/policy", (HttpContext h, WidgetService w, WidgetPolicyBody b) => w.SetBlockedSitesAsync(h.Current(), b.BlockedSites));
+        api.MapGet("/widget/sessions", (HttpContext h, WidgetService w) => w.ListAsync(h.Current()));
+
         api.MapGet("/saved-text", (SavedTextService t) => t.ListAsync());
         api.MapPost("/saved-text", async (HttpContext h, SavedTextService t, SavedTextBody b) => Results.Ok(await t.AddAsync(h.Current(), b.Code, b.Text)));
         api.MapPut("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id, SavedTextBody b) => Results.Ok(await t.ChangeAsync(h.Current(), id, b.Code, b.Text)));

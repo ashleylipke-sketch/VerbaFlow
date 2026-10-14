@@ -47,6 +47,7 @@ else builder.Services.AddSingleton<IAiOutputService, StandInAiOutputService>();
 if (openAi.IsConfigured) builder.Services.AddHttpClient<IGrammarChecker, VerbaFlow.Infrastructure.Azure.AzureOpenAiGrammarChecker>(c => c.Timeout = TimeSpan.FromMinutes(5));
 else builder.Services.AddSingleton<IGrammarChecker, StandInGrammarChecker>();
 builder.Services.AddSingleton<GrammarService>();
+builder.Services.AddSingleton<WidgetService>();
 builder.Services.AddSingleton<IMalwareScanner, StandInMalwareScanner>();
 var emailOptions = new VerbaFlow.Infrastructure.Azure.AzureEmailOptions(builder.Configuration["Email:ConnectionString"] ?? "", builder.Configuration["Email:Sender"] ?? "");
 var outbox = Path.Combine(dataDir, "outbox");

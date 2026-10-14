@@ -27,6 +27,9 @@ public sealed class Stores
     public DocTable<Export.ExportRecord> Exports { get; }
     /// <summary>Speech mode: the text heard live while the person spoke, kept with the item it was saved as.</summary>
     public DocTable<LiveTranscript> LiveText { get; }
+    /// <summary>Widget: facts about each use (site, times, outcome), never text or audio.</summary>
+    public DocTable<WidgetSession> WidgetSessions { get; }
+    public DocTable<WidgetPolicy> WidgetPolicy { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -46,6 +49,8 @@ public sealed class Stores
         SupportErrors = new(db, "doc_support_errors");
         Exports = new(db, "doc_exports");
         LiveText = new(db, "doc_live_text");
+        WidgetSessions = new(db, "doc_widget_sessions");
+        WidgetPolicy = new(db, "doc_widget_policy");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

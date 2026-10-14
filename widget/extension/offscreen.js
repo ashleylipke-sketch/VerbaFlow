@@ -134,8 +134,17 @@ function stopped(l, complete) {
   closeLive();
 }
 
-chrome.runtime.onMessage.addListener(msg => {
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.to !== 'mic') return;
+  if (msg.type === 'test') {
+    // The settings page asks whether this page, which does the listening, may use the microphone. A permission
+    // given "this time" only reaches the settings page, not here.
+    if (mic) { reply({ ok: true }); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(s => { s.getTracks().forEach(t => t.stop()); reply({ ok: true }); })
+      .catch(e => reply({ ok: false, notAllowed: e?.name === 'NotAllowedError' }));
+    return true;
+  }
   if (msg.type === 'listen') {
     closeLive();
     const l = { server: msg.server, user: msg.user, liveId: msg.liveId, chunks: [], samples: 0, finalTo: 0, attempt: 0, connections: 0 };
@@ -145,7 +154,7 @@ chrome.runtime.onMessage.addListener(msg => {
       catch (e) {
         live = null;
         toBox({ type: 'error', fatal: true, message: e?.name === 'NotAllowedError'
-          ? 'The Widget is not allowed to use the microphone yet. Open the Widget settings and choose Allow the microphone.'
+          ? 'The Widget is not allowed to use the microphone yet. Click Settings below and follow step 1.'
           : 'The microphone could not be started. Check that one is connected and not in use by another app.' });
         return;
       }

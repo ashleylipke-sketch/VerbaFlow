@@ -9,6 +9,8 @@ First version, built 2026-10-13 (ADR 12: browser extension first). **Not yet tri
 
 The VerbaFlow app's **Widget** page repeats these steps.
 
+The listening is done by a hidden extension page, not the settings page. If the browser's microphone question is answered "Allow this time", only the settings page is allowed and the Widget says it may not use the microphone (owner saw this in Edge, 2026-10-14). The settings page now checks through the hidden page itself and, when it is refused, offers **Open the microphone setting** (the browser's site settings for the extension), where Microphone is set to Allow.
+
 ## Using it
 - Click in a text box: a microphone button appears in its corner (or **Alt+Shift+D**).
 - **Red**: listening; words appear live (grey while still being heard). **Stop**.

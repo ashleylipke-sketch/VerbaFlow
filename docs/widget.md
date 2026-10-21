@@ -36,7 +36,8 @@ Works in the Widget, Speech mode and Dictate.
 "scratch that" worked. Built after it, **not yet confirmed**:
 - "new paragraph" only moved to the next line, because Outlook's paragraphs have no space between them. In a rich editor the Widget now leaves an empty line between paragraphs, unless the editor already puts 6 px or more between them.
 - **Fix grammar** in the check step (amber): the text in the box is sent line by line to the grammar checker (Azure OpenAI, the same as Dictate's Check grammar), and the corrected text replaces it; **Undo fix** puts it back. Lines that are saved text, list markers and blank lines are left alone; a suggestion that rewrites the line (keeps under 60% of the wording) is left out. `POST /api/widget/{id}/grammar` {text}; History `widget.grammar_checked` (counts only) or `widget.grammar_failed` (VF- reference). One small Azure OpenAI charge per use.
-- "I hope this e-mail finds you" came out twice without "well": possibly Azure's disfluency removal (TrueText) taking "well" as a filler word. Unconfirmed.
+- "I hope this e-mail finds you" came out twice without "well"; the next try heard "well", so nothing was changed.
+- **Owner confirmed Fix grammar works on real Azure OpenAI (2026-10-21).**
 
 ## What is kept
 Nothing the person said. The live session is thrown away on Accept or Cancel (and when the tab closes). VerbaFlow keeps:

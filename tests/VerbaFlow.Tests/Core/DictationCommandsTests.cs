@@ -145,6 +145,19 @@ public class DictationCommandsTests
     }
 
     [Fact]
+    public void Insert_bullet_starts_a_bullet_point_unless_a_saved_text_code_matches()
+    {
+        var saved = new List<(string Code, string Text)> { ("disclaimer 1.1", "General guidance only."), ("bullet terms", "Terms apply.") };
+        var (segs, _, heard) = DictationCommands.ApplyCounted([Seg("Shopping list for tomorrow colon insert bullet eggs insert bullet point milk insert numbered point bread")],
+            saved, spokenPunctuationOnly: true);
+        Assert.Equal("Shopping list for tomorrow: | Eggs | Milk | Bread", Text(segs));
+        Assert.Equal([null, "bullet", "bullet", "number"], segs.Select(x => x.List));
+        Assert.Equal(1, heard["insert bullet"]);
+        var (terms, _, _) = DictationCommands.ApplyCounted([Seg("See below insert bullet terms")], saved, spokenPunctuationOnly: true);
+        Assert.Equal("See below Terms apply.", Text(terms));
+    }
+
+    [Fact]
     public void A_list_point_said_at_the_end_of_a_passage_carries_over_to_the_next_passage_and_carrying_on_text_is_not_a_new_point()
     {
         var (segs, _, _) = DictationCommands.ApplyCounted([Seg("Items colon numbered point"), Seg("First thing"), Seg("still the first thing")]);

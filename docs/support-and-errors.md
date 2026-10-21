@@ -23,7 +23,7 @@ Sign in as a support user. A **Support: errors** link appears in the top bar. Ty
 
 Support users deliberately **cannot see customers' meetings, recordings or transcripts**. They see an empty meeting list. They work from the reference code and the technical detail only. (Looking inside a customer's item would need a separate, audited access process, which is not built.)
 
-In development the support user is "Sam Support" (`X-Dev-User: sam`). In production, support access will come from a VerbaFlow-owned group in Microsoft Entra ID, separate from any customer's administrators. That mapping is not built yet.
+In development the support user is "Sam Support" (`X-Dev-User: sam`). In production, support access will come from a VerbaFlow-owned group in Microsoft Entra ID, separate from any customer's administrators. That mapping is not built yet: a Microsoft sign-in is never a support user.
 
 ## Rules for new code
 

@@ -97,6 +97,9 @@ builder.Services.AddSingleton<ProcessingService>(sp => new ProcessingService(sp.
     sp.GetService<IDictationSpeech>()));
 builder.Services.AddHostedService<ProcessingWorker>();
 
+var signIn = SignInOptions.From(builder.Configuration, builder.Environment);
+signIn.AddTo(builder.Services);
+
 var app = builder.Build();
 app.Logger.LogInformation(speech.IsConfigured
     ? "Speech: using Azure AI Speech at {Endpoint}"
@@ -124,7 +127,11 @@ app.Logger.LogInformation(openAi.IsConfigured
     ? "Summaries and Check grammar: using Azure OpenAI deployment {Deployment}"
     : "Summaries and Check grammar: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);
 
-await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
+app.Logger.LogInformation(signIn.Microsoft
+    ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.TestUsers ? ", and the test users while in Development" : "")
+    : signIn.TestUsers ? "Sign-in: TEST USERS only (alice, bob, carol...). Set Entra:TenantId and Entra:ClientId to sign in with Microsoft (see docs/entra-sign-in-setup.md)."
+    : "Sign-in: NOT SET UP. Nobody can sign in until Entra:TenantId and Entra:ClientId are set (see docs/entra-sign-in-setup.md).", signIn.TenantId);
+if (signIn.TestUsers) await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
 
 app.UseExceptionHandler(e => e.Run(async ctx =>
 {
@@ -150,8 +157,10 @@ app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSecond
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+// What the web app and the Widget need to know to sign in; public, so it sits outside the signed-in group.
+app.MapGet("/api/sign-in", (SignInOptions o) => o.Describe());
 var api = app.MapGroup("/api");
-api.AddEndpointFilter(DevUsers.RequireUser);
+api.AddEndpointFilter(SignIn.RequireUser);
 api.MapMeetingEndpoints();
 api.MapLiveEndpoints();
 app.MapLiveSocket();

@@ -1,3 +1,4 @@
+import { authHeaders } from './auth';
 export type Row = {
   id: string; name: string; priority: string; status: string; statusCode: string; lengthMs: number;
   clientReference: string | null; description: string | null; assignedTo: string | null; author: string | null; createdOn: string;
@@ -46,15 +47,12 @@ export type SavedText = { id: string; code: string; text: string; addedBy: strin
 export type Term = { id: string; text: string; note: string | null; addedBy: string; addedAt: string };
 export type Reopen = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null; newItemId: string | null };
 
-let devUser = localStorage.getItem('devUser') ?? '';
 /** Speak's modes that are built so far. */
 export type Mode = 'dictate' | 'speech' | 'meeting';
 
-export const getUser = () => devUser;
-export const setUser = (u: string) => { devUser = u; localStorage.setItem('devUser', u); };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, headers: { 'X-Dev-User': devUser } };
+  const init: RequestInit = { method, headers: await authHeaders() };
   if (body instanceof FormData) init.body = body;
   else if (body !== undefined) { (init.headers as Record<string, string>)['Content-Type'] = 'application/json'; init.body = JSON.stringify(body); }
   let res: Response;
@@ -108,7 +106,7 @@ export const api = {
   letterheadSpace: (s: { topFirstMm: number; topNextMm: number; bottomMm: number; sideMm: number }) => call<Letterhead>('PUT', '/letterhead/space', s),
   /** A file from the letterhead area (the stored letterhead, or a sample letter on it). */
   async letterheadFile(path: string): Promise<Blob> {
-    const res = await fetch(`/api/letterhead/${path}`, { headers: { 'X-Dev-User': devUser } });
+    const res = await fetch(`/api/letterhead/${path}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     return res.blob();
   },
@@ -119,7 +117,7 @@ export const api = {
   /** Fetches an export (the file itself, or an unsent email with it attached) with the name the server gives. */
   async exportFile(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' | 'share' = 'export'): Promise<File> {
     const path = kind === 'draft' ? 'export/draft' : 'export';
-    const res = await fetch(`/api/items/${id}/${path}?format=${format}&parts=${parts.join(',')}${kind === 'share' ? '&purpose=share' : ''}`, { headers: { 'X-Dev-User': devUser } });
+    const res = await fetch(`/api/items/${id}/${path}?format=${format}&parts=${parts.join(',')}${kind === 'share' ? '&purpose=share' : ''}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     const cd = res.headers.get('Content-Disposition') ?? '';
     const name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? `meeting.${format}`;
@@ -132,14 +130,14 @@ export const api = {
   },
   /** The PDF as the person would download it, for showing in a browser tab. */
   async previewMinutes(id: string, parts: string[]): Promise<Blob> {
-    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true&parts=${parts.join(',')}`, { headers: { 'X-Dev-User': devUser } });
+    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true&parts=${parts.join(',')}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     return res.blob();
   },
   emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[]) =>
     call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(',') }),
   async audio(id: string, download = false): Promise<Blob> {
-    const res = await fetch(`/api/items/${id}/audio${download ? '?download=true' : ''}`, { headers: { 'X-Dev-User': devUser } });
+    const res = await fetch(`/api/items/${id}/audio${download ? '?download=true' : ''}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     return res.blob();
   },

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, getUser, setUser, type UserView } from './api';
+import { api, type UserView } from './api';
+import { getTestUser, microsoftName, setTestUser, signedIn, signInInfo, signInProblem, signInWithMicrosoft, signOut } from './auth';
 import Dashboard from './pages/Dashboard';
 import Record from './pages/Record';
 import Dictate from './pages/Dictate';
@@ -21,16 +22,27 @@ function useHash() {
 
 export default function App() {
   const hash = useHash();
+  const info = signInInfo();
   const [users, setUsers] = useState<UserView[]>([]);
-  const [me, setMe] = useState(getUser());
-  useEffect(() => { fetch('/api/users', { headers: { 'X-Dev-User': 'alice' } }).then(r => r.json()).then(setUsers); }, []);
+  const [me, setMe] = useState<UserView | null>(null);
+  const [way, setWay] = useState(signedIn());
+  const [problem, setProblem] = useState(signInProblem());
+  // The test users to pick from (only on the owner's computer); the server lists them to anyone while test users are on.
+  useEffect(() => {
+    if (info.testUsers) fetch('/api/users', { headers: { 'X-Dev-User': 'alice' } }).then(r => r.json()).then(setUsers).catch(() => setUsers([]));
+  }, []);
+  useEffect(() => {
+    setMe(null);
+    if (way) api.me().then(setMe).catch(e => { setProblem(e.message); });
+  }, [way, getTestUser()]);
   const key = (u: UserView) => u.email.split('@')[0];
+  const pickTest = (u: string) => { setTestUser(u); setProblem(''); setWay(signedIn()); };
   const path = hash.replace(/^#/, '');
   const item = path.match(/^\/items\/([0-9a-f-]{36})$/);
   const draft = path.match(/^\/dictate\/record\/([0-9a-f-]{36})$/);
   const carryOn = /^\/speech\/live\/([0-9a-f-]{36})$/.exec(path);
-  const admin = users.find(u => key(u) === me)?.isAdmin;
-  const support = users.find(u => key(u) === me)?.isSupport;
+  const admin = me?.isAdmin;
+  const support = me?.isSupport;
 
   return (
     <>
@@ -47,16 +59,30 @@ export default function App() {
           {support && <a href="#/support" className={path === '/support' ? 'on' : ''}>Support: errors</a>}
           {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen and delete requests</a>}
         </nav>
-        <label className="note" title="Development stand-in for Microsoft Entra ID sign-in">
-          Signed in as{' '}
-          <select value={me} onChange={e => { setUser(e.target.value); setMe(e.target.value); }}>
-            <option value="">Choose…</option>
-            {users.map(u => <option key={u.id} value={key(u)}>{u.name}{u.isAdmin ? ' (admin)' : ''}{u.isSupport ? ' (support)' : ''}</option>)}
-          </select>
-        </label>
+        <span className="note signin">
+          {way === 'microsoft'
+            ? <>Signed in as {me?.name || microsoftName()}{me?.isAdmin ? ' (admin)' : ''} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>Sign out</a></>
+            : info.testUsers
+              ? <label title="Test users: only on this computer, while VerbaFlow runs in Development">
+                {way ? 'Test user ' : 'Test sign-in '}
+                <select value={way ? getTestUser() : ''} onChange={e => pickTest(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {users.map(u => <option key={u.id} value={key(u)}>{u.name}{u.isAdmin ? ' (admin)' : ''}{u.isSupport ? ' (support)' : ''}</option>)}
+                </select>
+              </label>
+              : null}
+        </span>
       </header>
-      <main key={me}>
-        {!me ? <div className="card">Choose a user at the top right to sign in. (This picker stands in for Entra ID sign-in during development.)</div>
+      <main key={me?.id ?? ''}>
+        {!way || !me ? <div className="card signin-card">
+          <h2>Sign in to VerbaFlow</h2>
+          {problem && <div className="error">{problem}</div>}
+          {way && !me && !problem && <p className="note">Signing in…</p>}
+          {!way && info.microsoft && <><p>Use your Microsoft work account, the one you use for Outlook and Teams.</p>
+            <div className="actions"><button className="primary" onClick={() => signInWithMicrosoft()}>Sign in with Microsoft</button></div></>}
+          {!way && info.testUsers && <p className="note">{info.microsoft ? 'Or, on this computer only, pick a test user at the top right.' : 'Pick a test user at the top right. (Microsoft sign-in is not set up yet.)'}</p>}
+          {!way && !info.microsoft && !info.testUsers && !problem && <p className="note">Sign-in is not set up yet. Your administrator needs to finish setting up VerbaFlow.</p>}
+        </div>
           : item ? <ItemPage id={item[1]} />
           : path === '/record' ? <Record mode="meeting" />
           : path === '/import' ? <Import mode="meeting" />

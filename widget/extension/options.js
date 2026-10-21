@@ -1,28 +1,39 @@
-import { DEFAULTS, settings } from './settings.js';
+import { DEFAULTS, call, settings, signInInfo, signInWithMicrosoft, signOut } from './settings.js';
 
 const $ = id => document.getElementById(id);
+const status = (text, ok) => { $('status').textContent = text; $('status').className = `note ${ok ? 'ok' : 'bad'}`; };
 
 async function fill() {
   const s = await settings();
   $('server').value = s.server;
-  try {
-    const headers = { 'X-Dev-User': s.user };
-    const [users, langs] = await Promise.all([
-      fetch(`${s.server}/api/users`, { headers }).then(r => r.json()),
-      fetch(`${s.server}/api/languages`, { headers }).then(r => r.json()),
-    ]);
-    $('user').innerHTML = users.map(u => {
+  let info;
+  try { info = await signInInfo(s.server); }
+  catch {
+    $('msBox').hidden = true; $('testBox').hidden = true;
+    $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`;
+    return status('VerbaFlow cannot be reached at this address. Check that it is running (run.cmd).', false);
+  }
+  $('msBox').hidden = !info.microsoft;
+  $('testBox').hidden = !info.testUsers;
+  if (info.testUsers) {
+    const users = await fetch(`${s.server}/api/users`, { headers: { 'X-Dev-User': s.user } }).then(r => r.json()).catch(() => []);
+    $('user').innerHTML = users.filter(u => u.email.endsWith('@example.test')).map(u => {
       const key = u.email.split('@')[0];
       return `<option value="${key}"${key === s.user ? ' selected' : ''}>${u.name}${u.isAdmin ? ' (admin)' : ''}</option>`;
     }).join('');
-    $('languages').innerHTML = langs.languages.filter(l => l.supported !== false && l.code !== 'auto')
-      .map(l => `<option value="${l.code}"${l.code === s.languages ? ' selected' : ''}>${l.name}</option>`).join('');
-    $('status').textContent = 'Connected to VerbaFlow.'; $('status').className = 'note ok';
-  } catch {
-    $('user').innerHTML = `<option value="${s.user}">${s.user}</option>`;
-    $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`;
-    $('status').textContent = 'VerbaFlow cannot be reached at this address. Check that it is running (run.cmd).'; $('status').className = 'note bad';
   }
+  let me = null;
+  try { me = await call('GET', '/me'); } catch (e) { me = null; if (!info.microsoft) return status(e.message, false); }
+  const microsoft = info.microsoft && me && !me.email?.endsWith('@example.test');
+  if (info.microsoft) {
+    $('who').textContent = microsoft ? `Signed in as ${me.name}${me.isAdmin ? ' (admin)' : ''}.` : 'Not signed in with Microsoft yet.';
+    $('msIn').hidden = !!microsoft; $('msOut').hidden = !microsoft;
+  }
+  if (!me) { $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`; return status('Sign in with Microsoft to use the Widget.', false); }
+  const langs = await call('GET', '/languages');
+  $('languages').innerHTML = langs.languages.filter(l => l.supported !== false && l.code !== 'auto')
+    .map(l => `<option value="${l.code}"${l.code === s.languages ? ' selected' : ''}>${l.name}</option>`).join('');
+  status(`Connected to VerbaFlow as ${me.name}.`, true);
 }
 
 $('save').onclick = async () => {
@@ -31,6 +42,12 @@ $('save').onclick = async () => {
   });
   await fill();
 };
+$('msIn').onclick = async () => {
+  try { await chrome.storage.local.set({ server: $('server').value.trim() || DEFAULTS.server }); await signInWithMicrosoft(true); }
+  catch (e) { return status(e.message === 'signin' ? 'The Microsoft sign-in did not finish. Try again.' : e.message, false); }
+  await fill();
+};
+$('msOut').onclick = async () => { await signOut(); await fill(); };
 
 const micNote = (text, ok) => { $('micStatus').textContent = text; $('micStatus').className = `note ${ok ? 'ok' : 'bad'}`; };
 const bg = msg => chrome.runtime.sendMessage({ ...msg, to: 'bg' });

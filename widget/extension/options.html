@@ -17,6 +17,7 @@
   button.secondary { background:#fff; color:var(--brand); margin-left:8px; }
   .note { color:var(--muted); font-size:13px; } .ok { color:var(--ok); } .bad { color:var(--bad); }
   ul { padding-left:20px; margin:6px 0; }
+  #msBox button { margin-top:4px; }
 </style>
 </head>
 <body>
@@ -36,9 +37,17 @@
     <h2>2. Connect to VerbaFlow</h2>
     <label for="server">VerbaFlow address</label>
     <input id="server" placeholder="http://localhost:5044">
-    <label for="user">Signed in as</label>
-    <select id="user"></select>
-    <p class="note">This stands in for Microsoft sign-in until that is built, as in the VerbaFlow app.</p>
+    <div id="msBox" hidden>
+      <label>Microsoft sign-in</label>
+      <p id="who" class="note" role="status"></p>
+      <button id="msIn">Sign in with Microsoft</button>
+      <button id="msOut" class="secondary" hidden>Sign out</button>
+    </div>
+    <div id="testBox" hidden>
+      <label for="user">Test user</label>
+      <select id="user"></select>
+      <p class="note">Test users only work on the computer where VerbaFlow runs for testing.</p>
+    </div>
     <label for="languages">Language you speak</label>
     <select id="languages"></select>
     <button id="save">Save and check</button>

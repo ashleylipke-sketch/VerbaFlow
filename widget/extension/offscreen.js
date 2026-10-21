@@ -80,7 +80,9 @@ async function connect(l, firstTicket) {
   let ticket = firstTicket;
   try {
     if (!ticket) {
-      const r = await fetch(`${l.server}/api/live/${l.liveId}/ticket`, { method: 'POST', headers: { 'X-Dev-User': l.user } });
+      const auth = await chrome.runtime.sendMessage({ to: 'bg', type: 'auth-headers' });
+      if (!auth?.ok) throw new Error();
+      const r = await fetch(`${l.server}/api/live/${l.liveId}/ticket`, { method: 'POST', headers: auth.headers });
       if (!r.ok) throw new Error();
       ticket = (await r.json()).ticket;
     }
@@ -147,7 +149,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   if (msg.type === 'listen') {
     closeLive();
-    const l = { server: msg.server, user: msg.user, liveId: msg.liveId, chunks: [], samples: 0, finalTo: 0, attempt: 0, connections: 0 };
+    const l = { server: msg.server, liveId: msg.liveId, chunks: [], samples: 0, finalTo: 0, attempt: 0, connections: 0 };
     live = l;
     (async () => {
       try { if (!mic) await openMic(); }

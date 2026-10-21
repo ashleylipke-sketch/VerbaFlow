@@ -1,7 +1,7 @@
 // The Widget's coordinator. A text box on a page (content.js) asks to start; this worker opens the session on the
 // VerbaFlow server, starts the microphone page (offscreen.js) and passes the live text back to the box.
 // One box at a time. Nothing heard is kept here.
-import { call, settings } from './settings.js';
+import { authHeaders, call, settings } from './settings.js';
 
 let active = null; // { tabId, frameId, widgetId }
 let policy = { at: 0, blocked: [] };
@@ -27,7 +27,7 @@ async function begin(sender, site) {
   const r = await call('POST', '/widget/start', { site, device: device(), spokenLanguages: s.languages });
   active = { tabId: sender.tab.id, frameId: sender.frameId, widgetId: r.id };
   await ensureOffscreen();
-  toMic({ type: 'listen', server: s.server, user: s.user, liveId: r.liveId, ticket: r.ticket });
+  toMic({ type: 'listen', server: s.server, liveId: r.liveId, ticket: r.ticket });
   return { widgetId: r.id };
 }
 
@@ -35,7 +35,7 @@ async function again() {
   const r = await call('POST', `/widget/${active.widgetId}/listen-again`);
   const s = await settings();
   await ensureOffscreen();
-  toMic({ type: 'listen', server: s.server, user: s.user, liveId: r.liveId, ticket: r.ticket });
+  toMic({ type: 'listen', server: s.server, liveId: r.liveId, ticket: r.ticket });
 }
 
 async function finish(outcome, counts) {
@@ -59,6 +59,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         return { blocked: policy.blocked };
       }
       case 'start': return await begin(sender, msg.site);
+      case 'auth-headers': return { headers: await authHeaders() }; // for the microphone page's reconnects
       case 'again': if (!active || active.widgetId !== msg.widgetId) throw new Error('This dictation has ended.'); await again(); return {};
       case 'grammar': {
         if (!active || active.widgetId !== msg.widgetId) throw new Error('This dictation has ended.');

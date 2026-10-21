@@ -12,7 +12,7 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 | Widget | First version: browser extension for Edge/Chrome (`widget/extension`, see `docs/widget.md`); not yet tried by the owner |
 | Meet | Not started |
 | Telephony bridge (ADR-15) | Designed, not built |
-| Azure services | Speech and OpenAI (summary, action points, minutes, tone) adapters built, each needs your key. ffmpeg audio clean-up built. SQL, Blob, Service Bus, Defender, Entra ID not written |
+| Azure services | Speech and OpenAI (summary, action points, minutes, tone) adapters built, each needs your key. ffmpeg audio clean-up built. Entra ID sign-in built. SQL, Blob, Service Bus, Defender not written |
 
 ## What is real and what is a stand-in
 
@@ -20,7 +20,7 @@ Everything marked *stand-in* sits behind an interface in `VerbaFlow.Core/Provide
 
 | Stand-in | Replaced by |
 |---|---|
-| `X-Dev-User` header sign-in (`DevUsers.cs`) | Microsoft Entra ID |
+| Test users through the `X-Dev-User` header (`DevUsers.cs`, Development only) | **Microsoft Entra ID sign-in: built, untested with a real Microsoft 365 organisation.** Used when `Entra:TenantId` and `Entra:ClientId` are set. See `docs/entra-sign-in-setup.md` |
 | SQLite | Azure SQL |
 | Local media folder, read-only files | Blob storage with immutability policy |
 | `StandInLiveSpeech` (Speech mode: one placeholder word per 0.4 s) | **Azure AI Speech real-time recognition: built, untested on real Azure.** Used when `Speech:Endpoint` and `Speech:Key` are set |
@@ -46,7 +46,7 @@ cd web && npm install && npm run build   # builds into src/VerbaFlow.Api/wwwroot
 cd ../src/VerbaFlow.Api && dotnet run     # http://localhost:5044
 ```
 
-Pick a user at the top right: Alice (author), Bob (assignee), Carol and Dave (admins). Data is kept in `src/VerbaFlow.Api/data/`.
+Pick a test user at the top right: Alice (author), Bob (assignee), Carol and Dave (admins), or sign in with Microsoft once it is set up (`docs/entra-sign-in-setup.md`). Data is kept in `src/VerbaFlow.Api/data/`.
 
 ## Layout
 

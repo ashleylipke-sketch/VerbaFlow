@@ -1,21 +1,54 @@
 {
   "manifest_version": 3,
   "name": "VerbaFlow Widget",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Speak into any text box on a website. The text appears as you speak; you check it, then Accept.",
-  "permissions": ["storage", "offscreen"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "background.js", "type": "module" },
-  "content_scripts": [{
-    "matches": ["http://*/*", "https://*/*"],
-    "js": ["content.js"],
-    "all_frames": true,
-    "run_at": "document_idle"
-  }],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtaSpmUuiTphCA+log89g0HL5V/eQLypFcwHQxwvYjpWB+8VWxp+kVRnK40/vUfmNvQmadv9YeNJccM/DFxjSdwyheg74fQSe4JYLSEfph+kjoHpDArtGw3JaMuSjKIgrmHwZGWRhV7S98c4S82JwouZWziPkMxm9vCx8qslufvQRBaAO08uOK19MDJACWGDrEQgGkgaTLO5gJPqNJZlgbawXuGi+/JEnNlsTfHe1AZBy8KnzJsaNkEG8JRGmhIxl8AE+PKbksMsaT7phcEYBTzuRp//YdrryjOL4p7UU/uruqFPSC5svI5G/4OQo/HeAMHAEEJay8Ah1b6RDJRUEQQIDAQAB",
+  "permissions": [
+    "storage",
+    "offscreen",
+    "identity"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
   "options_page": "options.html",
-  "action": { "default_title": "VerbaFlow Widget settings", "default_icon": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" } },
-  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
+  "action": {
+    "default_title": "VerbaFlow Widget settings",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "commands": {
-    "toggle-widget": { "suggested_key": { "default": "Alt+Shift+D" }, "description": "Start or stop speaking into the text box you are in" }
+    "toggle-widget": {
+      "suggested_key": {
+        "default": "Alt+Shift+D"
+      },
+      "description": "Start or stop speaking into the text box you are in"
+    }
   }
 }

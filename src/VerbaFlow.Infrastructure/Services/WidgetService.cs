@@ -1,12 +1,16 @@
 using System.Text.RegularExpressions;
 using VerbaFlow.Core.Audit;
 using VerbaFlow.Core.Domain;
+using VerbaFlow.Core.Providers;
+using VerbaFlow.Core.Transcripts;
 
 namespace VerbaFlow.Infrastructure.Services;
 
 public sealed record WidgetStart(Guid Id, Guid LiveId, string Ticket, string Engine);
 public sealed record WidgetSessionRow(Guid Id, string? User, string Site, string Device, string Languages, DateTimeOffset StartedAt,
     DateTimeOffset? EndedAt, string Outcome, int Listens, int? SpokenMs, int? Words);
+/// <summary>The text with grammar and punctuation corrected, how many lines changed, and how many suggested rewrites were left out.</summary>
+public sealed record WidgetGrammarResult(string Text, int LinesChanged, int LeftOutAsRewrites);
 public sealed record WidgetPolicyView(IReadOnlyList<string> BlockedSites, bool CanChange, string? ChangedBy, DateTimeOffset? ChangedAt);
 
 /// <summary>
@@ -14,7 +18,8 @@ public sealed record WidgetPolicyView(IReadOnlyList<string> BlockedSites, bool C
 /// Speech mode, but nothing is kept: no item, no text, no audio. The live session is thrown away when the person accepts
 /// or cancels, and the history holds only facts (site, times, outcome, counts), checked so that no text can get in.
 /// </summary>
-public sealed partial class WidgetService(Stores stores, LiveSessions live, TimeProvider clock)
+public sealed partial class WidgetService(Stores stores, LiveSessions live, TimeProvider clock,
+    IGrammarChecker? grammar = null, FailureReporter? reporter = null)
 {
     private const string Product = "widget";
     public const int MaxBlockedSites = 500;
@@ -111,6 +116,66 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
             ("secondsOpen", (int)(ended.EndedAt!.Value - w.StartedAt).TotalSeconds));
     }
 
+    /// <summary>Most characters of text the Widget sends for a grammar check.</summary>
+    public const int MaxGrammarChars = 20_000;
+
+    /// <summary>
+    /// "Fix grammar and punctuation" in the check step: each line of the person's text is sent to the grammar checker
+    /// (untrusted text, corrected, never followed) and the corrected text comes back. Lines that are saved text are the
+    /// company's own wording and are left alone, as are list markers and blank lines. Nothing is kept: History records
+    /// only counts.
+    /// </summary>
+    public async Task<WidgetGrammarResult> FixGrammarAsync(User actor, Guid id, string? text, CancellationToken ct = default)
+    {
+        var w = await RequireOpenAsync(actor, id);
+        text ??= "";
+        if (text.Length > MaxGrammarChars) throw new DomainException("The text is too long to check here. Check it in parts.");
+        if (grammar is null || reporter is null) throw new DomainException("Checking grammar is not available.");
+        var saved = (await stores.SavedText.ListAsync())
+            .SelectMany(t => t.Text.Split('\n')).Select(Squash).Where(l => l.Length > 0).ToHashSet(StringComparer.Ordinal);
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var passages = new List<GrammarPassage>();
+        var markers = new Dictionary<string, (int Line, string Marker, string Body)>();
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var m = ListMarker().Match(lines[i]);
+            var body = lines[i][m.Length..];
+            if (body.Trim().Length == 0 || saved.Contains(Squash(body))) continue;
+            var key = $"p{passages.Count + 1}";
+            passages.Add(new GrammarPassage(key, body.Trim()));
+            markers[key] = (i, m.Value, body);
+        }
+        var language = w.Languages.Split(',', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "en";
+        IReadOnlyList<GrammarFix> fixes;
+        try { fixes = passages.Count == 0 ? [] : await grammar.CheckAsync(passages, language, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var rep = await reporter.ReportAsync("widget-grammar", null, ex);
+            await Audit(actor, "user", "widget.grammar_failed", ("session", id), ("reference", rep.Reference));
+            throw new DomainException(rep.UserMessage);
+        }
+        int changed = 0, leftOut = 0;
+        foreach (var f in fixes.GroupBy(f => f.Id).Select(g => g.First()))
+        {
+            if (!markers.TryGetValue(f.Id, out var at)) continue;
+            var before = at.Body.Trim();
+            var after = f.Text.Replace("\r", " ").Replace('\n', ' ').Trim();
+            if (after.Length == 0 || after == before) continue;
+            if (WordDiff.WordingKept(before, after) < GrammarService.MinWordingKept) { leftOut++; continue; }
+            var lead = at.Body[..(at.Body.Length - at.Body.TrimStart().Length)];
+            lines[at.Line] = at.Marker + lead + after;
+            changed++;
+        }
+        await Audit(actor, "user", "widget.grammar_checked", ("session", id), ("linesChecked", passages.Count),
+            ("linesChanged", changed), ("leftOutAsRewrites", leftOut));
+        return new WidgetGrammarResult(string.Join('\n', lines), changed, leftOut);
+    }
+
+    private static string Squash(string s) => string.Join(' ', s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    [GeneratedRegex(@"^\s*(•|\d{1,3}\.)\s+")]
+    private static partial Regex ListMarker();
+
     /// <summary>The person's own uses, newest first; administrators see everyone's.</summary>
     public async Task<IReadOnlyList<WidgetSessionRow>> ListAsync(User actor, int take = 100)
     {
@@ -148,7 +213,8 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
                 "added" or "removed" => v is string s && s.Split(',', StringSplitOptions.RemoveEmptyEntries).All(x => SiteOf(x) == x),
                 "device" => v is string s && DeviceOf(s) == s,
                 "languages" => v is string s && LanguageList().IsMatch(s),
-                "blockedSites" or "listens" or "spokenMs" or "words" or "reconnects" or "secondsOpen" => v is null or int,
+                "reference" => v is string s && ReferencePattern().IsMatch(s),
+                "blockedSites" or "linesChecked" or "linesChanged" or "leftOutAsRewrites" or "listens" or "spokenMs" or "words" or "reconnects" or "secondsOpen" => v is null or int,
                 _ => false,
             };
             if (!ok) throw new InvalidOperationException($"Widget history may not hold \"{k}\" in that form: Widget keeps no text.");
@@ -160,6 +226,9 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
         RequireContentFree(details);
         return stores.Audit.AppendAsync(actor.Id, capacity, Product, null, type, AuditChain.Details(details));
     }
+
+    [GeneratedRegex("^VF-[A-Z0-9]{4,12}$")]
+    private static partial Regex ReferencePattern();
 
     [GeneratedRegex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$")]
     private static partial Regex HostPattern();

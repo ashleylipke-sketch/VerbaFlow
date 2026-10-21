@@ -97,7 +97,7 @@
   // ---------- state ----------
   // phase: idle | starting | red (listening) | finishing | amber (check, then Accept) | green
   let box = null, focused = null, phase = 'idle', widgetId = null, range = null, sel = null;
-  let prefix = '', segments = [], pending = 0, leadBreak = false, spokenMs = 0, reconnects = 0, amend = false, link = '';
+  let prefix = '', segments = [], pending = 0, leadBreak = false, beforeFix = null, spokenMs = 0, reconnects = 0, amend = false, link = '';
 
   // ---------- following the focused box ----------
 
@@ -201,6 +201,8 @@
     if (phase === 'amber') {
       button('Accept', 'primary', accept, !editEl.value.trim() && !amend);
       button('Speak more', '', speakMore);
+      if (beforeFix !== null) button('Undo fix', '', undoFix);
+      else if (widgetId) button('Fix grammar', '', fixGrammar, !editEl.value.trim()).title = 'Correct grammar and punctuation with AI. You can check the result and undo it.';
       button('Cancel', '', cancel);
       const s = document.createElement('a'); s.textContent = 'Settings'; s.style.cssText = 'margin-left:auto;align-self:center;font-size:12px'; s.onclick = () => send({ type: 'settings' }); rowEl.append(s);
     }
@@ -231,7 +233,7 @@
       if (!withPrefix && range && !range.collapsed) withPrefix = range.toString();
     }
     amend = !!withPrefix;
-    prefix = withPrefix; segments = []; pending = 0; leadBreak = false; spokenMs = 0; reconnects = 0; link = '';
+    prefix = withPrefix; segments = []; pending = 0; leadBreak = false; beforeFix = null; spokenMs = 0; reconnects = 0; link = '';
     show('starting');
     const r = await send({ type: 'start', site: location.hostname });
     if (!r.ok) { editEl.value = prefix; show('amber', r.error || 'The Widget could not start.', true); return; }
@@ -241,11 +243,27 @@
   function stop() { if (phase !== 'red') return; show('finishing'); send({ type: 'stop', widgetId }); }
 
   function speakMore() {
-    prefix = editEl.value; segments = []; pending = 0; leadBreak = false; link = '';
+    prefix = editEl.value; segments = []; pending = 0; leadBreak = false; beforeFix = null; link = '';
     show('starting');
     if (!widgetId) return start(prefix);
     send({ type: 'again', widgetId }).then(r => { if (!r.ok) show('amber', r.error, true); });
   }
+
+  // AI correction of grammar and punctuation, shown in the box to check before Accept; Undo fix puts the text back.
+  async function fixGrammar() {
+    const text = editEl.value;
+    rowEl.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    msgEl.textContent = 'Checking grammar and punctuation…'; msgEl.className = 'msg';
+    const r = await send({ type: 'grammar', widgetId, text });
+    if (phase !== 'amber') return;
+    if (!r.ok) { show('amber', r.error || 'The grammar could not be checked.', true); return; }
+    if (editEl.value !== text) { show('amber', 'The text was changed while it was being checked, so nothing was changed.', true); return; }
+    if (!r.linesChanged) { show('amber', 'No corrections needed.'); editEl.focus(); return; }
+    beforeFix = text; editEl.value = r.text;
+    show('amber', `Corrected ${r.linesChanged} line${r.linesChanged === 1 ? '' : 's'}. Check the text, then Accept.`);
+    editEl.focus();
+  }
+  function undoFix() { if (beforeFix !== null) editEl.value = beforeFix; beforeFix = null; show('amber', 'The text is back as it was.'); editEl.focus(); }
 
   function cancel() {
     if (widgetId) send({ type: 'end', widgetId, outcome: 'cancelled', counts: { spokenMs, reconnects } });
@@ -255,7 +273,7 @@
 
   function reset() {
     // The Widget holds nothing once a dictation is accepted or cancelled.
-    widgetId = null; prefix = ''; segments = []; pending = 0; leadBreak = false; editEl.value = ''; liveEl.textContent = ''; range = null; sel = null; amend = false;
+    widgetId = null; prefix = ''; segments = []; pending = 0; leadBreak = false; beforeFix = null; editEl.value = ''; liveEl.textContent = ''; range = null; sel = null; amend = false;
     phase = 'idle'; panel.style.display = 'none';
     const b = box; box = null;
     if (b?.isConnected) { b.focus({ preventScroll: true }); }
@@ -292,9 +310,22 @@
     if (r && r.startContainer.nodeType === Node.TEXT_NODE) text = spaced(r.startContainer.data.slice(0, r.startOffset), text);
     const paras = text.split(/\n{2,}/);
     paras.forEach((p, i) => {
-      if (i > 0) document.execCommand('insertParagraph');
+      // An email editor's paragraphs usually have no space between them, so a new paragraph would look like a new
+      // line: then an empty line is left between paragraphs, as people do when typing an email.
+      if (i > 0) { document.execCommand('insertParagraph'); if (!spacedParagraphs(b)) document.execCommand('insertParagraph'); }
       p.split('\n').forEach((line, k) => { if (k > 0) document.execCommand('insertLineBreak'); if (line) document.execCommand('insertText', false, line); });
     });
+  }
+
+  // Whether the editor puts visible space between paragraphs (as Word online does), judged at the cursor's paragraph.
+  function spacedParagraphs(b) {
+    const n = getSelection().anchorNode;
+    let el = n?.nodeType === Node.ELEMENT_NODE ? n : n?.parentElement;
+    while (el && el !== b && !/^(block|list-item)$/.test(getComputedStyle(el).display)) el = el.parentElement;
+    if (!el || el === b) return false;
+    const prev = el.previousElementSibling;
+    const gap = Math.max(parseFloat(getComputedStyle(el).marginTop) || 0, prev ? parseFloat(getComputedStyle(prev).marginBottom) || 0 : 0);
+    return gap >= 6;
   }
 
   // A space between what was already there and the new words, as a person typing would leave one.

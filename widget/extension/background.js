@@ -60,6 +60,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       }
       case 'start': return await begin(sender, msg.site);
       case 'again': if (!active || active.widgetId !== msg.widgetId) throw new Error('This dictation has ended.'); await again(); return {};
+      case 'grammar': {
+        if (!active || active.widgetId !== msg.widgetId) throw new Error('This dictation has ended.');
+        return await call('POST', `/widget/${msg.widgetId}/grammar`, { text: msg.text });
+      }
       case 'stop': if (active?.widgetId === msg.widgetId) toMic({ type: 'stop' }); return {};
       case 'end': if (active?.widgetId === msg.widgetId) await finish(msg.outcome, msg.counts ?? {}); return {};
       case 'settings': chrome.runtime.openOptionsPage(); return {};

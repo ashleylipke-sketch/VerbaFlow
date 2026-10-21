@@ -1,4 +1,5 @@
 using VerbaFlow.Core.Domain;
+using VerbaFlow.Core.Providers;
 using VerbaFlow.Infrastructure.Services;
 using VerbaFlow.Infrastructure.StandIns;
 
@@ -64,6 +65,57 @@ public class WidgetTests
         Assert.Equal(2, all.Count);
         Assert.Contains(all, r => r.User == env.Bob.Name && r.Outcome == "open");
         await Assert.ThrowsAsync<DomainException>(() => w.StartAsync(env.Alice, "a.example", "Edge", "auto"));
+    }
+
+    private sealed class FakeGrammar(Func<string, string?> fix, bool fail = false) : IGrammarChecker
+    {
+        public List<string> Sent { get; } = [];
+        public string Name => "fake";
+        public Task<IReadOnlyList<GrammarFix>> CheckAsync(IReadOnlyList<GrammarPassage> passages, string language, CancellationToken ct)
+        {
+            Sent.AddRange(passages.Select(p => p.Text));
+            if (fail) throw new InvalidOperationException("down");
+            return Task.FromResult<IReadOnlyList<GrammarFix>>(passages.Select(p => (p, t: fix(p.Text))).Where(x => x.t is not null)
+                .Select(x => new GrammarFix(x.p.Id, x.t!, "fixed")).ToList());
+        }
+    }
+
+    [Fact]
+    public async Task Fix_grammar_corrects_each_line_and_leaves_saved_text_list_markers_and_rewrites_alone()
+    {
+        using var env = new Env();
+        await env.Stores.SavedText.UpsertAsync(Guid.NewGuid(), new SavedText(Guid.NewGuid(), "disclaimer 1.1", "The information provided is general guidance", env.Alice.Id, env.Clock.GetUtcNow()));
+        var g = new FakeGrammar(t => t switch
+        {
+            "i hope this finds you well i refer to our letter" => "I hope this finds you well. I refer to our letter.",
+            "first point" => "First point.",
+            "all my love" => "Our gathering will take place next week",
+            _ => t + "!",
+        });
+        var live = new LiveSessions(env.Stores, new StandInLiveSpeech(), env.Clock);
+        var w = new WidgetService(env.Stores, live, env.Clock, g, env.Reporter);
+        var s = await w.StartAsync(env.Alice, "outlook.office.com", "Chrome on Windows", "en-GB");
+        var text = "i hope this finds you well i refer to our letter\n\nThe information provided is general guidance\n• first point\nall my love";
+        var r = await w.FixGrammarAsync(env.Alice, s.Id, text);
+        Assert.Equal("I hope this finds you well. I refer to our letter.\n\nThe information provided is general guidance\n• First point.\nall my love", r.Text);
+        Assert.Equal((2, 1), (r.LinesChanged, r.LeftOutAsRewrites));
+        Assert.DoesNotContain("The information provided is general guidance", g.Sent);
+        var audit = (await env.Stores.Audit.ListAsync()).Single(a => a.Type == "widget.grammar_checked");
+        Assert.DoesNotContain("hope", audit.Details); // counts only, never the text
+        await Assert.ThrowsAsync<ForbiddenException>(() => w.FixGrammarAsync(env.Bob, s.Id, "hello"));
+    }
+
+    [Fact]
+    public async Task A_failed_grammar_check_gives_a_plain_sentence_and_a_reference()
+    {
+        using var env = new Env();
+        var live = new LiveSessions(env.Stores, new StandInLiveSpeech(), env.Clock);
+        var w = new WidgetService(env.Stores, live, env.Clock, new FakeGrammar(_ => null, fail: true), env.Reporter);
+        var s = await w.StartAsync(env.Alice, "outlook.office.com", "Chrome on Windows", "en-GB");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => w.FixGrammarAsync(env.Alice, s.Id, "hello there"));
+        Assert.DoesNotContain("down", ex.Message);
+        Assert.Contains("VF-", ex.Message);
+        Assert.Contains((await env.Stores.Audit.ListAsync()), a => a.Type == "widget.grammar_failed");
     }
 
     [Fact]

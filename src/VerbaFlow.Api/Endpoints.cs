@@ -24,6 +24,7 @@ public static class Endpoints
 
     public sealed record WidgetStartBody(string? Site, string? Device, string? SpokenLanguages);
     public sealed record WidgetEndBody(string? Outcome, int? SpokenMs, int? Words, int? Reconnects);
+    public sealed record WidgetTextBody(string? Text);
     public sealed record WidgetPolicyBody(List<string>? BlockedSites);
     public sealed record GrammarApplyBody(Guid SegmentId, string? Expected, string? Text);
 
@@ -75,6 +76,8 @@ public static class Endpoints
         api.MapPost("/widget/{id:guid}/listen-again", async (HttpContext h, WidgetService w, Guid id) => Results.Ok(await w.ListenAgainAsync(h.Current(), id)));
         api.MapPost("/widget/{id:guid}/end", async (HttpContext h, WidgetService w, Guid id, WidgetEndBody b) =>
         { await w.EndAsync(h.Current(), id, b.Outcome, b.SpokenMs, b.Words, b.Reconnects); return Results.NoContent(); });
+        api.MapPost("/widget/{id:guid}/grammar", async (HttpContext h, WidgetService w, Guid id, WidgetTextBody b, CancellationToken ct) =>
+            Results.Ok(await w.FixGrammarAsync(h.Current(), id, b.Text, ct)));
         api.MapGet("/widget/policy", (HttpContext h, WidgetService w) => w.GetPolicyAsync(h.Current()));
         api.MapPut("/widget/policy", (HttpContext h, WidgetService w, WidgetPolicyBody b) => w.SetBlockedSitesAsync(h.Current(), b.BlockedSites));
         api.MapGet("/widget/sessions", (HttpContext h, WidgetService w) => w.ListAsync(h.Current()));

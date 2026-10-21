@@ -32,6 +32,12 @@ Works in the Widget, Speech mode and Dictate.
 - **"replace Tuesday with Thursday"** or **"correct Tuesday to Thursday"** changes the last "Tuesday" in the same paragraph. The old words can be up to 6; the new words end at a pause, a command or a sentence end, so pause briefly after them. Capitals and punctuation around the old words are kept. If the old words are not found, everything stays as said (History `commandsHeard` "replace, words not found").
 - "delete that" is not a command (too common in ordinary speech).
 
+## Second real use (2026-10-21, Chrome, Outlook web)
+"scratch that" worked. Built after it, **not yet confirmed**:
+- "new paragraph" only moved to the next line, because Outlook's paragraphs have no space between them. In a rich editor the Widget now leaves an empty line between paragraphs, unless the editor already puts 6 px or more between them.
+- **Fix grammar** in the check step (amber): the text in the box is sent line by line to the grammar checker (Azure OpenAI, the same as Dictate's Check grammar), and the corrected text replaces it; **Undo fix** puts it back. Lines that are saved text, list markers and blank lines are left alone; a suggestion that rewrites the line (keeps under 60% of the wording) is left out. `POST /api/widget/{id}/grammar` {text}; History `widget.grammar_checked` (counts only) or `widget.grammar_failed` (VF- reference). One small Azure OpenAI charge per use.
+- "I hope this e-mail finds you" came out twice without "well": possibly Azure's disfluency removal (TrueText) taking "well" as a filler word. Unconfirmed.
+
 ## What is kept
 Nothing the person said. The live session is thrown away on Accept or Cancel (and when the tab closes). VerbaFlow keeps:
 - `doc_widget_sessions`: user, site (host only, e.g. `mail.example.com`), browser and system (e.g. "Edge on Windows"), languages, start, end, outcome (accepted/cancelled), number of listens, seconds spoken, number of words, reconnects.

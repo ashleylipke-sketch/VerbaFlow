@@ -25,6 +25,10 @@ public sealed record ImportUpload(Stream File, string FileName, string ContentTy
     string OutputLanguage, bool RightsConfirmed, string? SourceNote, string? SpokenLanguages = null, int? NumSpeakers = null,
     ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null);
 
+/// <summary>A recording brought back by Meet's note-taker. <paramref name="Requesters"/>: first asker first (the owner).</summary>
+public sealed record OnlineMeetingUpload(Stream Video, string FileName, string ContentType, string Name, IReadOnlyList<Guid> Requesters,
+    string Platform, string NoteTakerName, Guid NoteTakerId, string SpokenLanguages, IReadOnlyList<PlatformSpeech> Speakers);
+
 public sealed record RetryRequest(string? SpokenLanguages);
 public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null, string? Audio = null, string? DictationService = null);
 
@@ -46,7 +50,7 @@ public sealed record ItemDetail(
     bool CanEditDetails, bool CanDownloadAudio, string Role, string OutputLanguage, DateTimeOffset? ApprovedAt,
     string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en",
     DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null, bool CanExport = false,
-    string Mode = "Meeting", string? DocumentType = null, string? ClientReference = null);
+    string Mode = "Meeting", string? DocumentType = null, string? ClientReference = null, bool Video = false, IReadOnlyList<string>? Attendees = null);
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 

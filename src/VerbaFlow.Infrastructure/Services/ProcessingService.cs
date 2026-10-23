@@ -101,7 +101,26 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             // Azure's own speaker labels can merge or split voices. When a local diarizer is available, its turns decide who spoke each word.
             var separation = "azure";
             int? localTurns = null, localSpeakers = null, mergedSmall = null; string? voiceSeconds = null;
-            if (diarizer is not null && copy.CanSeek && !azureOnly && !dictation)
+            // An online meeting recorded by Meet's note-taker: the meeting platform said who was speaking when, by name.
+            // That is better than any guess from the sound, unless the owner chose another way when running it again.
+            var platform = !dictation && item.SpeakerMethod is null ? await stores.MeetingSpeakers.GetAsync(item.MediaSourceItemId) : null;
+            int? platformNames = null;
+            if (platform is { Stretches.Count: > 0 })
+            {
+                var names = new Dictionary<int, string>();
+                foreach (var g in platform.Stretches.GroupBy(x => x.Participant)) names[g.Key] = g.First().Name;
+                // Two people with the same display name keep apart: the second gets a number.
+                foreach (var dup in names.GroupBy(n => n.Value).Where(g => g.Count() > 1).ToList())
+                {
+                    var k = 1;
+                    foreach (var n in dup.Skip(1)) names[n.Key] = $"{n.Value} ({++k})";
+                }
+                result = SpeakerAligner.Relabel(result, platform.Stretches.Select(x => new SpeakerTurn(x.StartMs, x.EndMs, x.Participant)).ToList(), names)
+                    with { Engine = result.Engine + "+meeting-platform" };
+                separation = "meeting platform";
+                platformNames = result.Speakers.Count;
+            }
+            else if (diarizer is not null && copy.CanSeek && !azureOnly && !dictation)
             {
                 try
                 {
@@ -162,7 +181,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Items.UpsertAsync(itemId, item);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
-                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation),
+                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
                     ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));

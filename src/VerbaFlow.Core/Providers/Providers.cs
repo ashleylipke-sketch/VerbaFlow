@@ -137,3 +137,36 @@ public interface IGrammarChecker
     string Name { get; }
     Task<IReadOnlyList<GrammarFix>> CheckAsync(IReadOnlyList<GrammarPassage> passages, string language, CancellationToken ct);
 }
+
+/// <param name="Announcement">Posted in the meeting chat when the note-taker joins, so everyone knows it is recording.</param>
+/// <param name="Reference">VerbaFlow's own id, kept with the note-taker so it can be found again.</param>
+public sealed record NoteTakerRequest(string MeetingUrl, string DisplayName, DateTimeOffset? JoinAt, string Announcement, Guid Reference);
+
+public enum NoteTakerPhase { Scheduled, Joining, WaitingToBeLetIn, Recording, MeetingEnded, Ready, Failed }
+
+/// <summary>
+/// What the note-taker service says now. <paramref name="Detail"/> is technical (for support only).
+/// When Ready, <paramref name="VideoUrl"/> is where the video can be downloaded and <paramref name="SpeakersUrl"/>
+/// (if any) where the platform's record of who spoke when can be.
+/// </summary>
+public sealed record NoteTakerStatus(NoteTakerPhase Phase, string? Detail = null, string? VideoUrl = null, string? SpeakersUrl = null);
+
+/// <summary>
+/// A note-taker that joins an online meeting as a visible participant and records it (Recall.ai in production, which
+/// joins Zoom, Google Meet, Microsoft Teams and Webex).
+/// </summary>
+public interface INoteTakerService
+{
+    string Name { get; }
+    /// <summary>Books a note-taker for the meeting and returns the service's id for it.</summary>
+    Task<string> ScheduleAsync(NoteTakerRequest request, CancellationToken ct);
+    Task<NoteTakerStatus> GetAsync(string botId, CancellationToken ct);
+    /// <summary>Calls the note-taker off: it does not join, or leaves if it is already in the meeting.</summary>
+    Task CancelAsync(string botId, CancellationToken ct);
+    /// <summary>The meeting's video (MP4).</summary>
+    Task<Stream> DownloadVideoAsync(string url, CancellationToken ct);
+    /// <summary>Who spoke when, as the meeting platform reported it.</summary>
+    Task<IReadOnlyList<VerbaFlow.Core.Domain.PlatformSpeech>> DownloadSpeakersAsync(string url, CancellationToken ct);
+    /// <summary>Removes the recording from the note-taker service once VerbaFlow has its own copy.</summary>
+    Task ForgetAsync(string botId, CancellationToken ct);
+}

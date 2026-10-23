@@ -13,7 +13,8 @@ public static class SpeakerAligner
     /// <summary>A word further than this from any turn is given to whoever spoke just before it.</summary>
     public const int NearestTurnMs = 1500;
 
-    public static TranscriptionResult Relabel(TranscriptionResult result, IReadOnlyList<SpeakerTurn> turns)
+    /// <param name="names">Names for the turns' speaker numbers (from the meeting platform); others are "Speaker N".</param>
+    public static TranscriptionResult Relabel(TranscriptionResult result, IReadOnlyList<SpeakerTurn> turns, IReadOnlyDictionary<int, string>? names = null)
     {
         if (turns.Count == 0 || result.Segments.Count == 0) return result;
         var ordered = turns.OrderBy(t => t.StartMs).ToList();
@@ -52,7 +53,7 @@ public static class SpeakerAligner
         var relabelled = new List<Segment>();
         for (var i = 0; i < pieces.Count; i++)
         {
-            if (!speakers.TryGetValue(ids[i], out var sp)) speakers[ids[i]] = sp = new Speaker(Guid.NewGuid(), $"Speaker {speakers.Count + 1}");
+            if (!speakers.TryGetValue(ids[i], out var sp)) speakers[ids[i]] = sp = new Speaker(Guid.NewGuid(), names?.GetValueOrDefault(ids[i]) ?? $"Speaker {speakers.Count + 1}");
             relabelled.Add(pieces[i].Seg with { SpeakerId = sp.Id });
         }
         return result with { Speakers = speakers.Values.ToList(), Segments = AzureSpeechService.MergeTurns(relabelled) };

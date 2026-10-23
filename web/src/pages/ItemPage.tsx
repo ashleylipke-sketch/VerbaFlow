@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import LanguagePicker from '../LanguagePicker';
 import { ExportMenu } from '../ExportMenu';
@@ -31,7 +32,7 @@ export default function ItemPage({ id }: { id: string }) {
   const [reopenReason, setReopenReason] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
   const [showAudit, setShowAudit] = useState(false);
-  const player = useRef<HTMLAudioElement>(null);
+  const player = useRef<HTMLMediaElement>(null);
   const [pos, setPos] = useState({ seg: -1, word: -1 });
   const [playing, setPlaying] = useState(false);
   // Tracked changes show while the transcript is a draft and are tucked away once it is approved. The reader can override either way.
@@ -47,11 +48,15 @@ export default function ItemPage({ id }: { id: string }) {
     } catch (e: any) { setError(e.message); }
   }, [id]);
   useEffect(() => { load(); const i = setInterval(() => { if (d?.processingState === 'Processing') load(); }, 3000); return () => clearInterval(i); }, [load, d?.processingState]);
+  // A meeting video is too big to load whole: it plays through a short-lived link that streams it. Audio loads whole.
+  const isVideo = d === null ? null : d.video;
   useEffect(() => {
+    if (isVideo === null) return;
     let url = '';
-    api.audio(id).then(b => { url = URL.createObjectURL(b); setAudioUrl(url); }).catch(() => setAudioUrl(''));
+    if (isVideo) api.post(`/items/${id}/play`).then(r => setAudioUrl(r.url)).catch(() => setAudioUrl(''));
+    else api.audio(id).then(b => { url = URL.createObjectURL(b); setAudioUrl(url); }).catch(() => setAudioUrl(''));
     return () => { if (url) URL.revokeObjectURL(url); };
-  }, [id]);
+  }, [id, isVideo]);
 
   // Follow the audio: read its position about 60 times a second while it plays, and only re-render when the word changes.
   const segs = t?.segments ?? [];
@@ -117,6 +122,7 @@ export default function ItemPage({ id }: { id: string }) {
         <div className="note">
           <span className="pill">{r.status}</span> · {fmtLen(r.lengthMs)} · Owner {d.owner} · You are: {d.role} · Created {fmtDate(r.createdOn)}
           {r.assignedTo && <> · Assigned to {r.assignedTo}</>}
+          {d.attendees && d.attendees.length > 0 && <> · Also for {d.attendees.join(', ')}</>}
           {d.approvedAt && <> · Approved by {d.approvedBy} on {fmtDate(d.approvedAt)}</>}
         </div>
         {d.deletedAt && <div className="banner">This recording was deleted by {d.deletedBy} on {fmtDate(d.deletedAt)}. Reason: {d.deleteReason}. Its audio, transcript and summary have been removed; the history below is kept.</div>}
@@ -132,7 +138,7 @@ export default function ItemPage({ id }: { id: string }) {
             <span className="note">The recording is safe. Retrying starts the conversion again from the original audio.</span></div>}</div>}
         {d.markers.length > 0 && <div className="note">Markers: {d.markers.map(m => `${fmtLen(m.offsetMs)} ${m.type}${m.note ? ` (${m.note})` : ''}`).join(' · ')}</div>}
         {d.chain.length > 1 && <div className="note">Versions: {d.chain.map(c => <span key={c.id}>{c.isCurrent ? <b>v{c.versionNo}</b> : <a href={`#/items/${c.id}`}>v{c.versionNo}</a>} ({c.status}){' '}</span>)}</div>}
-        {audioUrl && d.canDownloadAudio && <div className="actions" style={{ marginTop: 8 }}><button onClick={download}>Download original audio</button></div>}
+        {audioUrl && d.canDownloadAudio && <div className="actions" style={{ marginTop: 8 }}><button onClick={download}>{d.video ? 'Download original video' : 'Download original audio'}</button></div>}
         {error && <div className="error">{error}</div>}
         <div className="actions" style={{ marginTop: 12, flexWrap: 'wrap' }}>
           {acts.has('accept') && <button className="primary" onClick={() => run(() => api.post(`/items/${id}/accept`))}>Accept</button>}
@@ -169,7 +175,9 @@ export default function ItemPage({ id }: { id: string }) {
       </div>
 
       <div className="withPlayer">
-      {audioUrl && <div className="player"><audio ref={player} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} /></div>}
+      {audioUrl && <div className={d.video ? 'player video' : 'player'}>{d.video
+        ? <video ref={player as RefObject<HTMLVideoElement>} controls playsInline preload="metadata" src={audioUrl} />
+        : <audio ref={player as RefObject<HTMLAudioElement>} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} />}</div>}
       <div className="split">
         <div className="card">
           <h2>{dictate ? docLabel(d.documentType) : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}</h2>

@@ -30,6 +30,10 @@ public sealed class Stores
     /// <summary>Widget: facts about each use (site, times, outcome), never text or audio.</summary>
     public DocTable<WidgetSession> WidgetSessions { get; }
     public DocTable<WidgetPolicy> WidgetPolicy { get; }
+    /// <summary>Meet: the note-takers booked for online meetings.</summary>
+    public DocTable<NoteTaker> NoteTakers { get; }
+    /// <summary>Meet: who the meeting platform said was speaking when, by the item whose recording it is.</summary>
+    public DocTable<MeetingSpeakers> MeetingSpeakers { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -51,6 +55,8 @@ public sealed class Stores
         LiveText = new(db, "doc_live_text");
         WidgetSessions = new(db, "doc_widget_sessions");
         WidgetPolicy = new(db, "doc_widget_policy");
+        NoteTakers = new(db, "doc_note_takers");
+        MeetingSpeakers = new(db, "doc_meeting_speakers");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

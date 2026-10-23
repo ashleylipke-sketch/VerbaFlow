@@ -1,6 +1,6 @@
 # VerbaFlow
 
-One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Meet** (calendar-driven recorder) and **Widget** (system-wide dictation overlay).
+One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Meet** (a note-taker that records online meetings) and **Widget** (system-wide dictation overlay).
 
 ## Status
 
@@ -10,7 +10,7 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 | Speak · Dictate | **Built (first version)**: dictate or import, convert to text as one voice with spoken punctuation ("comma", "full stop", "new paragraph"), edit, Check grammar (suggestions you accept or reject), assign to a typist, approve, export the text |
 | Speak · Speech | **Built (first version; first real-Azure run worked)**: the text is typed as you speak, with the same spoken commands as Dictate; the recording is kept; a lost connection catches up; save as a Draft and carry on later; list views as agreed (Draft, Speech to Text, Awaiting/With Assignee, Conversion Failed, Completed, Outstanding Tasks). See `docs/speech-mode.md` |
 | Widget | Browser extension for Edge/Chrome (`widget/extension`, see `docs/widget.md`); works on real Azure in Outlook on the web. **Widget for Windows** (`widget/windows`, install with `widget-windows.cmd`, see `docs/widget-windows.md`) for Outlook, Word, Teams and any program: works in desktop Outlook and WhatsApp |
-| Meet | Not started |
+| Meet | **Built (first version), not yet tried in a real meeting**: paste a Zoom, Google Meet, Microsoft Teams or Webex link (now or booked ahead); a visible note-taker joins, records the video, and it comes back as a Meeting item with speakers named by the platform. One note-taker per meeting: colleagues booking the same meeting share it. Needs a Recall.ai account; see `docs/meet-setup.md` |
 | Telephony bridge (ADR-15) | Designed, not built |
 | Running online | **Built, not yet run in Azure**: one container (Azure Container Apps), PostgreSQL, an Azure Files share for recordings, set up by one script in Azure Cloud Shell. See `docs/going-online.md` |
 | Azure services | Speech and OpenAI (summary, action points, minutes, tone) adapters built, each needs your key. ffmpeg audio clean-up built. Entra ID sign-in built and confirmed. PostgreSQL built for online use. Blob immutability, Service Bus, Defender not written |
@@ -30,6 +30,7 @@ Everything marked *stand-in* sits behind an interface in `VerbaFlow.Core/Provide
 | `StandInEmailSender` (saves .eml files in `data/outbox`) | **Azure Communication Services Email: built, untested on real Azure.** Used when `Email:ConnectionString` and `Email:Sender` are set. See `docs/azure-email-setup.md` |
 | `StandInAudioEnhancer` (no change) | **ffmpeg clean-up: built.** Used automatically when ffmpeg is installed. See `docs/audio-preparation.md` |
 | Azure's own speaker labels | **Local speaker separation: built** (sherpa-onnx, runs on your PC). See `docs/speaker-separation.md` |
+| `StandInNoteTaker` (Meet: nobody joins; a short sample recording comes back) | **Recall.ai meeting note-taker: built, untested in a real meeting.** Used when `Meet:ApiKey` and `Meet:Region` are set. See `docs/meet-setup.md` |
 | `StandInMalwareScanner` (rejects EICAR) | Defender for Storage |
 | In-process queue | Service Bus |
 

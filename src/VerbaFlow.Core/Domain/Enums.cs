@@ -2,7 +2,8 @@ namespace VerbaFlow.Core.Domain;
 
 public enum ItemMode { Dictate, Speech, Meeting }
 
-public enum SourceKind { Recorded, Imported, PhoneCall }
+/// <summary>OnlineMeeting: recorded by Meet's note-taker, which joined an online meeting (Zoom, Google Meet, Teams, Webex).</summary>
+public enum SourceKind { Recorded, Imported, PhoneCall, OnlineMeeting }
 
 /// <summary>Internal status codes. Labels vary per mode (see StatusLabels).</summary>
 public enum ItemStatus
@@ -23,7 +24,8 @@ public enum Priority { Low, Normal, High, Urgent }
 
 public enum MarkerType { ConsentNotice, Objection, Pause, Resume }
 
-public enum ItemRole { None, Owner, Assignee }
+/// <summary>Attendee: a colleague who also asked Meet's note-taker to record the same online meeting. They can read it, and export it once approved.</summary>
+public enum ItemRole { None, Owner, Assignee, Attendee }
 
 [Flags]
 public enum Capability

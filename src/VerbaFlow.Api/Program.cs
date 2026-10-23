@@ -101,6 +101,21 @@ builder.Services.AddSingleton<ProcessingService>(sp => new ProcessingService(sp.
     sp.GetRequiredService<VerbaFlow.Infrastructure.Services.FailureReporter>(), sp.GetService<ISpeakerDiarizer>(), sp.GetService<VerbaFlow.Infrastructure.Services.DiarizationOptions>(),
     sp.GetService<IDictationSpeech>()));
 builder.Services.AddHostedService<ProcessingWorker>();
+// Meet: a note-taker joins online meetings (Zoom, Google Meet, Teams, Webex) through Recall.ai when it is set up.
+var noteTaker = new VerbaFlow.Infrastructure.MeetingBots.RecallOptions(builder.Configuration["Meet:ApiKey"] ?? "",
+    (builder.Configuration["Meet:Region"] ?? "").Trim().ToLowerInvariant(),
+    builder.Configuration["Meet:NoteTakerName"] is { Length: > 0 } ntn ? ntn.Trim() : "VerbaFlow Notetaker");
+if (noteTaker.IsConfigured)
+{
+    builder.Services.AddSingleton(noteTaker);
+    builder.Services.AddHttpClient<INoteTakerService, VerbaFlow.Infrastructure.MeetingBots.RecallNoteTaker>(c => c.Timeout = TimeSpan.FromHours(2));
+}
+else builder.Services.AddSingleton<INoteTakerService>(sp => new StandInNoteTaker(sp.GetRequiredService<TimeProvider>(), ffmpegFound ? ffmpegPath : null));
+builder.Services.AddSingleton(sp => new MeetService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<INoteTakerService>(),
+    sp.GetRequiredService<MeetingService>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<VerbaFlow.Infrastructure.Services.FailureReporter>(),
+    noteTaker.DisplayName));
+builder.Services.AddSingleton<PlaybackLinks>();
+if (!string.Equals(builder.Configuration["Meet:Worker"], "false", StringComparison.OrdinalIgnoreCase)) builder.Services.AddHostedService<MeetWorker>();
 
 var signIn = SignInOptions.From(builder.Configuration, builder.Environment);
 signIn.AddTo(builder.Services);
@@ -132,6 +147,10 @@ app.Logger.LogInformation(openAi.IsConfigured
     ? "Summaries and Check grammar: using Azure OpenAI deployment {Deployment}"
     : "Summaries and Check grammar: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);
 
+app.Logger.LogInformation(noteTaker.IsConfigured
+    ? "Meet: the note-taker joins meetings through Recall.ai ({Region}) as \"{Name}\""
+    : "Meet: STAND-IN note-taker (nobody joins; a sample recording comes back). Set Meet:ApiKey and Meet:Region to use Recall.ai (see docs/meet-setup.md).",
+    noteTaker.Region, noteTaker.DisplayName);
 app.Logger.LogInformation("Database: {Database}; files in {DataDir}", database.Describe, dataDir);
 app.Logger.LogInformation(signIn.Microsoft
     ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.TestUsers ? ", and the test users while in Development" : "")
@@ -175,7 +194,9 @@ var api = app.MapGroup("/api");
 api.AddEndpointFilter(SignIn.RequireUser);
 api.MapMeetingEndpoints();
 api.MapLiveEndpoints();
+api.MapMeetEndpoints();
 app.MapLiveSocket();
+app.MapPlayback();
 app.MapFallbackToFile("index.html");
 
 app.Run();

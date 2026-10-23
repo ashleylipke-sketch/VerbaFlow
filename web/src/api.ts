@@ -14,7 +14,12 @@ export type Detail = {
   chain: { id: string; versionNo: number; status: string; isCurrent: boolean }[]; provenance: string; spokenLanguages: string;
   deletedAt: string | null; deletedBy: string | null; deleteReason: string | null; canExport: boolean;
   mode: 'Dictate' | 'Speech' | 'Meeting'; documentType: string | null; clientReference: string | null;
+  /** The recording is a video (an online meeting brought back by Meet's note-taker). */
+  video: boolean; attendees: string[] | null;
 };
+export type NoteTakerRow = { id: string; name: string; platform: string; joinAt: string; state: string; stateLabel: string; failureReason: string | null;
+  itemId: string | null; bookedBy: string; alsoFor: string[]; youBookedFirst: boolean; youAsked: boolean; canCancel: boolean; createdAt: string };
+export type MeetOverview = { engine: string; real: boolean; noteTakerName: string; platforms: string[]; noteTakers: NoteTakerRow[] };
 export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null; newParagraph: boolean | null; list?: 'bullet' | 'number' | null };
 export type Transcript = {
   versionNo: number; engine: string; segments: Segment[]; speakers: { id: string; label: string; name: string }[];
@@ -110,6 +115,11 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     return res.blob();
   },
+  meet: () => call<MeetOverview>('GET', '/meet'),
+  bookNoteTaker: (b: { meetingUrl: string; name: string | null; joinAt: string | null; spokenLanguages: string }) =>
+    call<{ noteTaker: NoteTakerRow; joinedExisting: boolean; alreadyBooked: boolean }>('POST', '/meet', b),
+  cancelNoteTaker: (id: string) => call<NoteTakerRow>('POST', `/meet/${id}/cancel`, {}),
+  checkNoteTakers: () => call<MeetOverview>('POST', '/meet/check', {}),
   reopenRequests: () => call<Reopen[]>('GET', '/reopen'),
   deleteRequests: () => call<DeleteRequest[]>('GET', '/delete-requests'),
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },

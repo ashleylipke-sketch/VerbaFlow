@@ -81,6 +81,7 @@ public sealed class GrammarService(Stores stores, IGrammarChecker checker, TimeP
     {
         ItemRole.Owner => item.Source == SourceKind.Imported ? "importer" : "author",
         ItemRole.Assignee => "assignee",
+        ItemRole.Attendee => "attendee",
         _ => actor.IsAdmin ? "admin" : "user"
     };
 

@@ -12,6 +12,7 @@ import Vocabulary from './pages/Vocabulary';
 import SavedTextPage from './pages/SavedText';
 import LetterheadPage from './pages/Letterhead';
 import WidgetPage from './pages/Widget';
+import Meet from './pages/Meet';
 import Support from './pages/Support';
 
 function useHash() {
@@ -52,6 +53,7 @@ export default function App() {
           <a href="#/dictate" className={path.startsWith('/dictate') ? 'on' : ''}>Dictate</a>
           <a href="#/speech" className={path.startsWith('/speech') ? 'on' : ''}>Speech</a>
           <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>
+          <a href="#/meet" className={path === '/meet' ? 'on' : ''}>Meet</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
           <a href="#/saved-text" className={path === '/saved-text' ? 'on' : ''}>Saved text</a>
           <a href="#/letterhead" className={path === '/letterhead' ? 'on' : ''}>Letterhead</a>
@@ -99,6 +101,7 @@ export default function App() {
           : path === '/saved-text' ? <SavedTextPage />
           : path === '/letterhead' ? <LetterheadPage />
           : path === '/widget' ? <WidgetPage />
+          : path === '/meet' ? <Meet />
           : path === '/support' ? <Support />
           : <Dashboard key="meeting" mode="meeting" />}
       </main>

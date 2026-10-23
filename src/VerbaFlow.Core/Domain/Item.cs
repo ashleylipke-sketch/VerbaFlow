@@ -90,6 +90,8 @@ public sealed class Item
     [JsonInclude] public string? OriginalFileName { get; private set; }
     [JsonInclude] public string? ExternalSourceNote { get; private set; }
     [JsonInclude] public List<TimelineMarker> Markers { get; private set; } = [];
+    /// <summary>Online meetings: colleagues who also asked the note-taker to record this meeting. One note-taker joined for all of them.</summary>
+    [JsonInclude] public List<Guid> Attendees { get; private set; } = [];
 
     /// <summary>The status where the author/importer reviews and approves.</summary>
     /// <remarks>An imported dictation (from a dictaphone, say) is still the author's own: it goes to With Author.</remarks>
@@ -161,6 +163,14 @@ public sealed class Item
     private void EnsureDraft()
     {
         if (Status != ItemStatus.Draft) throw new DomainException("This dictation has already been sent to be converted to text, so it can no longer be added to.");
+    }
+
+    /// <summary>An online meeting recorded by Meet's note-taker, for the person who booked it first.</summary>
+    public static Item CreateFromOnlineMeeting(Guid id, Guid ownerId, IEnumerable<Guid> attendees, string name, DateTimeOffset now, string sourceNote, string fileName)
+    {
+        var item = Create(id, id, 1, null, ownerId, name, 0, "en", now, SourceKind.OnlineMeeting, fileName, sourceNote);
+        item.Attendees = attendees.Where(a => a != ownerId).Distinct().ToList();
+        return item;
     }
 
     public static Item CreateImported(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage,
@@ -306,6 +316,7 @@ public sealed class Item
         next.Priority = Priority;
         next.DueDate = DueDate;
         next.Markers = [.. Markers];
+        next.Attendees = [.. Attendees];
         next.ObjectionFlag = ObjectionFlag;
         next.Processing = ProcessingState.Idle;
         return next;

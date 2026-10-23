@@ -188,6 +188,35 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return id;
     }
 
+    /// <summary>Longest online meeting video kept: a few hours of meeting video is far bigger than an upload.</summary>
+    public const long MaxMeetingVideoBytes = 8L * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// Meet: the video Meet's note-taker recorded becomes a Meeting item for the person who booked it first; colleagues who
+    /// asked for the same meeting can read it. Who the platform said was speaking is kept, so speakers get people's names.
+    /// </summary>
+    public async Task<Guid> CreateFromOnlineMeetingAsync(OnlineMeetingUpload up, CancellationToken ct = default)
+    {
+        var owner = await stores.RequireUserAsync(up.Requesters[0]);
+        var staged = await StageAndScanAsync(owner, up.Video, up.FileName, "online-meeting", ct, MaxMeetingVideoBytes);
+        var id = Guid.NewGuid();
+        var now = clock.GetUtcNow();
+        var note = $"{up.Platform} meeting, recorded by the note-taker {up.NoteTakerName}";
+        var item = Item.CreateFromOnlineMeeting(id, owner.Id, up.Requesters.Skip(1), up.Name, now, note, SafeName(up.FileName));
+        item.SetSpokenLanguages(up.SpokenLanguages);
+        item.AddMarker(new TimelineMarker { Type = MarkerType.ConsentNotice, OffsetMs = 0, ActorId = owner.Id, At = now,
+            Note = $"The note-taker joined as a visible participant named {up.NoteTakerName} and announced the recording in the meeting chat" });
+        var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, note);
+        if (up.Speakers.Count > 0) await stores.MeetingSpeakers.UpsertAsync(id, new MeetingSpeakers(id, up.Speakers));
+        await stores.Items.UpsertAsync(id, item);
+        await stores.Audit.AppendAsync(null, "system", Product, id, "item.created", AuditChain.Details(("source", "Online meeting (note-taker)"),
+            ("platform", up.Platform), ("noteTaker", up.NoteTakerId), ("owner", owner.Id), ("attendees", item.Attendees.Count),
+            ("sha256", asset.Sha256), ("sizeBytes", asset.SizeBytes), ("contentType", up.ContentType), ("platformSpeakerStretches", up.Speakers.Count),
+            ("platformSpeakers", up.Speakers.Select(x => x.Participant).Distinct().Count())));
+        queue.Enqueue(id);
+        return id;
+    }
+
     public async Task RetryAsync(User actor, Guid id, string? spokenLanguages = null)
     {
         var item = await stores.RequireItemAsync(id);
@@ -466,6 +495,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             await stores.Transcripts.DeleteAsync(i.Id);
             await stores.Outputs.DeleteAsync(i.Id);
             await stores.LiveText.DeleteAsync(i.Id);
+            await stores.MeetingSpeakers.DeleteAsync(i.MediaSourceItemId);
             await Audit(actor, CapacityOf(actor, i), i.Id, "item.deleted", ("reason", reason), ("requestId", requestId),
                 ("agreedBy", string.Join(", ", agreedBy.Select(a => users.GetValueOrDefault(a, "?")))), ("versions", chain.Count),
                 ("audioFilesRemoved", removedFiles), ("audioFilesNotRemoved", stuckFiles == 0 ? null : stuckFiles));
@@ -580,6 +610,28 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return new AudioHandle(stores.Media.OpenRead(asset), asset.ContentType, asset.FileName);
     }
 
+    /// <summary>
+    /// Playing through a link (a meeting video is too big to load whole): the right to read is checked and the playing
+    /// recorded once here; the link then streams the file (see OpenLinkedAsync).
+    /// </summary>
+    public async Task StartPlaybackAsync(User actor, Guid id)
+    {
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Read);
+        if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
+        var asset = await PlayableAsync(item) ?? throw new NotFoundException("The recording is missing.");
+        await Audit(actor, CapacityOf(actor, item), id, "audio.played", ("sha256", asset.Sha256), ("by", "link"));
+    }
+
+    /// <summary>The recording for a playback link already checked by StartPlaybackAsync. Refused once the item is deleted.</summary>
+    public async Task<AudioHandle> OpenLinkedAsync(Guid id)
+    {
+        var item = await stores.RequireItemAsync(id);
+        if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
+        var asset = await PlayableAsync(item) ?? throw new NotFoundException("The recording is missing.");
+        return new AudioHandle(stores.Media.OpenRead(asset), asset.ContentType, asset.FileName);
+    }
+
     /// <summary>The recording, or for an unfinished dictation its newest save.</summary>
     private async Task<MediaAsset?> PlayableAsync(Item item) =>
         await stores.Media.FindCurrentAsync(item.MediaSourceItemId)
@@ -626,10 +678,11 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             actor.IsAdmin && role == ItemRole.None ? "Admin" : role.ToString(), item.OutputLanguage, item.ApprovedAt,
             item.ApprovedBy is { } a ? users.GetValueOrDefault(a)?.Name : null, item.ChainId,
             chain.Select(c => new ChainEntry(c.Id, c.VersionNo, StatusLabels.For(c.Mode, c.Status), !all.Any(x => x.SupersedesItemId == c.Id))).ToList(),
-            item.Source == SourceKind.Imported ? "Imported (external source)" : "Recorded in app", item.SpokenLanguages,
+            item.Source switch { SourceKind.Imported => "Imported (external source)", SourceKind.OnlineMeeting => item.ExternalSourceNote ?? "Online meeting", _ => "Recorded in app" }, item.SpokenLanguages,
             item.DeletedAt, item.DeletedBy is { } db ? users.GetValueOrDefault(db)?.Name : null, item.DeleteReason,
             item.Status != ItemStatus.Purged && PermissionEvaluator.Evaluate(actor, item, Capability.Export).Allowed,
-            item.Mode.ToString(), item.DocumentType, item.ClientReference);
+            item.Mode.ToString(), item.DocumentType, item.ClientReference, asset?.ContentType.StartsWith("video/") == true,
+            item.Attendees.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList());
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)
@@ -698,10 +751,10 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return a;
     }
 
-    private async Task<StagedFile> StageAndScanAsync(User actor, Stream content, string fileName, string kind, CancellationToken ct)
+    private async Task<StagedFile> StageAndScanAsync(User actor, Stream content, string fileName, string kind, CancellationToken ct, long? maxBytes = null)
     {
         StagedFile staged;
-        try { staged = await stores.Media.StageAsync(content, policy.MaxUploadBytes, ct); }
+        try { staged = await stores.Media.StageAsync(content, maxBytes ?? policy.MaxUploadBytes, ct); }
         catch (Domain_SizeException ex)
         {
             await Audit(actor, "user", null, "upload.rejected", ("kind", kind), ("fileName", SafeName(fileName)), ("reason", "too large"));
@@ -733,6 +786,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         ItemRole.Owner => item.Source == SourceKind.Imported ? "importer" : "author",
         ItemRole.Assignee => "assignee",
+        ItemRole.Attendee => "attendee",
         _ => actor.IsAdmin ? "admin" : "user"
     };
 

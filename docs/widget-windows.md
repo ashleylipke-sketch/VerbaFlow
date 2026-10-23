@@ -1,6 +1,6 @@
 # Widget for Windows: speaking into any Windows program
 
-Built 2026-10-23 at the owner's request (desktop Outlook, Word, Teams…). **Not yet tried by the owner. It could not be run or tested on Windows where it was built**: its own logic (the connection to VerbaFlow, the live text, reconnecting, how the words are put together) is tested against the real VerbaFlow server with the stand-in speech service, but the window, the shortcut, the microphone, the paste into programs and the Microsoft sign-in have only been built, not run. Untested on real Azure.
+Built 2026-10-23 at the owner's request (desktop Outlook, Word, Teams…). **Owner confirmed it works on real Azure in desktop Outlook and WhatsApp (2026-10-23)**, with Microsoft sign-in and a spoken correction. The first build crashed at start (fixed). Not yet tried: Word, Teams, Fix grammar, replacing selected text, password boxes. If it stops at start, it shows a message and writes the detail to `%LOCALAPPDATA%\VerbaFlow\Widget\widget-errors.txt`.
 
 ## Install (once per computer; again to update)
 1. Microsoft sign-in only: add the `http://localhost` redirect once (`entra-sign-in-setup.md`, step 9).

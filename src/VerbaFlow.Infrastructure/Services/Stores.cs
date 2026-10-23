@@ -33,7 +33,7 @@ public sealed class Stores
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
-    public Stores(SqliteDatabase db, string mediaRoot, TimeProvider clock)
+    public Stores(Database db, string mediaRoot, TimeProvider clock)
     {
         Users = new(db, "doc_users");
         Items = new(db, "doc_items");

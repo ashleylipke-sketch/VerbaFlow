@@ -122,8 +122,8 @@ public class ExportTests
         using var env = new Env();
         var id = await env.ProcessedRecordingAsync();
         await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "pdf");
-        Assert.Throws<SqliteException>(() => env.Execute("UPDATE doc_exports SET json = json_set(json, '$.sha256', 'x')"));
-        Assert.Throws<SqliteException>(() => env.Execute("DELETE FROM doc_exports"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.SetJson("doc_exports", "sha256", "x"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.Execute("DELETE FROM doc_exports"));
     }
 
     private sealed class BrokenMail : IEmailSender

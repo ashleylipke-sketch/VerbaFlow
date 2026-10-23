@@ -130,10 +130,10 @@ public class DeleteTests
         using var env = new Env();
         var id = await env.ProcessedRecordingAsync();
         await env.Meeting.ApproveAsync(env.Alice, id);
-        Assert.Throws<SqliteException>(() => env.Execute($"UPDATE doc_items SET json = json_set(json, '$.name', 'changed') WHERE id = '{id}'"));
-        env.Execute($"UPDATE doc_items SET json = json_set(json, '$.status', 'Purged') WHERE id = '{id}'");
-        Assert.Throws<SqliteException>(() => env.Execute($"UPDATE doc_items SET json = json_set(json, '$.status', 'WithAuthor') WHERE id = '{id}'"));
-        Assert.Throws<SqliteException>(() => env.Execute($"DELETE FROM doc_items WHERE id = '{id}'"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.SetJson("doc_items", "name", "changed", id));
+        env.SetJson("doc_items", "status", "Purged", id);
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.SetJson("doc_items", "status", "WithAuthor", id));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.Execute($"DELETE FROM doc_items WHERE id = '{id}'"));
     }
 
     [Fact]

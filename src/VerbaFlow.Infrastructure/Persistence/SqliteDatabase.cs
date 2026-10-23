@@ -2,12 +2,8 @@ using Microsoft.Data.Sqlite;
 
 namespace VerbaFlow.Infrastructure.Persistence;
 
-/// <summary>
-/// Stage 1 persistence on SQLite (stand-in for Azure SQL). Integrity rules are enforced by the database itself:
-/// audit events and media records cannot be updated or deleted, and an approved item cannot be changed
-/// except to mark it deleted.
-/// </summary>
-public sealed class SqliteDatabase
+/// <summary>SQLite, for running VerbaFlow on one computer. See <see cref="Database"/> for the rules it enforces.</summary>
+public sealed class SqliteDatabase : Database
 {
     private readonly string _connectionString;
 
@@ -19,7 +15,10 @@ public sealed class SqliteDatabase
         Initialise();
     }
 
-    public SqliteConnection Open()
+    public override string InsertOrder => "rowid";
+    public override string Describe => "SQLite file on this computer";
+
+    public override SqliteConnection Open()
     {
         var c = new SqliteConnection(_connectionString);
         c.Open();

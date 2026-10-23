@@ -9,10 +9,11 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 | Speak · Meeting mode | **Built** (record, import, real transcription with speakers, follow-along word highlighting, tracked changes, custom vocabulary, assign / accept / return, approve and lock, two-admin reopen, delete (two admins once approved), export to Word and PDF with preview, email and fingerprint check, versioned transcript, audit chain) |
 | Speak · Dictate | **Built (first version)**: dictate or import, convert to text as one voice with spoken punctuation ("comma", "full stop", "new paragraph"), edit, Check grammar (suggestions you accept or reject), assign to a typist, approve, export the text |
 | Speak · Speech | **Built (first version; first real-Azure run worked)**: the text is typed as you speak, with the same spoken commands as Dictate; the recording is kept; a lost connection catches up; save as a Draft and carry on later; list views as agreed (Draft, Speech to Text, Awaiting/With Assignee, Conversion Failed, Completed, Outstanding Tasks). See `docs/speech-mode.md` |
-| Widget | First version: browser extension for Edge/Chrome (`widget/extension`, see `docs/widget.md`); not yet tried by the owner |
+| Widget | Browser extension for Edge/Chrome (`widget/extension`, see `docs/widget.md`); works on real Azure in Outlook on the web |
 | Meet | Not started |
 | Telephony bridge (ADR-15) | Designed, not built |
-| Azure services | Speech and OpenAI (summary, action points, minutes, tone) adapters built, each needs your key. ffmpeg audio clean-up built. Entra ID sign-in built. SQL, Blob, Service Bus, Defender not written |
+| Running online | **Built, not yet run in Azure**: one container (Azure Container Apps), PostgreSQL, an Azure Files share for recordings, set up by one script in Azure Cloud Shell. See `docs/going-online.md` |
+| Azure services | Speech and OpenAI (summary, action points, minutes, tone) adapters built, each needs your key. ffmpeg audio clean-up built. Entra ID sign-in built and confirmed. PostgreSQL built for online use. Blob immutability, Service Bus, Defender not written |
 
 ## What is real and what is a stand-in
 
@@ -20,10 +21,10 @@ Everything marked *stand-in* sits behind an interface in `VerbaFlow.Core/Provide
 
 | Stand-in | Replaced by |
 |---|---|
-| Test users through the `X-Dev-User` header (`DevUsers.cs`, Development only) | **Microsoft Entra ID sign-in: built, untested with a real Microsoft 365 organisation.** Used when `Entra:TenantId` and `Entra:ClientId` are set. See `docs/entra-sign-in-setup.md` |
-| SQLite | Azure SQL |
-| Local media folder, read-only files | Blob storage with immutability policy |
-| `StandInLiveSpeech` (Speech mode: one placeholder word per 0.4 s) | **Azure AI Speech real-time recognition: built, untested on real Azure.** Used when `Speech:Endpoint` and `Speech:Key` are set |
+| Test users through the `X-Dev-User` header (`DevUsers.cs`, Development only) | **Microsoft Entra ID sign-in: built, confirmed by the owner (2026-10-23).** Used when `Entra:TenantId` and `Entra:ClientId` are set. See `docs/entra-sign-in-setup.md` |
+| SQLite (on one computer) | **PostgreSQL: built** (`PostgresDatabase`, same rules by triggers), used when `Database:ConnectionString` is set; the online setup uses Azure Database for PostgreSQL |
+| Local media folder, read-only files | Online: an Azure Files share mounted at `/data`. Later: Blob storage with an immutability policy |
+| `StandInLiveSpeech` (Speech mode: one placeholder word per 0.4 s) | **Azure AI Speech real-time recognition: built, confirmed on real Azure.** Used when `Speech:Endpoint` and `Speech:Key` are set |
 | `StandInSpeechService` (fake text) | **Azure AI Speech: built.** Used automatically when `Speech:Endpoint` and `Speech:Key` are set. See `docs/azure-speech-setup.md` |
 | `StandInAiOutputService` | **Azure OpenAI: built.** Used automatically when `OpenAI:Endpoint`, `OpenAI:Key` and `OpenAI:Deployment` are set. See `docs/azure-openai-setup.md` |
 | `StandInEmailSender` (saves .eml files in `data/outbox`) | **Azure Communication Services Email: built, untested on real Azure.** Used when `Email:ConnectionString` and `Email:Sender` are set. See `docs/azure-email-setup.md` |
@@ -41,7 +42,7 @@ The rules that matter are real, not stand-ins: permissions, the approval lock (e
 **Manual steps:**
 
 ```bash
-dotnet test                       # 143 tests
+dotnet test                       # 387 tests (set VERBAFLOW_TEST_POSTGRES to run them on PostgreSQL)
 cd web && npm install && npm run build   # builds into src/VerbaFlow.Api/wwwroot
 cd ../src/VerbaFlow.Api && dotnet run     # http://localhost:5044
 ```
@@ -51,7 +52,8 @@ Pick a test user at the top right: Alice (author), Bob (assignee), Carol and Dav
 ## Layout
 
 - `src/VerbaFlow.Core`: domain, permissions, audit chain, transcripts, provider interfaces. No dependencies.
-- `src/VerbaFlow.Infrastructure`: SQLite, media store, services, stand-ins.
+- `src/VerbaFlow.Infrastructure`: SQLite and PostgreSQL, media store, services, stand-ins.
+- `Dockerfile`, `deploy/`: running online (`docs/going-online.md`).
 - `src/VerbaFlow.Api`: minimal API.
 - `web/`: React + TypeScript front end.
 - `docs/`: decision record, data model, setup guides, and `support-and-errors.md` (what customers see when something fails versus what support sees).

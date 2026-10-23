@@ -2,7 +2,7 @@ using VerbaFlow.Core.Audit;
 
 namespace VerbaFlow.Infrastructure.Persistence;
 
-public sealed class AuditLog(SqliteDatabase db, TimeProvider clock)
+public sealed class AuditLog(Database db, TimeProvider clock)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -12,7 +12,14 @@ public sealed class AuditLog(SqliteDatabase db, TimeProvider clock)
         try
         {
             await using var c = db.Open();
-            await using var tx = (Microsoft.Data.Sqlite.SqliteTransaction)await c.BeginTransactionAsync();
+            await using var tx = await c.BeginTransactionAsync();
+            if (db is PostgresDatabase)
+            {
+                await using var lk = c.CreateCommand();
+                lk.Transaction = tx;
+                lk.CommandText = PostgresDatabase.AuditLock;
+                await lk.ExecuteNonQueryAsync();
+            }
             long seq = 1; var prev = AuditChain.Genesis;
             await using (var last = c.CreateCommand())
             {
@@ -27,18 +34,18 @@ public sealed class AuditLog(SqliteDatabase db, TimeProvider clock)
                 ins.Transaction = tx;
                 ins.CommandText = """
                     INSERT INTO audit_events(seq, at, actor_id, capacity, product, item_id, type, details, prev_hash, hash)
-                    VALUES($seq,$at,$actor,$cap,$prod,$item,$type,$details,$prev,$hash)
+                    VALUES(@seq,@at,@actor,@cap,@prod,@item,@type,@details,@prev,@hash)
                     """;
-                ins.Parameters.AddWithValue("$seq", e.Seq);
-                ins.Parameters.AddWithValue("$at", e.At.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ"));
-                ins.Parameters.AddWithValue("$actor", (object?)e.ActorId?.ToString() ?? DBNull.Value);
-                ins.Parameters.AddWithValue("$cap", e.Capacity);
-                ins.Parameters.AddWithValue("$prod", e.Product);
-                ins.Parameters.AddWithValue("$item", (object?)e.ItemId?.ToString() ?? DBNull.Value);
-                ins.Parameters.AddWithValue("$type", e.Type);
-                ins.Parameters.AddWithValue("$details", e.Details);
-                ins.Parameters.AddWithValue("$prev", e.PrevHash);
-                ins.Parameters.AddWithValue("$hash", e.Hash);
+                ins.Add("@seq", e.Seq);
+                ins.Add("@at", e.At.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ"));
+                ins.Add("@actor", e.ActorId?.ToString());
+                ins.Add("@cap", e.Capacity);
+                ins.Add("@prod", e.Product);
+                ins.Add("@item", e.ItemId?.ToString());
+                ins.Add("@type", e.Type);
+                ins.Add("@details", e.Details);
+                ins.Add("@prev", e.PrevHash);
+                ins.Add("@hash", e.Hash);
                 await ins.ExecuteNonQueryAsync();
             }
             await tx.CommitAsync();
@@ -52,8 +59,8 @@ public sealed class AuditLog(SqliteDatabase db, TimeProvider clock)
         await using var c = db.Open();
         await using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT seq, at, actor_id, capacity, product, item_id, type, details, prev_hash, hash FROM audit_events"
-            + (itemId is null ? "" : " WHERE item_id = $item") + " ORDER BY seq";
-        if (itemId is not null) cmd.Parameters.AddWithValue("$item", itemId.ToString());
+            + (itemId is null ? "" : " WHERE item_id = @item") + " ORDER BY seq";
+        if (itemId is not null) cmd.Add("@item", itemId.ToString());
         var list = new List<AuditEvent>();
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())

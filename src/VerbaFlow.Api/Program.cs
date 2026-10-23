@@ -24,8 +24,13 @@ builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = policy.MaxUp
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(policy);
-builder.Services.AddSingleton(new SqliteDatabase(Path.Combine(dataDir, "verbaflow.db")));
-builder.Services.AddSingleton(sp => new Stores(sp.GetRequiredService<SqliteDatabase>(), Path.Combine(dataDir, "media"), sp.GetRequiredService<TimeProvider>()));
+// Online: PostgreSQL (Database:ConnectionString). On one computer: a SQLite file in the data folder.
+var pgConnection = builder.Configuration["Database:ConnectionString"];
+Database database = string.IsNullOrWhiteSpace(pgConnection)
+    ? new SqliteDatabase(Path.Combine(dataDir, "verbaflow.db"))
+    : new PostgresDatabase(pgConnection);
+builder.Services.AddSingleton(database);
+builder.Services.AddSingleton(sp => new Stores(sp.GetRequiredService<Database>(), Path.Combine(dataDir, "media"), sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<ProcessingQueue>();
 // Stand-ins: swapped for Azure services behind these same interfaces.
 var speech = new VerbaFlow.Infrastructure.Azure.AzureSpeechOptions(
@@ -127,6 +132,7 @@ app.Logger.LogInformation(openAi.IsConfigured
     ? "Summaries and Check grammar: using Azure OpenAI deployment {Deployment}"
     : "Summaries and Check grammar: STAND-IN (placeholder text). Set OpenAI:Endpoint, OpenAI:Key and OpenAI:Deployment to use Azure OpenAI.", openAi.Deployment);
 
+app.Logger.LogInformation("Database: {Database}; files in {DataDir}", database.Describe, dataDir);
 app.Logger.LogInformation(signIn.Microsoft
     ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.TestUsers ? ", and the test users while in Development" : "")
     : signIn.TestUsers ? "Sign-in: TEST USERS only (alice, bob, carol...). Set Entra:TenantId and Entra:ClientId to sign in with Microsoft (see docs/entra-sign-in-setup.md)."
@@ -159,6 +165,12 @@ app.UseStaticFiles();
 
 // What the web app and the Widget need to know to sign in; public, so it sits outside the signed-in group.
 app.MapGet("/api/sign-in", (SignInOptions o) => o.Describe());
+// For Azure's health probe: answers only once the database can be reached. Public, says nothing else.
+app.MapGet("/api/health", (Database db) =>
+{
+    try { using var c = db.Open(); return Results.Ok(new { ok = true }); }
+    catch { return Results.Json(new { ok = false }, statusCode: 503); }
+});
 var api = app.MapGroup("/api");
 api.AddEndpointFilter(SignIn.RequireUser);
 api.MapMeetingEndpoints();

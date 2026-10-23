@@ -52,7 +52,10 @@ public sealed class Env : IDisposable
 {
     public string Dir { get; } = Directory.CreateTempSubdirectory("verbaflow-test-").FullName;
     public FixedClock Clock { get; } = new();
-    public SqliteDatabase Db { get; }
+    public Database Db { get; }
+    /// <summary>Set VERBAFLOW_TEST_POSTGRES to a PostgreSQL connection string to run every test on PostgreSQL instead of SQLite.</summary>
+    public static readonly string? Postgres = Environment.GetEnvironmentVariable("VERBAFLOW_TEST_POSTGRES");
+    private readonly string? _schema;
     public Stores Stores { get; }
     public ThrowingSpeech Speech { get; } = new() { Fail = false };
     public ProcessingQueue Queue { get; } = new();
@@ -71,7 +74,13 @@ public sealed class Env : IDisposable
 
     public Env(PlatformPolicy? policy = null)
     {
-        Db = new SqliteDatabase(DbPath);
+        if (string.IsNullOrWhiteSpace(Postgres)) Db = new SqliteDatabase(DbPath);
+        else
+        {
+            _schema = "t_" + Guid.NewGuid().ToString("N");
+            using (var c = new Npgsql.NpgsqlConnection(Postgres)) { c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = $"CREATE SCHEMA {_schema}"; cmd.ExecuteNonQuery(); }
+            Db = new PostgresDatabase(new Npgsql.NpgsqlConnectionStringBuilder(Postgres) { SearchPath = _schema }.ConnectionString);
+        }
         Stores = new Stores(Db, Path.Combine(Dir, "media"), Clock);
         Reporter = new FailureReporter(Stores, Clock);
         Meeting = new MeetingService(Stores, new StandInMalwareScanner(), Queue, policy ?? new PlatformPolicy(), Clock, Ai, Reporter);
@@ -117,9 +126,24 @@ public sealed class Env : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>Changes one field of the stored JSON straight in the database, going round VerbaFlow (to check the database's own rules).</summary>
+    public void SetJson(string table, string field, string value, Guid? id = null)
+    {
+        var where = id is null ? "" : $" WHERE id = '{id}'";
+        Execute(Db is PostgresDatabase
+            ? $"UPDATE {table} SET json = jsonb_set(json::jsonb, '{{{field}}}', to_jsonb('{value}'::text))::text{where}"
+            : $"UPDATE {table} SET json = json_set(json, '$.{field}', '{value}'){where}");
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
+        if (_schema is not null)
+        {
+            (Db as IDisposable)?.Dispose();
+            using var c = new Npgsql.NpgsqlConnection(Postgres); c.Open();
+            using var cmd = c.CreateCommand(); cmd.CommandText = $"DROP SCHEMA {_schema} CASCADE"; cmd.ExecuteNonQuery();
+        }
         try { Directory.Delete(Dir, true); } catch { /* read-only media files on some platforms */ }
     }
 }

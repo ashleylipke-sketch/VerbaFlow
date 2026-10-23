@@ -66,7 +66,8 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
         Directory.CreateDirectory(dir);
         var dest = Path.Combine(dir, id.ToString("N") + ".bin");
         File.Move(staged.Path, dest);
-        File.SetAttributes(dest, FileAttributes.ReadOnly);
+        // Belt and braces: VerbaFlow never writes to a stored file anyway. Some network shares (online storage) refuse the mark.
+        try { File.SetAttributes(dest, FileAttributes.ReadOnly); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         var asset = new MediaAsset(id, itemId, kind, staged.Sha256, staged.SizeBytes, fileName, contentType, provenance, clock.GetUtcNow());
         await table.UpsertAsync(id, asset);
         return asset;
@@ -123,7 +124,7 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
                 {
                     if (File.Exists(path))
                     {
-                        File.SetAttributes(path, FileAttributes.Normal);
+                        try { File.SetAttributes(path, FileAttributes.Normal); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
                         File.Delete(path);
                         removed++;
                     }

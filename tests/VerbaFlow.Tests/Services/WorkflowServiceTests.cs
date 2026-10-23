@@ -1,3 +1,4 @@
+using VerbaFlow.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using VerbaFlow.Core.Domain;
 using VerbaFlow.Infrastructure.Services;
@@ -54,12 +55,12 @@ public class WorkflowServiceTests
         using var env = new Env();
         var id = await env.ProcessedRecordingAsync();
         await env.Meeting.ApproveAsync(env.Alice, id);
-        Assert.Throws<SqliteException>(() => env.Execute($"UPDATE doc_items SET json = '{{}}' WHERE id = '{id}'"));
-        Assert.Throws<SqliteException>(() => env.Execute($"DELETE FROM doc_items WHERE id = '{id}'"));
-        Assert.Throws<SqliteException>(() => env.Execute("UPDATE audit_events SET details = '{}' WHERE seq = 1"));
-        Assert.Throws<SqliteException>(() => env.Execute("DELETE FROM audit_events WHERE seq = 1"));
-        Assert.Throws<SqliteException>(() => env.Execute("UPDATE doc_media SET json = '{}'"));
-        Assert.Throws<SqliteException>(() => env.Execute("DELETE FROM doc_media"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.Execute($"UPDATE doc_items SET json = '{{}}' WHERE id = '{id}'"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.Execute($"DELETE FROM doc_items WHERE id = '{id}'"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.Execute("UPDATE audit_events SET details = '{}' WHERE seq = 1"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.Execute("DELETE FROM audit_events WHERE seq = 1"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.Execute("UPDATE doc_media SET json = '{}'"));
+        Assert.ThrowsAny<System.Data.Common.DbException>(() => env.Execute("DELETE FROM doc_media"));
     }
 
     [Fact]
@@ -68,7 +69,7 @@ public class WorkflowServiceTests
         using var env = new Env();
         var id = await env.ProcessedRecordingAsync();
         await env.Meeting.ApproveAsync(env.Alice, id);
-        env.Execute("DROP TRIGGER audit_no_update");
+        env.Execute(env.Db is PostgresDatabase ? "DROP TRIGGER audit_no_change ON audit_events" : "DROP TRIGGER audit_no_update");
         env.Execute("UPDATE audit_events SET details = '{\"forged\":true}' WHERE seq = 2");
         var result = await env.Meeting.VerifyAuditAsync(env.Carol);
         Assert.False(result.Ok);

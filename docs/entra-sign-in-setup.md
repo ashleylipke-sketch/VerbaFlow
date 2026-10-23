@@ -97,11 +97,22 @@ The Widget now has a fixed identity, which Microsoft needs, so it must be added 
 
 The Widget stays signed in while the browser is open. After the browser restarts it signs in again by itself if you are signed in to Microsoft in that browser (for example Outlook on the web); otherwise the panel asks you to sign in from Settings.
 
+## 9. The Widget for Windows (Outlook, Word, Teams…)
+
+The Widget for Windows signs in through your normal browser, and Microsoft must know where to send you back afterwards. Once:
+
+1. In the Entra admin center, open **App registrations** › **VerbaFlow** › **Authentication**.
+2. Click **Add Redirect URI** (older layout: **Add a platform**) and choose **Mobile and desktop applications**.
+3. Type `http://localhost` (exactly that, no port and no slash at the end) and click **Configure** or **Save**.
+
+Then install the Widget for Windows (`widget-windows.md`) and click **Sign in with Microsoft** in its settings.
+
 ## How it works (for whoever looks after VerbaFlow)
 
 - The web app uses Microsoft's sign-in library (MSAL.js, `@azure/msal-browser`) and sends an access token for `api://<client id>/access_as_user` with every call. The Widget does the same through the browser's sign-in window (`chrome.identity.launchWebAuthFlow`, authorisation code with PKCE); its tokens are kept in browser-session memory only.
 - The server (`SignIn.cs`) checks each token's signature against Microsoft, its audience, issuer and organisation (`tid`), and that it carries the `access_as_user` permission (so an app's own token is refused). A person is matched on their directory id (`oid`); the first sign-in creates the VerbaFlow user (History `user.first_sign_in`), and name, email and administrator status follow Microsoft 365 on every sign-in (History `user.admin_changed`).
 - Administrator status comes only from the `Admin` app role. VerbaFlow support access never comes from a customer's directory (see `support-and-errors.md`).
+- The Widget for Windows uses MSAL.NET with the system browser and a `http://localhost` (any port) redirect, as a public client; its sign-in is kept in `%LOCALAPPDATA%\VerbaFlow\Widget\signin.cache`, protected by Windows for that person only.
 - Live speech (Speech mode and the Widget) uses a one-minute ticket for its connection, obtained with the signed-in call, as before.
 
 ## Not done yet

@@ -27,6 +27,7 @@
     <ProjectReference Include="..\..\src\VerbaFlow.Core\VerbaFlow.Core.csproj" />
     <ProjectReference Include="..\..\src\VerbaFlow.Infrastructure\VerbaFlow.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\VerbaFlow.Api\VerbaFlow.Api.csproj" />
+    <ProjectReference Include="..\..\widget\windows\VerbaFlow.Widget.Core\VerbaFlow.Widget.Core.csproj" />
   </ItemGroup>
 
 </Project>

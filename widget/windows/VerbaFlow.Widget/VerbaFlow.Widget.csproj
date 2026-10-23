@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- VerbaFlow Widget for Windows: dictation into any Windows program (Outlook, Word, Teams...). A tray program with a
+       keyboard shortcut. Windows only; it builds on other systems but runs only on Windows. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- For UI Automation (System.Windows.Automation): password boxes and the text beside the cursor. -->
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>VerbaFlow.Widget</RootNamespace>
+    <AssemblyName>VerbaFlowWidget</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>widget.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Version>0.1.0</Version>
+    <Product>VerbaFlow Widget for Windows</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="widget.ico" LogicalName="widget.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Microphone (MIT). -->
+    <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+    <!-- Microsoft sign-in, with the sign-in kept protected in the person's Windows profile (MIT). -->
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.90.1" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.90.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VerbaFlow.Widget.Core\VerbaFlow.Widget.Core.csproj" />
+  </ItemGroup>
+
+</Project>

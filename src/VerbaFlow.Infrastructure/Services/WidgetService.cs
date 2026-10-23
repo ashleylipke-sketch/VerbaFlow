@@ -24,7 +24,10 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
     private const string Product = "widget";
     public const int MaxBlockedSites = 500;
 
-    /// <summary>The host of a web address, lower case and without "www.": what the Widget records and admins block.</summary>
+    /// <summary>
+    /// The host of a web address, lower case and without "www.": what the Widget records and admins block. The Widget for
+    /// Windows sends a program's file name instead (outlook.exe), which has the same form.
+    /// </summary>
     public static string SiteOf(string? address)
     {
         var a = (address ?? "").Trim().ToLowerInvariant();
@@ -59,10 +62,10 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
         {
             if (string.IsNullOrWhiteSpace(raw)) continue;
             var s = SiteOf(raw);
-            if (s.Length == 0) throw new DomainException($"\"{raw.Trim()}\" is not a website address. Use a form like mail.example.com or example.com.");
+            if (s.Length == 0) throw new DomainException($"\"{raw.Trim()}\" is not a website or program. Use a form like mail.example.com, example.com or teams.exe.");
             if (!clean.Contains(s)) clean.Add(s);
         }
-        if (clean.Count > MaxBlockedSites) throw new DomainException($"At most {MaxBlockedSites} websites can be listed.");
+        if (clean.Count > MaxBlockedSites) throw new DomainException($"At most {MaxBlockedSites} websites and programs can be listed.");
         var before = (await stores.WidgetPolicy.GetAsync(WidgetPolicy.RowId))?.BlockedSites ?? [];
         clean.Sort(StringComparer.Ordinal);
         await stores.WidgetPolicy.UpsertAsync(WidgetPolicy.RowId, new WidgetPolicy(clean, actor.Id, clock.GetUtcNow()));
@@ -75,10 +78,10 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
     public async Task<WidgetStart> StartAsync(User actor, string? site, string? device, string? spokenLanguages)
     {
         var s = SiteOf(site);
-        if (s.Length == 0) throw new DomainException("The Widget only works on websites.");
+        if (s.Length == 0) throw new DomainException("The Widget only works on websites and Windows programs.");
         var policy = await stores.WidgetPolicy.GetAsync(WidgetPolicy.RowId);
         if (policy is not null && IsBlocked(s, policy.BlockedSites))
-            throw new DomainException("Your administrator has switched the Widget off on this website.");
+            throw new DomainException("Your administrator has switched the Widget off here.");
         var (session, ticket) = await live.StartAsync(actor, spokenLanguages);
         var w = new WidgetSession(Guid.NewGuid(), actor.Id, s, DeviceOf(device), string.Join(",", session.Languages), clock.GetUtcNow(), session.Id);
         await stores.WidgetSessions.UpsertAsync(w.Id, w);

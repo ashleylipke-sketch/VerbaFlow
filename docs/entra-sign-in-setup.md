@@ -7,7 +7,7 @@ Nothing here is a password or a key. The two IDs you copy are shown to anyone wh
 ## 1. Register VerbaFlow
 
 1. Go to https://entra.microsoft.com and sign in with your admin account.
-2. Open **Identity** › **Applications** › **App registrations**, then click **New registration**.
+2. In the left menu, under **Entra ID**, click **App registrations**, then click **+ New registration** at the top. (Older layouts call this **Identity** › **Applications** › **App registrations**.)
 3. Fill in:
    - **Name:** `VerbaFlow`
    - **Supported account types:** *Accounts in this organizational directory only (Single tenant)*
@@ -59,7 +59,7 @@ That address belongs to the VerbaFlow Widget in Chrome and Edge. It is the same 
 
 VerbaFlow needs **at least two** administrators, because reopening or deleting an approved item needs two different admins to agree.
 
-1. Open **Identity** › **Applications** › **Enterprise applications** and click **VerbaFlow**.
+1. In the left menu, under **Entra ID**, click **Enterprise apps** (older layouts: **Identity** › **Applications** › **Enterprise applications**) and click **VerbaFlow**.
 2. Click **Users and groups**, then **Add user/group**.
 3. Pick a person (yourself first), set **Select a role** to **VerbaFlow administrator**, and click **Assign**. Repeat for the second administrator.
 

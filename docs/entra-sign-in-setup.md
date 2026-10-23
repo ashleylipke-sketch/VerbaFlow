@@ -72,9 +72,10 @@ A change here reaches VerbaFlow the next time that person signs in, or within an
 
 ## 7. Tell VerbaFlow
 
-Open a Command Prompt in the VerbaFlow folder and type these, replacing the parts in angle brackets with the values from step 1:
+Close any VerbaFlow window that is running. Open a Command Prompt in the VerbaFlow folder and type these, replacing the parts in angle brackets with the values from step 1 (both are on the app's **Overview** page):
 
 ```
+git pull
 cd src\VerbaFlow.Api
 dotnet user-secrets set "Entra:TenantId" "<Directory (tenant) ID>"
 dotnet user-secrets set "Entra:ClientId" "<Application (client) ID>"
@@ -82,7 +83,7 @@ cd ..\..
 run.cmd
 ```
 
-When it starts, the window should say: `Sign-in: Microsoft work accounts (Entra ID, ...)`. Open http://localhost:5044 and click **Sign in with Microsoft**.
+While it starts, look for the line beginning **Sign-in:** in the window. It should say `Sign-in: Microsoft work accounts (Entra ID, ...)`. Open http://localhost:5044 and click **Sign in with Microsoft**.
 
 On your computer the test users (Alice, Bob, Carol, Dave, Sam) still work, so you can keep testing things that need several people. To switch them off: `dotnet user-secrets set "SignIn:TestUsers" "false"` in `src\VerbaFlow.Api`. They never work when VerbaFlow runs anywhere other than in Development.
 

@@ -69,6 +69,7 @@ export default function App() {
                   <option value="">Choose…</option>
                   {users.map(u => <option key={u.id} value={key(u)}>{u.name}{u.isAdmin ? ' (admin)' : ''}{u.isSupport ? ' (support)' : ''}</option>)}
                 </select>
+                {info.microsoft && <> · <a href="#" onClick={e => { e.preventDefault(); signInWithMicrosoft(); }}>Sign in with Microsoft</a></>}
               </label>
               : null}
         </span>

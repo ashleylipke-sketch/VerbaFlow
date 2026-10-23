@@ -51,9 +51,12 @@ That address belongs to the VerbaFlow Widget in Chrome and Edge. It is the same 
 
 ## 5. Agree on behalf of everyone (so nobody is asked)
 
-1. In the left menu, click **API permissions**, then **Add a permission**.
-2. Choose **My APIs** › **VerbaFlow** › **Delegated permissions**, tick **access_as_user**, and click **Add permissions**.
-3. Click **Grant admin consent for** *(your organisation)* and confirm.
+1. In the left menu, click **Expose an API**.
+2. Under **Authorized client applications**, click **+ Add a client application**.
+3. In **Client ID**, paste VerbaFlow's own **Application (client) ID** (from the Overview page; it is the same code that follows `api://` in the Application ID URI).
+4. Tick the scope ending in `access_as_user` and click **Add application**.
+
+(Another way: **API permissions** › **Add a permission** › **My APIs** › **VerbaFlow** › tick **access_as_user**, then **Grant admin consent**. Microsoft sometimes shows "No results" under My APIs for a new app, so the way above is simpler.)
 
 ## 6. Choose the administrators
 

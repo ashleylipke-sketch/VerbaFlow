@@ -15,10 +15,11 @@ internal static class Program
         try
         {
             ApplicationConfiguration.Initialize();
-            SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+            // Must come before any window or control exists (the synchronisation context below creates one).
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             // A slip in one dictation does not close the Widget; it is written down.
             Application.ThreadException += (_, e) => Log(e.Exception);
+            SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
             var firstRun = !File.Exists(WidgetSettings.DefaultPath);
             Application.Run(new TrayApp(firstRun));
         }

@@ -8,7 +8,13 @@ namespace VerbaFlow.Widget;
 /// </summary>
 internal sealed class TrayApp : ApplicationContext
 {
-    public static readonly Icon AppIcon = new(typeof(TrayApp).Assembly.GetManifestResourceStream("widget.ico")!);
+    public static readonly Icon AppIcon = LoadIcon();
+
+    private static Icon LoadIcon()
+    {
+        try { return new Icon(typeof(TrayApp).Assembly.GetManifestResourceStream("widget.ico")!, SystemInformation.SmallIconSize); }
+        catch (Exception e) { Program.Log(e); return SystemIcons.Application; }
+    }
     private const int HotkeyId = 1;
 
     private readonly NotifyIcon _tray;

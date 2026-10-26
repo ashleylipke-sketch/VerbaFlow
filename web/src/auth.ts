@@ -13,6 +13,7 @@ let msal: PublicClientApplication | null = null;
 let account: AccountInfo | null = null;
 let testUser = read('devUser');
 let failure = '';
+let redirecting = false;
 
 function read(key: string) { try { return localStorage.getItem(key) ?? ''; } catch { return ''; } }
 function write(key: string, value: string) { try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch { /* private window */ } }
@@ -66,8 +67,14 @@ export async function authHeaders(): Promise<Record<string, string>> {
       const t = await msal.acquireTokenSilent({ scopes: [info.microsoft.scope], account });
       return { Authorization: `Bearer ${t.accessToken}` };
     } catch (e) {
-      if (e instanceof InteractionRequiredAuthError) { await msal.acquireTokenRedirect({ scopes: [info.microsoft.scope], account }); }
-      throw new Error('Your sign-in has run out. Sign in again.');
+      // Microsoft wants the person to sign in again (after a day or so, or when the quiet renewal is blocked by the
+      // browser): go to Microsoft once and come back here. Several calls can fail at the same moment; only one goes.
+      if (!redirecting) {
+        redirecting = true;
+        try { await msal.acquireTokenRedirect({ scopes: [info.microsoft.scope], account }); }
+        catch { redirecting = false; }
+      }
+      throw new Error(e instanceof InteractionRequiredAuthError || redirecting ? 'Taking you to Microsoft to sign in again…' : 'Your sign-in has run out. Sign in again.');
     }
   }
   return testUser ? { 'X-Dev-User': testUser } : {};

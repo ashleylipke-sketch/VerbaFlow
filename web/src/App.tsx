@@ -81,6 +81,7 @@ export default function App() {
           <h2>Sign in to VerbaFlow</h2>
           {problem && <div className="error">{problem}</div>}
           {way && !me && !problem && <p className="note">Signing in…</p>}
+          {way === 'microsoft' && problem && <div className="actions"><button className="primary" onClick={() => signInWithMicrosoft()}>Sign in again</button></div>}
           {!way && info.microsoft && <><p>Use your Microsoft work account, the one you use for Outlook and Teams.</p>
             <div className="actions"><button className="primary" onClick={() => signInWithMicrosoft()}>Sign in with Microsoft</button></div></>}
           {!way && info.testUsers && <p className="note">{info.microsoft ? 'Or, on this computer only, pick a test user at the top right.' : 'Pick a test user at the top right. (Microsoft sign-in is not set up yet.)'}</p>}

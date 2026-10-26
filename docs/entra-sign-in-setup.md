@@ -104,6 +104,7 @@ The Widget for Windows signs in through your normal browser, and Microsoft must 
 1. In the Entra admin center, open **App registrations** › **VerbaFlow** › **Authentication**.
 2. Click **Add Redirect URI** (older layout: **Add a platform**) and choose **Mobile and desktop applications**.
 3. Type `http://localhost` (exactly that, no port and no slash at the end) and click **Configure** or **Save**.
+4. Check that `http://localhost:5044/` is still listed under **Single-page application**, and not under Web or Mobile and desktop applications. If it ends up under another type, the web app's sign-in loops back to "The Microsoft sign-in did not finish", and Support: errors shows `AADSTS9002326: Cross-origin token redemption is permitted only for the 'Single-Page Application' client-type` (owner saw this, 2026-10-26).
 
 Then install the Widget for Windows (`widget-windows.md`) and click **Sign in with Microsoft** in its settings.
 

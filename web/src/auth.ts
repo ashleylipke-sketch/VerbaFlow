@@ -18,6 +18,14 @@ let redirecting = false;
 function read(key: string) { try { return localStorage.getItem(key) ?? ''; } catch { return ''; } }
 function write(key: string, value: string) { try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch { /* private window */ } }
 
+/**
+ * Where Microsoft sends the browser back to: a path of its own, registered as a Single-page application. Microsoft
+ * ignores the port of a localhost address, so plain http://localhost:5044/ would clash with the Widget for Windows'
+ * http://localhost (a desktop app), and Microsoft then refused the sign-in (AADSTS9002326). The path keeps them apart.
+ */
+const RETURN_PATH = '/signin';
+const returnAddress = () => location.origin + RETURN_PATH;
+
 /** Runs once before the app shows: learns how to sign in, and finishes a Microsoft sign-in the browser has just come back from. */
 export async function startSignIn(): Promise<SignInInfo> {
   try { info = await (await fetch('/api/sign-in')).json(); }
@@ -26,13 +34,14 @@ export async function startSignIn(): Promise<SignInInfo> {
   if (info.microsoft) {
     try {
       msal = new PublicClientApplication({
-        auth: { clientId: info.microsoft.clientId, authority: info.microsoft.authority, redirectUri: location.origin + '/' },
+        auth: { clientId: info.microsoft.clientId, authority: info.microsoft.authority, redirectUri: returnAddress() },
         cache: { cacheLocation: 'localStorage' },
       });
       await msal.initialize();
       const back = await msal.handleRedirectPromise();
       account = back?.account ?? msal.getAllAccounts()[0] ?? null;
       if (account) msal.setActiveAccount(account);
+      if (location.pathname === RETURN_PATH) history.replaceState(null, '', '/' + location.hash);
     } catch (e) {
       // Something left over from an earlier sign-in (half-finished, or from an older version) can make every return
       // from Microsoft fail. It is cleared, so the next Sign in with Microsoft starts afresh, and the reason is
@@ -83,7 +92,7 @@ export async function signInWithMicrosoft() {
 }
 
 export async function signOut() {
-  if (account && msal) { const a = account; account = null; await msal.logoutRedirect({ account: a, postLogoutRedirectUri: location.origin + '/' }); return; }
+  if (account && msal) { const a = account; account = null; await msal.logoutRedirect({ account: a, postLogoutRedirectUri: returnAddress() }); return; }
   setTestUser('');
 }
 

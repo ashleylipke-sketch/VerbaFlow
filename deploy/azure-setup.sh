@@ -155,13 +155,13 @@ else
 fi
 URL="https://$(az containerapp show -n "$APP" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)/"
 
-SAY "Letting Microsoft sign-in send people back to $URL"
+SAY "Letting Microsoft sign-in send people back to ${URL}signin"
 APP_OBJECT=$(az ad app show --id "$CLIENT" --query id -o tsv)
 URIS=$(az ad app show --id "$CLIENT" --query "spa.redirectUris" -o json)
-BODY=$(python3 -c "import json,sys; u=json.loads(sys.argv[1]) or []; u += [] if sys.argv[2] in u else [sys.argv[2]]; print(json.dumps({'spa': {'redirectUris': u}}))" "$URIS" "$URL")
+BODY=$(python3 -c "import json,sys; u=json.loads(sys.argv[1]) or []; u += [] if sys.argv[2] in u else [sys.argv[2]]; print(json.dumps({'spa': {'redirectUris': u}}))" "$URIS" "${URL}signin")
 az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$APP_OBJECT" \
   --headers Content-Type=application/json --body "$BODY" -o none \
-  || echo "[!] Could not add the address to the app registration. Add $URL as a Single-page application redirect URI by hand (docs/going-online.md)."
+  || echo "[!] Could not add the address to the app registration. Add ${URL}signin as a Single-page application redirect URI by hand (docs/going-online.md)."
 
 SAY "Checking it answers"
 for i in $(seq 1 30); do

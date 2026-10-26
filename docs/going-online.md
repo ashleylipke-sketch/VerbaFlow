@@ -110,7 +110,7 @@ Anyone dictating at that moment loses what they have not saved, so pick a quiet 
 ## If something goes wrong
 
 - **The page does not load after the script finished:** wait five minutes and try again. The first start downloads the speaker model.
-- **Sign-in says the reply address does not match:** in the Entra admin center, open **App registrations › VerbaFlow › Authentication**, click **Add Redirect URI**, choose **Single-page application** and add the exact address the script printed, ending with `/`.
+- **Sign-in says the reply address does not match:** in the Entra admin center, open **App registrations › VerbaFlow › Authentication**, click **Add Redirect URI**, choose **Single-page application** and add the exact address the script printed, ending with `/signin`.
 - **Anything else:** send me the last lines the script printed (they never contain a key or password).
 
 ## For whoever looks after VerbaFlow

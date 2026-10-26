@@ -36,14 +36,19 @@ export default function RetentionPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [errorAt, setErrorAt] = useState<'top' | 'proposal' | 'change'>('top');
 
   const show = (x: Retention) => { setR(x); setForm({ meetings: toForm(x.meetings), dictations: toForm(x.dictations) }); };
   useEffect(() => { api.retention().then(show).catch(e => setError(e.message)); }, []);
 
-  const run = async (fn: () => Promise<Retention>, done: string) => {
-    setBusy(true); setError(''); setMessage('');
-    try { show(await fn()); setMessage(done); setNote(''); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  // A refusal is shown beside the button that was clicked (the top of the page can be out of sight);
+  // a change that worked is shown at the top, where the rules now are, and the page goes there.
+  const run = async (at: 'proposal' | 'change', fn: () => Promise<Retention>, done: string) => {
+    setBusy(true); setError(''); setMessage(''); setErrorAt(at);
+    try { show(await fn()); setMessage(done); setNote(''); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
+  const errorHere = (at: 'top' | 'proposal' | 'change') => error && errorAt === at ? <div className="error" role="alert">{error}</div> : null;
 
   if (!r || !form) return <div className="card"><h2>Retention</h2>{error ? <div className="error">{error}</div> : <p className="note">Loading…</p>}</div>;
   const p = r.proposal;
@@ -74,7 +79,7 @@ export default function RetentionPage() {
         <h2>Retention</h2>
         <p className="note">How long recordings are kept. When a rule deletes a recording, its sound or video, text and summaries go, as with any delete;
           the line in the list and its History stay. An empty rule means kept for ever.</p>
-        {error && <div className="error">{error}</div>}
+        {errorHere('top')}
         {message && <div className="ok" role="status">{message}</div>}
         <h3>The rules now</h3>
         {rulesTable(r.meetings, r.dictations)}
@@ -88,12 +93,13 @@ export default function RetentionPage() {
         <h3>A change waiting for a second administrator</h3>
         <p className="note">Proposed by {p.proposedBy} on {fmtDate(p.at)}.{p.note ? ` Note: ${p.note}` : ''}</p>
         {rulesTable(p.meetings, p.dictations)}
+        {errorHere('proposal')}
         {r.isAdmin && <div className="actions">
           {p.youProposed
             ? <><span className="note">Another administrator must agree before it counts.</span>
-                <button disabled={busy} onClick={() => run(api.dropRetention, 'Change withdrawn. The rules stay as they were.')}>Withdraw</button></>
-            : <><button className="primary" disabled={busy} onClick={() => run(api.agreeRetention, 'Agreed. The new rules start deleting in a week.')}>Agree</button>
-                <button className="danger" disabled={busy} onClick={() => run(api.dropRetention, 'Change rejected. The rules stay as they were.')}>Reject</button></>}
+                <button disabled={busy} onClick={() => run('proposal', api.dropRetention, 'Change withdrawn. The rules stay as they were.')}>Withdraw</button></>
+            : <><button className="primary" disabled={busy} onClick={() => run('proposal', api.agreeRetention, 'Agreed. The new rules start deleting in a week.')}>Agree</button>
+                <button className="danger" disabled={busy} onClick={() => run('proposal', api.dropRetention, 'Change rejected. The rules stay as they were.')}>Reject</button></>}
         </div>}
       </div>}
 
@@ -107,9 +113,10 @@ export default function RetentionPage() {
         <div className="pair" style={{ flexWrap: 'wrap' }}>{LABELS.map(([k, label]) => <span key={k}>{input('dictations', k, label)}</span>)}</div>
         <label className="field">Why (optional)
           <input value={note} maxLength={500} onChange={e => setNote(e.target.value)} placeholder="For example: agreed by the board on 1 November" /></label>
+        {errorHere('change')}
         <div className="actions">
           <button className="primary" disabled={busy || !changed}
-            onClick={() => run(() => api.proposeRetention(fromForm(form.meetings), fromForm(form.dictations), note), 'Change proposed. Another administrator must now agree to it.')}>
+            onClick={() => run('change', () => api.proposeRetention(fromForm(form.meetings), fromForm(form.dictations), note), 'Change proposed. Another administrator must now agree to it.')}>
             Propose this change</button>
         </div>
       </div>}

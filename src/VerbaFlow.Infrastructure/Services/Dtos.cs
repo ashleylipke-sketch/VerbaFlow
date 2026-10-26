@@ -50,7 +50,8 @@ public sealed record ItemDetail(
     bool CanEditDetails, bool CanDownloadAudio, string Role, string OutputLanguage, DateTimeOffset? ApprovedAt,
     string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en",
     DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null, bool CanExport = false,
-    string Mode = "Meeting", string? DocumentType = null, string? ClientReference = null, bool Video = false, IReadOnlyList<string>? Attendees = null);
+    string Mode = "Meeting", string? DocumentType = null, string? ClientReference = null, bool Video = false, IReadOnlyList<string>? Attendees = null,
+    string? RecordingRemoved = null);
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 

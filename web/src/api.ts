@@ -16,6 +16,8 @@ export type Detail = {
   mode: 'Dictate' | 'Speech' | 'Meeting'; documentType: string | null; clientReference: string | null;
   /** The recording is a video (an online meeting brought back by Meet's note-taker). */
   video: boolean; attendees: string[] | null;
+  /** Set when the retention rules removed the sound or video (the text is kept): a plain sentence saying when. */
+  recordingRemoved: string | null;
 };
 export type NoteTakerRow = { id: string; name: string; platform: string; joinAt: string; state: string; stateLabel: string; failureReason: string | null;
   itemId: string | null; bookedBy: string; alsoFor: string[]; youBookedFirst: boolean; youAsked: boolean; canCancel: boolean; createdAt: string };
@@ -111,6 +113,14 @@ export const api = {
   changeSavedText: (id: string, code: string, text: string) => call<SavedText>('PUT', `/saved-text/${id}`, { code, text }),
   removeSavedText: (id: string) => call<void>('DELETE', `/saved-text/${id}`),
   letterhead: () => call<Letterhead>('GET', '/letterhead'),
+  retention: () => call<Retention>('GET', '/retention'),
+  proposeRetention: (meetings: RetentionRules, dictations: RetentionRules, note: string) =>
+    call<Retention>('POST', '/retention/propose', { meetings, dictations, note: note.trim() || null }),
+  agreeRetention: () => call<Retention>('POST', '/retention/agree'),
+  dropRetention: () => call<Retention>('POST', '/retention/drop'),
+  itemRetention: (id: string) => call<ItemRetention>('GET', `/items/${id}/retention`),
+  holdItem: (id: string, reason: string) => call<ItemRetention>('POST', `/items/${id}/retention/hold`, { reason }),
+  releaseItem: (id: string) => call<ItemRetention>('POST', `/items/${id}/retention/release`),
   uploadLetterhead: (kind: 'word' | 'pdf', file: File) => { const f = new FormData(); f.append('file', file); return call<Letterhead>('POST', `/letterhead/${kind}`, f); },
   removeLetterhead: (kind: 'word' | 'pdf') => call<Letterhead>('DELETE', `/letterhead/${kind}`),
   letterheadSpace: (s: { topFirstMm: number; topNextMm: number; bottomMm: number; sideMm: number }) => call<Letterhead>('PUT', '/letterhead/space', s),
@@ -161,6 +171,16 @@ export const api = {
     return res.blob();
   },
 };
+
+export interface RetentionRules { deleteApprovedAfterDays: number | null; removeRecordingAfterDays: number | null; deleteUnapprovedAfterDays: number | null }
+export interface Retention {
+  meetings: RetentionRules; dictations: RetentionRules; agreedAt: string | null; agreedBy: string[]; appliesFrom: string | null;
+  proposal: { meetings: RetentionRules; dictations: RetentionRules; proposedBy: string; at: string; note: string | null; youProposed: boolean } | null;
+  isAdmin: boolean;
+  due: { itemId: string; name: string; mode: string; status: string; action: 'delete' | 'remove-recording'; dueAt: string }[];
+  holds: { itemId: string; name: string; by: string; at: string; reason: string }[];
+}
+export interface ItemRetention { note: string | null; held: boolean; holdReason: string | null; canHold: boolean }
 
 export interface ExportCheck { matches: boolean; message: string; sha256: string }
 

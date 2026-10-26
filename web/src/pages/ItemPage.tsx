@@ -1,3 +1,4 @@
+import RetentionLine from '../RetentionLine';
 import type { RefObject } from 'react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import LanguagePicker from '../LanguagePicker';
@@ -50,13 +51,14 @@ export default function ItemPage({ id }: { id: string }) {
   useEffect(() => { load(); const i = setInterval(() => { if (d?.processingState === 'Processing') load(); }, 3000); return () => clearInterval(i); }, [load, d?.processingState]);
   // A meeting video is too big to load whole: it plays through a short-lived link that streams it. Audio loads whole.
   const isVideo = d === null ? null : d.video;
+  const removed = !!d?.recordingRemoved;
   useEffect(() => {
-    if (isVideo === null) return;
+    if (isVideo === null || removed) return;
     let url = '';
     if (isVideo) api.post(`/items/${id}/play`).then(r => setAudioUrl(r.url)).catch(() => setAudioUrl(''));
     else api.audio(id).then(b => { url = URL.createObjectURL(b); setAudioUrl(url); }).catch(() => setAudioUrl(''));
     return () => { if (url) URL.revokeObjectURL(url); };
-  }, [id, isVideo]);
+  }, [id, isVideo, removed]);
 
   // Follow the audio: read its position about 60 times a second while it plays, and only re-render when the word changes.
   const segs = t?.segments ?? [];
@@ -126,6 +128,8 @@ export default function ItemPage({ id }: { id: string }) {
           {d.approvedAt && <> · Approved by {d.approvedBy} on {fmtDate(d.approvedAt)}</>}
         </div>
         {d.deletedAt && <div className="banner">This recording was deleted by {d.deletedBy} on {fmtDate(d.deletedAt)}. Reason: {d.deleteReason}. Its audio, transcript and summary have been removed; the history below is kept.</div>}
+        {d.recordingRemoved && <div className="banner">{d.recordingRemoved}</div>}
+        {!d.deletedAt && <RetentionLine id={id} />}
         {acts.has('change-recording') && <p className="note">Need to add something or re-record part of it? <a className="btn primary" href={`#/dictate/record/${id}`}>Insert or Amend</a></p>}
         {r.statusCode === 'Draft' && <div className="banner">This {d.mode === 'Speech' ? 'item' : 'dictation'} is not finished yet, so it has not been converted to text.
           {acts.has('continue') ? <> <a className="btn primary" href={d.mode === 'Speech' ? `#/speech/live/${id}` : `#/dictate/record/${id}`}>{d.mode === 'Speech' ? 'Carry on speaking' : 'Carry on dictating'}</a></>

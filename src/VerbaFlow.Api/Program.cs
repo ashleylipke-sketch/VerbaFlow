@@ -128,6 +128,8 @@ if (graph.IsConfigured)
 else builder.Services.AddSingleton<ICalendarReader, VerbaFlow.Infrastructure.StandIns.SampleCalendarReader>();
 builder.Services.AddSingleton<ICalendarReader>(_ => new VerbaFlow.Infrastructure.Calendars.LinkCalendarReader());
 builder.Services.AddSingleton<CalendarService>();
+builder.Services.AddSingleton<RetentionService>();
+if (!string.Equals(builder.Configuration["Retention:Worker"], "false", StringComparison.OrdinalIgnoreCase)) builder.Services.AddHostedService<RetentionWorker>();
 if (!string.Equals(builder.Configuration["Meet:Worker"], "false", StringComparison.OrdinalIgnoreCase)) { builder.Services.AddHostedService<MeetWorker>(); builder.Services.AddHostedService<CalendarWorker>(); }
 
 var signIn = SignInOptions.From(builder.Configuration, builder.Environment);
@@ -221,6 +223,7 @@ api.AddEndpointFilter(SignIn.RequireUser);
 api.MapMeetingEndpoints();
 api.MapLiveEndpoints();
 api.MapMeetEndpoints();
+api.MapRetentionEndpoints();
 app.MapLiveSocket();
 app.MapPlayback();
 app.MapFallbackToFile("index.html");

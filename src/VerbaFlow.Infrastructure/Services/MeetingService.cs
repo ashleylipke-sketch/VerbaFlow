@@ -118,6 +118,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         var item = await stores.RequireItemAsync(id);
         if (item.OwnerId != actor.Id) throw new ForbiddenException("Only the person who dictated this can change its recording.");
+        if (await RecordingRemovedAsync(item) is { } removed) throw new DomainException(removed);
         if ((await stores.Items.ListAsync()).Any(i => i.SupersedesItemId == id)) throw new DomainException("A newer version of this dictation exists.");
         var transcript = await stores.Transcripts.GetAsync(id);
         var edits = transcript is null ? 0 : transcript.PersonVersions;
@@ -250,6 +251,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         var item = await stores.RequireItemAsync(id);
         RequireOwnerOrAdmin(actor, item);
+        if (await RecordingRemovedAsync(item) is { } removed) throw new DomainException(removed + " So it cannot be converted again.");
         var transcript = await stores.Transcripts.GetAsync(id);
         var edits = transcript is null ? 0 : transcript.PersonVersions;
         if (edits > 0 && !discardEdits)
@@ -477,7 +479,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     }
 
     /// <summary>Deletes the audio, transcripts and summaries of every version and marks each version deleted. The history is kept.</summary>
-    private async Task PurgeChainAsync(User actor, List<Item> chain, string reason, Guid? requestId, IReadOnlyList<Guid> agreedBy)
+    /// <param name="actor">Null when the retention rules delete it (recorded in History as the system).</param>
+    private async Task PurgeChainAsync(User? actor, List<Item> chain, string reason, Guid? requestId, IReadOnlyList<Guid> agreedBy)
     {
         var now = clock.GetUtcNow();
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
@@ -490,17 +493,40 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         }
         foreach (var i in chain)
         {
-            i.Purge(actor.Id, reason, now);
+            i.Purge(actor?.Id ?? RetentionActor, reason, now);
             await stores.Items.UpsertAsync(i.Id, i);
             await stores.Transcripts.DeleteAsync(i.Id);
             await stores.Outputs.DeleteAsync(i.Id);
             await stores.LiveText.DeleteAsync(i.Id);
             await stores.MeetingSpeakers.DeleteAsync(i.MediaSourceItemId);
-            await Audit(actor, CapacityOf(actor, i), i.Id, "item.deleted", ("reason", reason), ("requestId", requestId),
+            await stores.Audit.AppendAsync(actor?.Id, actor is null ? "system" : CapacityOf(actor, i), Product, i.Id, "item.deleted", AuditChain.Details(
+                ("reason", reason), ("requestId", requestId),
                 ("agreedBy", string.Join(", ", agreedBy.Select(a => users.GetValueOrDefault(a, "?")))), ("versions", chain.Count),
-                ("audioFilesRemoved", removedFiles), ("audioFilesNotRemoved", stuckFiles == 0 ? null : stuckFiles));
+                ("audioFilesRemoved", removedFiles), ("audioFilesNotRemoved", stuckFiles == 0 ? null : stuckFiles),
+                ("by", actor is null ? "retention rules" : null)));
         }
     }
+
+    /// <summary>Who deleted an item that the retention rules deleted.</summary>
+    public static readonly Guid RetentionActor = Guid.Empty;
+
+    /// <summary>
+    /// The retention rules delete every version of a recording, approved or not. The rules themselves were agreed by two
+    /// administrators (see RetentionService), which stands in for the two-administrator delete of an approved recording.
+    /// </summary>
+    public async Task<bool> DeleteByRetentionAsync(Guid chainId, string reason, IReadOnlyList<Guid> agreedBy)
+    {
+        var chain = (await stores.Items.ListAsync()).Where(i => i.ChainId == chainId).OrderBy(i => i.VersionNo).ToList();
+        if (chain.Count == 0 || chain.Any(i => i.Status == ItemStatus.Purged || i.Processing == ProcessingState.Running)) return false;
+        await PurgeChainAsync(null, chain, reason, null, agreedBy);
+        return true;
+    }
+
+    /// <summary>A plain sentence when the retention rules removed this item's recording (its text is kept); null otherwise.</summary>
+    public async Task<string?> RecordingRemovedAsync(Item item) =>
+        await stores.RecordingRemovals.GetAsync(item.MediaSourceItemId) is { } r
+            ? $"The recording was removed on {r.At:d MMM yyyy} under the organisation's retention rules. The text is kept."
+            : null;
 
     // ---------- transcript ----------
 
@@ -605,6 +631,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, download ? Capability.ExportAudio : Capability.Read);
         if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
+        if (await RecordingRemovedAsync(item) is { } removed) throw new NotFoundException(removed);
         var asset = await PlayableAsync(item) ?? throw new NotFoundException("The recording is missing.");
         await Audit(actor, CapacityOf(actor, item), id, download ? "audio.downloaded" : "audio.played", ("sha256", asset.Sha256));
         return new AudioHandle(stores.Media.OpenRead(asset), asset.ContentType, asset.FileName);
@@ -619,6 +646,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, Capability.Read);
         if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
+        if (await RecordingRemovedAsync(item) is { } removed) throw new NotFoundException(removed);
         var asset = await PlayableAsync(item) ?? throw new NotFoundException("The recording is missing.");
         await Audit(actor, CapacityOf(actor, item), id, "audio.played", ("sha256", asset.Sha256), ("by", "link"));
     }
@@ -628,6 +656,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         var item = await stores.RequireItemAsync(id);
         if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
+        if (await RecordingRemovedAsync(item) is { } removed) throw new NotFoundException(removed);
         var asset = await PlayableAsync(item) ?? throw new NotFoundException("The recording is missing.");
         return new AudioHandle(stores.Media.OpenRead(asset), asset.ContentType, asset.FileName);
     }
@@ -668,7 +697,10 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var chain = all.Where(i => i.ChainId == item.ChainId).OrderBy(i => i.VersionNo).ToList();
         var role = PermissionEvaluator.RoleOn(actor, item);
         var ownerRole = item.Source == SourceKind.Imported ? "Importer" : "Author";
-        return new ItemDetail(ToRow(actor, item, users, superseded), users.GetValueOrDefault(item.OwnerId)?.Name ?? "?", ownerRole,
+        var removed = await RecordingRemovedAsync(item);
+        var row = ToRow(actor, item, users, superseded);
+        if (removed is not null) row = row with { Actions = row.Actions.Where(a => a is not ("rerun" or "change-recording" or "retry")).ToList() };
+        return new ItemDetail(row, users.GetValueOrDefault(item.OwnerId)?.Name ?? "?", ownerRole,
             item.Processing == ProcessingState.Running ? "Processing" : null, item.FailureReason, item.OriginalFileName,
             item.ExternalSourceNote, asset?.Sha256,
             item.Markers.Select(m => new MarkerView(m.Type.ToString(), m.OffsetMs, m.Note, users.GetValueOrDefault(m.ActorId)?.Name ?? "?", m.At)).ToList(),
@@ -679,10 +711,10 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             item.ApprovedBy is { } a ? users.GetValueOrDefault(a)?.Name : null, item.ChainId,
             chain.Select(c => new ChainEntry(c.Id, c.VersionNo, StatusLabels.For(c.Mode, c.Status), !all.Any(x => x.SupersedesItemId == c.Id))).ToList(),
             item.Source switch { SourceKind.Imported => "Imported (external source)", SourceKind.OnlineMeeting => item.ExternalSourceNote ?? "Online meeting", _ => "Recorded in app" }, item.SpokenLanguages,
-            item.DeletedAt, item.DeletedBy is { } db ? users.GetValueOrDefault(db)?.Name : null, item.DeleteReason,
+            item.DeletedAt, item.DeletedBy is { } db ? (db == RetentionActor ? "the retention rules" : users.GetValueOrDefault(db)?.Name) : null, item.DeleteReason,
             item.Status != ItemStatus.Purged && PermissionEvaluator.Evaluate(actor, item, Capability.Export).Allowed,
             item.Mode.ToString(), item.DocumentType, item.ClientReference, asset?.ContentType.StartsWith("video/") == true,
-            item.Attendees.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList());
+            item.Attendees.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), removed);
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)

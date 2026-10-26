@@ -38,6 +38,12 @@ public sealed class Stores
     public DocTable<CalendarSettings> CalendarSettings { get; }
     /// <summary>Meet: each person's on/off choice and booking for a meeting in their calendar.</summary>
     public DocTable<CalendarChoice> CalendarChoices { get; }
+    /// <summary>The organisation's retention rules (one record, RetentionPolicy.Id).</summary>
+    public DocTable<RetentionPolicy> Retention { get; }
+    /// <summary>Recordings administrators have put on hold, by chain id: the retention rules never delete them.</summary>
+    public DocTable<RetentionHold> RetentionHolds { get; }
+    /// <summary>Recordings whose sound or video the retention rules removed (text kept), by the item whose media it was.</summary>
+    public DocTable<RecordingRemoval> RecordingRemovals { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -63,6 +69,9 @@ public sealed class Stores
         MeetingSpeakers = new(db, "doc_meeting_speakers");
         CalendarSettings = new(db, "doc_calendar_settings");
         CalendarChoices = new(db, "doc_calendar_choices");
+        Retention = new(db, "doc_retention");
+        RetentionHolds = new(db, "doc_retention_holds");
+        RecordingRemovals = new(db, "doc_recording_removals");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

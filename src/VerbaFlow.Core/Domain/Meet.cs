@@ -15,7 +15,8 @@ public enum NoteTakerState { Scheduled, Joining, WaitingToBeLetIn, Recording, Me
 /// <param name="FailureReason">A plain, customer-safe sentence (with a VF- reference when something broke).</param>
 public sealed record NoteTaker(Guid Id, IReadOnlyList<Guid> Requesters, string Name, string MeetingUrl, string MeetingKey, string Platform,
     DateTimeOffset JoinAt, string SpokenLanguages, DateTimeOffset CreatedAt, NoteTakerState State = NoteTakerState.Scheduled,
-    string? BotId = null, DateTimeOffset? StateAt = null, Guid? ItemId = null, string? FailureReason = null)
+    string? BotId = null, DateTimeOffset? StateAt = null, Guid? ItemId = null, string? FailureReason = null,
+    DateTimeOffset? CheckedAt = null, string? Waiting = null)
 {
     [System.Text.Json.Serialization.JsonIgnore] public Guid OwnerId => Requesters[0];
     [System.Text.Json.Serialization.JsonIgnore] public bool IsFinished => State is NoteTakerState.Fetched or NoteTakerState.Failed or NoteTakerState.Cancelled;

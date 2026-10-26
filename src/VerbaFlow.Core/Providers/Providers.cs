@@ -142,7 +142,8 @@ public interface IGrammarChecker
 /// <param name="Reference">VerbaFlow's own id, kept with the note-taker so it can be found again.</param>
 public sealed record NoteTakerRequest(string MeetingUrl, string DisplayName, DateTimeOffset? JoinAt, string Announcement, Guid Reference);
 
-public enum NoteTakerPhase { Scheduled, Joining, WaitingToBeLetIn, Recording, MeetingEnded, Ready, Failed }
+/// <summary>Unknown: the service reported something new (for example a breakout room); the booking keeps its current state.</summary>
+public enum NoteTakerPhase { Scheduled, Joining, WaitingToBeLetIn, Recording, MeetingEnded, Ready, Failed, Unknown }
 
 /// <summary>
 /// What the note-taker service says now. <paramref name="Detail"/> is technical (for support only).

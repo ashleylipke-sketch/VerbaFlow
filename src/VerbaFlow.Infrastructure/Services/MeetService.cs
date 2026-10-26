@@ -11,7 +11,8 @@ public sealed record NoteTakerBooking(string? MeetingUrl, string? Name, DateTime
 public sealed record NoteTakerBooked(NoteTakerRow NoteTaker, bool JoinedExisting, bool AlreadyBooked);
 
 public sealed record NoteTakerRow(Guid Id, string Name, string Platform, DateTimeOffset JoinAt, string State, string StateLabel,
-    string? FailureReason, Guid? ItemId, string BookedBy, IReadOnlyList<string> AlsoFor, bool YouBookedFirst, bool YouAsked, bool CanCancel, DateTimeOffset CreatedAt);
+    string? FailureReason, Guid? ItemId, string BookedBy, IReadOnlyList<string> AlsoFor, bool YouBookedFirst, bool YouAsked, bool CanCancel, DateTimeOffset CreatedAt,
+    DateTimeOffset? CheckedAt = null, string? Waiting = null);
 
 public sealed record MeetOverview(string Engine, bool Real, string NoteTakerName, IReadOnlyList<string> Platforms, IReadOnlyList<NoteTakerRow> NoteTakers);
 
@@ -148,8 +149,15 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             try { status = await service.GetAsync(nt.BotId!, ct); }
             catch (Exception ex) when (ex is not OperationCanceledException) { await FailedTryAsync(nt, ex, "The note-taker service could not be reached"); continue; }
             failuresInARow.TryRemove(nt.Id, out _);
+            if (status.Phase != NoteTakerPhase.Ready)
+                await NoteAsync(nt, status.Phase == NoteTakerPhase.MeetingEnded ? "The meeting has ended. The note-taker service is still preparing the video; this can take a few minutes." : null);
 
-            if (status.Phase == NoteTakerPhase.Ready) { if (await FetchAsync(nt, status, ct)) fetched++; continue; }
+            if (status.Phase == NoteTakerPhase.Ready)
+            {
+                if (nt.State != NoteTakerState.MeetingEnded) await SetStateAsync(nt, NoteTakerState.MeetingEnded, null);
+                if (await FetchAsync(nt, status, ct)) fetched++;
+                continue;
+            }
             if (status.Phase == NoteTakerPhase.Failed)
             {
                 var rep = await reporter.ReportAsync("note-taker", null, new ProviderException(FaultKind.Other, $"Note-taker {nt.BotId} failed: {status.Detail}"));
@@ -158,6 +166,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             }
             var state = status.Phase switch
             {
+                NoteTakerPhase.Unknown => nt.State,
                 NoteTakerPhase.Joining => NoteTakerState.Joining,
                 NoteTakerPhase.WaitingToBeLetIn => NoteTakerState.WaitingToBeLetIn,
                 NoteTakerPhase.Recording => NoteTakerState.Recording,
@@ -222,10 +231,28 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     private async Task FailedTryAsync(NoteTaker nt, Exception ex, string what)
     {
         var count = failuresInARow.AddOrUpdate(nt.Id, 1, (_, c) => c + 1);
-        if (count < MaxFailuresInARow) return;
+        if (count < MaxFailuresInARow)
+        {
+            // The first failure is reported straight away (server log and Support: errors), so a problem is seen within a minute.
+            if (count == 1)
+            {
+                var first = await reporter.ReportAsync("note-taker", null, ex);
+                await NoteAsync(nt, $"{what} yet. VerbaFlow tries again every minute. Reference: {first.Reference}.");
+            }
+            else await NoteAsync(nt, null, keep: true);
+            return;
+        }
         failuresInARow.TryRemove(nt.Id, out _);
         var rep = await reporter.ReportAsync("note-taker", null, ex);
         await SetStateAsync(nt, NoteTakerState.Failed, $"{what}. Contact support. Reference: {rep.Reference}.");
+    }
+
+    /// <summary>Records when the service was last asked, and a plain sentence of what the booking is waiting for (null when nothing to say).</summary>
+    private async Task NoteAsync(NoteTaker nt, string? waiting, bool keep = false)
+    {
+        var current = await stores.NoteTakers.GetAsync(nt.Id) ?? nt;
+        if (current.IsFinished) return;
+        await stores.NoteTakers.UpsertAsync(nt.Id, current with { CheckedAt = clock.GetUtcNow(), Waiting = keep ? current.Waiting : waiting });
     }
 
     private async Task SetStateAsync(NoteTaker nt, NoteTakerState state, string? reason)
@@ -255,7 +282,8 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     private static NoteTakerRow Row(User actor, NoteTaker n, Dictionary<Guid, string> users) =>
         new(n.Id, n.Name, n.Platform, n.JoinAt, n.State.ToString(), LabelOf(n.State), n.FailureReason, n.ItemId,
             users.GetValueOrDefault(n.OwnerId, "?"), n.Requesters.Skip(1).Select(r => users.GetValueOrDefault(r, "?")).ToList(),
-            n.OwnerId == actor.Id, n.Requesters.Contains(actor.Id), n.IsActive && (n.Requesters.Contains(actor.Id) || actor.IsAdmin), n.CreatedAt);
+            n.OwnerId == actor.Id, n.Requesters.Contains(actor.Id), n.IsActive && (n.Requesters.Contains(actor.Id) || actor.IsAdmin), n.CreatedAt,
+            n.CheckedAt, n.IsFinished ? null : n.Waiting);
 
     /// <summary>Up to three known spoken languages, comma-separated, or "auto".</summary>
     public static string NormaliseLanguages(string? value)

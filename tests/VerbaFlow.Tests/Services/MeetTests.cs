@@ -189,6 +189,7 @@ public class MeetTests
         };
         Assert.Equal(NoteTakerPhase.WaitingToBeLetIn, RecallNoteTaker.Read(Bot("in_waiting_room")).Phase);
         Assert.Equal(NoteTakerPhase.Recording, RecallNoteTaker.Read(Bot("in_call_recording")).Phase);
+        Assert.Equal(NoteTakerPhase.Unknown, RecallNoteTaker.Read(Bot("breakout_room_entered")).Phase); // keeps the current state
         Assert.Equal(NoteTakerPhase.Failed, RecallNoteTaker.Read(Bot("fatal", "bot_errored")).Phase);
         Assert.Equal(NoteTakerPhase.Failed, RecallNoteTaker.Read(Bot("done")).Phase); // done, but nothing was recorded
         var ready = RecallNoteTaker.Read(Bot("done", null, JsonNode.Parse("""

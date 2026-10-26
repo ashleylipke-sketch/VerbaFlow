@@ -75,7 +75,8 @@ public sealed class RecallNoteTaker(HttpClient http, RecallOptions options) : IN
                 : video?["status"]?["code"]?.GetValue<string>() is "failed" ? new(NoteTakerPhase.Failed, detail + ": the video failed")
                 : new(NoteTakerPhase.MeetingEnded, detail),
             "fatal" or "media_expired" => new(NoteTakerPhase.Failed, detail),
-            _ => new(NoteTakerPhase.Scheduled, detail),
+            "ready" or "scheduled" => new(NoteTakerPhase.Scheduled, detail),
+            _ => new(NoteTakerPhase.Unknown, detail), // breakout rooms and codes Recall.ai adds later
         };
     }
 

@@ -47,7 +47,12 @@ export default function Meet() {
     try { await api.cancelNoteTaker(n.id); await load(); } catch (e: any) { setError(e.message); }
   };
 
-  const check = async () => { setError(''); try { setO(await api.checkNoteTakers()); } catch (e: any) { setError(e.message); } };
+  const [checked, setChecked] = useState('');
+  const check = async () => {
+    setError(''); setChecked('Checking…');
+    try { setO(await api.checkNoteTakers()); setChecked(`Checked at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.`); }
+    catch (e: any) { setChecked(''); setError(e.message); }
+  };
 
   return (
     <>
@@ -79,14 +84,16 @@ export default function Meet() {
       <CalendarCard onChanged={load} />
 
       <div className="card">
-        <div className="item-head"><h2>Your note-takers</h2><button onClick={check}>Check now</button></div>
+        <div className="item-head"><h2>Your note-takers</h2><span className="row">{checked && <span className="note" role="status">{checked}</span>}<button onClick={check}>Check now</button></span></div>
         {!o ? <p className="note">Loading…</p> : o.noteTakers.length === 0 ? <p className="note">None yet.</p> :
           <table>
             <thead><tr><th>Meeting</th><th>Platform</th><th>When</th><th>Status</th><th>Booked by</th><th></th></tr></thead>
             <tbody>{o.noteTakers.map(n => <tr key={n.id}>
               <td>{n.name}</td><td>{n.platform}</td><td>{when(n.joinAt)}</td>
               <td><span className="pill" title={n.failureReason ?? undefined}>{n.stateLabel}</span>
-                {n.failureReason && <div className="note">{n.failureReason}</div>}</td>
+                {n.failureReason && <div className="note">{n.failureReason}</div>}
+                {n.waiting && <div className="note">{n.waiting}</div>}
+                {n.checkedAt && ACTIVE.has(n.state) && <div className="note">Last checked {new Date(n.checkedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>}</td>
               <td>{n.bookedBy}{n.alsoFor.length > 0 && <div className="note">also for {n.alsoFor.join(', ')}</div>}</td>
               <td>{n.itemId && <a className="btn" href={`#/items/${n.itemId}`}>Open the meeting</a>}
                 {n.canCancel && <button onClick={() => cancel(n)}>{shared(n) ? 'Take me off' : 'Call off'}</button>}</td>

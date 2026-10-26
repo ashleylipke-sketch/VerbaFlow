@@ -20,7 +20,9 @@ export type Detail = {
   recordingRemoved: string | null;
 };
 export type NoteTakerRow = { id: string; name: string; platform: string; joinAt: string; state: string; stateLabel: string; failureReason: string | null;
-  itemId: string | null; bookedBy: string; alsoFor: string[]; youBookedFirst: boolean; youAsked: boolean; canCancel: boolean; createdAt: string };
+  itemId: string | null; bookedBy: string; alsoFor: string[]; youBookedFirst: boolean; youAsked: boolean; canCancel: boolean; createdAt: string;
+  /** When VerbaFlow last asked the note-taker service, and a plain sentence of what it is waiting for. */
+  checkedAt: string | null; waiting: string | null };
 export type CalendarMeetingRow = { eventKey: string; subject: string; start: string; end: string; platform: string | null; send: boolean;
   choice: boolean | null; why: string | null; noteTakerId: string | null; noteTakerState: string | null; noteTakerLabel: string | null };
 export type CalendarOverview = { sources: { id: string; label: string }[];

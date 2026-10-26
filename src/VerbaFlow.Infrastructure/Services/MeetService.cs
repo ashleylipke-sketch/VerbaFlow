@@ -35,6 +35,8 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
 
     public string NoteTakerName => noteTakerName;
     private readonly SemaphoreSlim gate = new(1, 1);
+    /// <summary>One check at a time (the every-minute check and Check now), so a finished recording is never brought back twice.</summary>
+    private readonly SemaphoreSlim checking = new(1, 1);
     private readonly ConcurrentDictionary<Guid, int> failuresInARow = new();
 
     public async Task<MeetOverview> OverviewAsync(User actor) =>
@@ -138,6 +140,13 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     /// </summary>
     public async Task<int> CheckAsync(CancellationToken ct = default)
     {
+        await checking.WaitAsync(ct);
+        try { return await CheckOnceAsync(ct); }
+        finally { checking.Release(); }
+    }
+
+    private async Task<int> CheckOnceAsync(CancellationToken ct)
+    {
         var fetched = 0;
         var now = clock.GetUtcNow();
         foreach (var nt in (await stores.NoteTakers.ListAsync()).Where(n => !n.IsFinished && n.BotId is not null))
@@ -198,6 +207,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     private async Task<bool> FetchAsync(NoteTaker nt, NoteTakerStatus status, CancellationToken ct)
     {
         // A recording already brought back (for example the app stopped just after) is not brought back twice.
+        if ((await stores.NoteTakers.GetAsync(nt.Id))?.ItemId is { } already) nt = nt with { ItemId = already };
         if (nt.ItemId is not null) { await SetStateAsync(nt, NoteTakerState.Fetched, null); return false; }
         IReadOnlyList<PlatformSpeech> speakers = [];
         if (status.SpeakersUrl is not null)

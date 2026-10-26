@@ -19,7 +19,9 @@ public sealed class CountingNoteTaker(TimeProvider clock) : INoteTakerService
     public Task<string> ScheduleAsync(NoteTakerRequest r, CancellationToken ct) { Scheduled++; Requests.Add(r); return inner.ScheduleAsync(r, ct); }
     public Task<NoteTakerStatus> GetAsync(string botId, CancellationToken ct) => Instead is { } s ? Task.FromResult(s) : inner.GetAsync(botId, ct);
     public Task CancelAsync(string botId, CancellationToken ct) { Cancelled++; return inner.CancelAsync(botId, ct); }
-    public Task<Stream> DownloadVideoAsync(string url, CancellationToken ct) => inner.DownloadVideoAsync(url, ct);
+    /// <summary>Makes the download take a while, as a real meeting video does.</summary>
+    public TimeSpan DownloadDelay;
+    public async Task<Stream> DownloadVideoAsync(string url, CancellationToken ct) { await Task.Delay(DownloadDelay, ct); return await inner.DownloadVideoAsync(url, ct); }
     public Task<IReadOnlyList<PlatformSpeech>> DownloadSpeakersAsync(string url, CancellationToken ct) => inner.DownloadSpeakersAsync(url, ct);
     public Task ForgetAsync(string botId, CancellationToken ct) { Forgotten++; return inner.ForgetAsync(botId, ct); }
 }
@@ -80,6 +82,19 @@ public class MeetTests
         var audit = (await env.Stores.Audit.ListAsync()).Where(a => a.Product == "meet").Select(a => a.Type).ToList();
         Assert.Equal(["meet.booked", "meet.joined_booking", "meet.booked"], audit);
         Assert.DoesNotContain("pwd", string.Concat((await env.Stores.Audit.ListAsync()).Select(a => a.Details))); // passcodes stay out of History
+    }
+
+    [Fact]
+    public async Task Check_now_during_the_every_minute_check_does_not_bring_the_recording_back_twice()
+    {
+        using var env = new Env();
+        var (bot, meet) = Make(env);
+        await meet.BookAsync(env.Alice, Zoom());
+        for (var i = 0; i < 3; i++) await meet.CheckAsync(); // joining, recording, meeting ended
+        bot.DownloadDelay = TimeSpan.FromMilliseconds(300);
+        var both = await Task.WhenAll(meet.CheckAsync(), meet.CheckAsync());
+        Assert.Equal(1, both.Sum());
+        Assert.Single((await env.Stores.Items.ListAsync()).Where(i => i.Source == SourceKind.OnlineMeeting));
     }
 
     [Fact]

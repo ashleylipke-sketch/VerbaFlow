@@ -37,6 +37,7 @@ public class AttachmentTests
         Assert.Equal(["Agenda.pdf", "Papers.docx"], list.Files.Select(f => f.FileName));
         Assert.True(list.CanAdd);
         Assert.Equal("application/pdf", list.Files[0].ContentType);
+        Assert.Equal(2, (await env.Meeting.ListAsync(env.Alice, new ListQuery(null, null, null))).Single(r => r.Id == id).Attachments); // the paperclip in the list
 
         await Assert.ThrowsAsync<ForbiddenException>(() => s.ListAsync(env.Bob, id)); // not his
         await env.Meeting.AssignAsync(env.Alice, id, env.Bob.Id, null);
@@ -85,6 +86,7 @@ public class AttachmentTests
         await env.Meeting.ApproveReopenAsync(env.Carol, req);
         var next = (await env.Meeting.ApproveReopenAsync(env.Dave, req))!.Value;
         Assert.Single((await s.ListAsync(env.Alice, next)).Files);
+        Assert.Equal(1, (await env.Meeting.GetItemAsync(env.Alice, next)).Row.Attachments);
         await Assert.ThrowsAsync<DomainException>(() => s.AddAsync(env.Alice, id, [Docx()])); // the old version stays locked
         var after = await s.RemoveAsync(env.Alice, next, added.Files[0].Id);
         Assert.Empty(after.Files);

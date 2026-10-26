@@ -179,6 +179,8 @@ export default function ItemPage({ id }: { id: string }) {
             : 'This recording was approved before, so two different administrators must agree (an administrator who asks counts as one). Every version, including the approved one, is then removed for good.'}</div></div>}
       </div>
 
+      {!d.deletedAt && <AttachmentsCard id={id} onChange={() => api.audit(id).then(setAudit).catch(() => {})} />}
+
       <div className="withPlayer">
       {audioUrl && <div className={d.video ? 'player video' : 'player'}>{d.video
         ? <video ref={player as RefObject<HTMLVideoElement>} controls playsInline preload="metadata" src={audioUrl} />
@@ -248,7 +250,6 @@ export default function ItemPage({ id }: { id: string }) {
                 setBusy(true);
                 run(() => api.post(`/items/${id}/rerun`, { numSpeakers: rerunSpeakers ? Number(rerunSpeakers) : null, discardEdits: edited, method: rerunMethod || null, audio: rerunAudio || null, spokenLanguages: rerunLang || null, dictationService: dictate ? rerunService || null : null })).finally(() => setBusy(false));
               }}>Run again</button></div></div>}
-          {!d.deletedAt && <AttachmentsCard id={id} onChange={() => api.audit(id).then(setAudit).catch(() => {})} />}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>
               <b>v{v.no}</b> {v.kind === 'AutoTidy' ? 'Restarted sentences crossed out' : v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}

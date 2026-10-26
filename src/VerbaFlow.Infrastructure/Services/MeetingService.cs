@@ -675,6 +675,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var all = await stores.Items.ListAsync();
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id);
         var superseded = all.Where(i => i.SupersedesItemId is not null).Select(i => i.SupersedesItemId!.Value).ToHashSet();
+        var files = await AttachedCountsAsync();
         var rows = new List<ItemRow>();
         foreach (var i in all.Where(i => PermissionEvaluator.CanSee(actor, i)))
         {
@@ -683,7 +684,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             if (q.SelfAssigned is { } sa && i.IsSelfAssigned != sa) continue;
             if (!string.IsNullOrWhiteSpace(q.Search) &&
                 !$"{i.Name} {i.ClientReference} {i.Description}".Contains(q.Search, StringComparison.OrdinalIgnoreCase)) continue;
-            rows.Add(ToRow(actor, i, users, superseded.Contains(i.Id)));
+            rows.Add(ToRow(actor, i, users, superseded.Contains(i.Id), files));
         }
         return rows.OrderByDescending(r => r.CreatedOn).ToList();
     }
@@ -700,7 +701,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var role = PermissionEvaluator.RoleOn(actor, item);
         var ownerRole = item.Source == SourceKind.Imported ? "Importer" : "Author";
         var removed = await RecordingRemovedAsync(item);
-        var row = ToRow(actor, item, users, superseded);
+        var row = ToRow(actor, item, users, superseded, await AttachedCountsAsync());
         if (removed is not null) row = row with { Actions = row.Actions.Where(a => a is not ("rerun" or "change-recording" or "retry")).ToList() };
         return new ItemDetail(row, users.GetValueOrDefault(item.OwnerId)?.Name ?? "?", ownerRole,
             item.Processing == ProcessingState.Running ? "Processing" : null, item.FailureReason, item.OriginalFileName,
@@ -737,7 +738,11 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
 
     // ---------- helpers ----------
 
-    private ItemRow ToRow(User actor, Item i, Dictionary<Guid, User> users, bool superseded)
+    /// <summary>How many files are attached to each recording (by chain), for the paperclip in the lists.</summary>
+    private async Task<Dictionary<Guid, int>> AttachedCountsAsync() =>
+        (await stores.Attachments.ListAsync()).GroupBy(a => a.ChainId).ToDictionary(g => g.Key, g => g.Count());
+
+    private ItemRow ToRow(User actor, Item i, Dictionary<Guid, User> users, bool superseded, Dictionary<Guid, int> files)
     {
         var tags = new List<string>();
         if (i.IsSelfAssigned && i.Status == i.Home) tags.Add("Self-assigned");
@@ -750,7 +755,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return new ItemRow(i.Id, i.Name, i.Priority.ToString(), StatusLabels.For(i.Mode, i.Status), i.Status, i.LengthMs,
             i.ClientReference, i.Description, i.AssignedUserId is { } a ? users.GetValueOrDefault(a)?.Name : null,
             users.GetValueOrDefault(i.OwnerId)?.Name, i.CreatedAt,
-            i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo, i.FailureReason, IsOutstanding(actor, i, superseded));
+            i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo, i.FailureReason, IsOutstanding(actor, i, superseded),
+            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId));
     }
 
     /// <summary>

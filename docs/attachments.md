@@ -22,3 +22,6 @@ The **Attached files** card is on the item page.
 Code: `Core/Domain/Attachment.cs`, `Infrastructure/Services/AttachmentService.cs`, endpoints in
 `Api/RetentionEndpoints.cs` (`GET/POST /items/{id}/attachments`, `GET/DELETE /items/{id}/attachments/{attachmentId}`),
 `web/src/AttachmentsCard.tsx`. Table `doc_attachments`.
+
+
+Where they show: the **Attached files** card sits near the top of the recording's page, under the first card. In the Meeting, Dictate and Speech lists a 📎 with the number of files appears after the recording's name.

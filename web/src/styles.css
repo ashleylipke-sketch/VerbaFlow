@@ -107,3 +107,4 @@ button.small { padding:0 6px; font-size:12px; line-height:18px; margin-left:3px;
 .attachments .attachment:last-of-type { border-bottom:0; }
 button.link.danger { color:var(--bad); }
 
+.clip{font-size:.85em;white-space:nowrap;color:var(--muted,#667)}

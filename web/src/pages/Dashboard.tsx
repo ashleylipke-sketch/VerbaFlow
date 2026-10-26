@@ -98,7 +98,8 @@ export default function Dashboard({ mode }: { mode: Mode }) {
                 <td><span className="pill" title={r.statusCode === 'ConversionFailed' && r.failureReason ? r.failureReason : undefined}>{r.status}</span> {r.tags.map(t => <span key={t} className={'tag' + (t === 'Objection logged' ? ' warn' : '')}>{t}</span>)}</td>
                 <td>{fmtLen(r.lengthMs)}</td>
                 <td>{r.clientReference ?? ''}</td>
-                <td className="wrap"><a href={r.actions.includes('continue') ? carryOnLink(mode, r.id) : `#/items/${r.id}`}>{r.name}</a>{r.description ? ` — ${r.description}` : ''}</td>
+                <td className="wrap"><a href={r.actions.includes('continue') ? carryOnLink(mode, r.id) : `#/items/${r.id}`}>{r.name}</a>{!!r.attachments && <> <span className="clip" title={`${r.attachments} attached file${r.attachments === 1 ? '' : 's'}`}
+                  aria-label={`${r.attachments} attached file${r.attachments === 1 ? '' : 's'}`}>📎{r.attachments}</span></>}{r.description ? ` — ${r.description}` : ''}</td>
                 <td>{r.author ?? ''}</td>
                 <td>{r.assignedTo ?? ''}</td>
                 <td>{fmtDate(r.createdOn)}</td>

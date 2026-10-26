@@ -33,12 +33,39 @@ export async function startSignIn(): Promise<SignInInfo> {
       const back = await msal.handleRedirectPromise();
       account = back?.account ?? msal.getAllAccounts()[0] ?? null;
       if (account) msal.setActiveAccount(account);
-    } catch {
-      failure = 'The Microsoft sign-in did not finish. Try again.';
+    } catch (e) {
+      // Something left over from an earlier sign-in (half-finished, or from an older version) can make every return
+      // from Microsoft fail. It is cleared, so the next Sign in with Microsoft starts afresh, and the reason is
+      // recorded for support under a reference.
       account = null;
+      forgetMicrosoftState(info.microsoft.clientId, info.microsoft.tenantId);
+      const ref = await reportProblem(e);
+      failure = `The Microsoft sign-in did not finish. Click Sign in with Microsoft to try again.${ref ? ` Reference: ${ref}.` : ''}`;
     }
   }
   return info;
+}
+
+/** Removes the Microsoft sign-in's stored state in this browser (tokens, half-finished sign-ins), never anything else. */
+function forgetMicrosoftState(clientId: string, tenantId: string) {
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < store.length; i++) { const k = store.key(i); if (k) keys.push(k); }
+      for (const k of keys) if (k.startsWith('msal.') || k.includes(clientId) || k.includes(tenantId)) store.removeItem(k);
+    } catch { /* storage blocked */ }
+  }
+  try { document.cookie = 'msal.cache.encryption=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'; } catch { /* no cookies */ }
+}
+
+/** Sends what went wrong to VerbaFlow's support record and returns the reference to show, if VerbaFlow could be reached. */
+async function reportProblem(e: unknown): Promise<string> {
+  const x = e as { errorCode?: string; errorMessage?: string; message?: string; name?: string };
+  try {
+    const r = await fetch('/api/sign-in/problem', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: String(x?.errorCode ?? x?.name ?? 'unknown'), detail: String(x?.errorMessage ?? x?.message ?? e) }) });
+    return r.ok ? (await r.json()).reference ?? '' : '';
+  } catch { return ''; }
 }
 
 export const signInInfo = () => info;

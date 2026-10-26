@@ -184,6 +184,16 @@ app.UseStaticFiles();
 
 // What the web app and the Widget need to know to sign in; public, so it sits outside the signed-in group.
 app.MapGet("/api/sign-in", (SignInOptions o) => o.Describe());
+// A Microsoft sign-in that failed in the browser: the reason goes to the support record, the person gets a reference.
+// Public (the person is not signed in); short text only, and a few a minute at most.
+var signInProblems = new SignInProblemLimit();
+app.MapPost("/api/sign-in/problem", async (VerbaFlow.Infrastructure.Services.FailureReporter reporter, SignInProblemBody b) =>
+{
+    if (!signInProblems.Allow()) return Results.StatusCode(429);
+    static string Cut(string? s, int n) => (s ?? "").Length > n ? s![..n] : s ?? "";
+    var rep = await reporter.ReportAsync("sign-in", null, new InvalidOperationException($"Microsoft sign-in failed in the browser: {Cut(b.Code, 100)}: {Cut(b.Detail, 1000)}"));
+    return Results.Ok(new { reference = rep.Reference });
+});
 // For Azure's health probe: answers only once the database can be reached. Public, says nothing else.
 app.MapGet("/api/health", (Database db) =>
 {
@@ -202,3 +212,22 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 public partial class Program;
+
+public sealed record SignInProblemBody(string? Code, string? Detail);
+
+/// <summary>At most 20 sign-in problem reports a minute, so the public endpoint cannot fill the support record.</summary>
+public sealed class SignInProblemLimit
+{
+    private readonly Queue<DateTime> recent = new();
+    public bool Allow()
+    {
+        lock (recent)
+        {
+            var now = DateTime.UtcNow;
+            while (recent.Count > 0 && now - recent.Peek() > TimeSpan.FromMinutes(1)) recent.Dequeue();
+            if (recent.Count >= 20) return false;
+            recent.Enqueue(now);
+            return true;
+        }
+    }
+}

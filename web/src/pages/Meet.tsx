@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type MeetOverview, type NoteTakerRow } from '../api';
+import { api, type CalendarMeetingRow, type CalendarOverview, type MeetOverview, type NoteTakerRow } from '../api';
 import LanguagePicker from '../LanguagePicker';
 
 const ACTIVE = new Set(['Scheduled', 'Joining', 'WaitingToBeLetIn', 'Recording', 'MeetingEnded']);
@@ -76,6 +76,8 @@ export default function Meet() {
         <button className="primary" disabled={busy || !link.trim()} onClick={book}>{busy ? 'Booking…' : 'Send the note-taker'}</button>
       </div>
 
+      <CalendarCard onChanged={load} />
+
       <div className="card">
         <div className="item-head"><h2>Your note-takers</h2><button onClick={check}>Check now</button></div>
         {!o ? <p className="note">Loading…</p> : o.noteTakers.length === 0 ? <p className="note">None yet.</p> :
@@ -93,6 +95,89 @@ export default function Meet() {
         <p className="note">The list checks itself every 20 seconds while a note-taker is on its way or in a meeting.</p>
       </div>
     </>
+  );
+}
+
+/**
+ * Your calendar: once connected, the note-taker goes to the online meetings in it by itself, an hour before each starts.
+ * Each meeting can be switched on or off.
+ */
+function CalendarCard({ onChanged }: { onChanged: () => void }) {
+  const [c, setC] = useState<CalendarOverview | null>(null);
+  const [source, setSource] = useState('');
+  const [link, setLink] = useState('');
+  const [auto, setAuto] = useState(true);
+  const [spoken, setSpoken] = useState('en-GB');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const show = useCallback((o: CalendarOverview) => {
+    setC(o);
+    if (o.connected) { setAuto(o.connected.autoSend); setSpoken(o.connected.spokenLanguages); }
+    else setSource(s => s && o.sources.some(x => x.id === s) ? s : o.sources[0]?.id ?? '');
+  }, []);
+  const load = useCallback(() => api.calendar().then(show).catch(e => setError(e.message)), [show]);
+  useEffect(() => { load(); }, [load]);
+  // While a calendar is connected, the list keeps itself up to date.
+  useEffect(() => { if (!c?.connected) return; const i = setInterval(load, 60_000); return () => clearInterval(i); }, [c?.connected, load]);
+
+  const run = async (f: () => Promise<CalendarOverview>) => {
+    setBusy(true); setError('');
+    try { show(await f()); onChanged(); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+  const connect = () => run(() => api.connectCalendar({ source, link: source === 'link' ? link.trim() : null, autoSend: auto, spokenLanguages: spoken }));
+  const change = (b: { autoSend?: boolean; spokenLanguages?: string }) => run(() => api.connectCalendar(b));
+  const disconnect = () => { if (confirm('Disconnect your calendar? Note-takers it booked for meetings that have not started are called off for you.')) run(() => api.disconnectCalendar()); };
+  const flip = (m: CalendarMeetingRow) => run(() => api.switchCalendarMeeting(m.eventKey, !m.send));
+
+  if (!c) return <div className="card"><h2>Your calendar</h2><p className="note">{error || 'Loading…'}</p></div>;
+  const k = c.connected;
+  return (
+    <div className="card">
+      <div className="item-head"><h2>Your calendar</h2>
+        {k && <span><button disabled={busy} onClick={() => change({})}>Check my calendar now</button> <button disabled={busy} onClick={disconnect}>Disconnect</button></span>}</div>
+      {!k ? <>
+        <p className="note">Connect your calendar and the note-taker goes to the online meetings in it by itself, {c.bookAheadMinutes} minutes
+          before each one starts. You can switch any meeting off, and meetings you decline are left out. If colleagues have the same meeting
+          in their calendars, still only one note-taker joins.</p>
+        {c.sources.length === 0 ? <p className="note">No calendar can be connected here yet.</p> : <>
+          <div className="field"><label>Which calendar?</label>
+            {c.sources.map(o => <label key={o.id} className="row"><input type="radio" name="calsource" checked={source === o.id} onChange={() => setSource(o.id)} /> <span>{o.label}</span></label>)}</div>
+          {source === 'link' && <div className="field"><label>Your calendar's private address<br />
+            <input value={link} onChange={e => setLink(e.target.value)} style={{ width: '100%' }} autoComplete="off" placeholder="https://… or webcal://…" /></label>
+            <div className="note">Outlook.com: Settings, Calendar, Shared calendars, Publish a calendar, then copy the ICS link.
+              Google Calendar: Settings, click your calendar, Integrate calendar, then copy the Secret address in iCal format.
+              This address works like a password: VerbaFlow keeps it to itself and never shows it in full again.</div></div>}
+          {source === 'sample' && <div className="banner">Stand-in: a made-up calendar with a few online meetings (the first starts about 25 minutes
+            after you connect), so you can try this without Microsoft 365. Nobody joins any real meeting.</div>}
+          <label className="row"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} />
+            <span>Send the note-taker to all my online meetings (untick to choose meeting by meeting)</span></label>
+          <LanguagePicker value={spoken} onChange={setSpoken} />
+          {error && <div className="error">{error}</div>}
+          <button className="primary" disabled={busy || !source || (source === 'link' && !link.trim())} onClick={connect}>{busy ? 'Connecting…' : 'Connect calendar'}</button>
+        </>}
+      </> : <>
+        <p className="note">Connected: {k.sourceLabel}{k.shown && ` (${k.shown})`}.{k.lastReadAt && ` Last read ${when(k.lastReadAt)}.`} The note-taker is
+          booked {c.bookAheadMinutes} minutes before a meeting starts.</p>
+        {k.problem && <div className="error">{k.problem}</div>}
+        {error && <div className="error">{error}</div>}
+        <label className="row"><input type="checkbox" checked={auto} disabled={busy} onChange={e => change({ autoSend: e.target.checked })} />
+          <span>Send the note-taker to all my online meetings (untick to choose meeting by meeting)</span></label>
+        <LanguagePicker value={spoken} onChange={v => { setSpoken(v); change({ spokenLanguages: v }); }} />
+        {c.meetings.length === 0 ? <p className="note">No online meetings in your calendar in the next 7 days.</p> :
+          <table>
+            <thead><tr><th>When</th><th>Meeting</th><th>Platform</th><th>Note-taker</th><th>Status</th></tr></thead>
+            <tbody>{c.meetings.map(m => <tr key={m.eventKey}>
+              <td>{when(m.start)}</td><td>{m.subject}</td><td>{m.platform}</td>
+              <td><label className="row"><input type="checkbox" checked={m.send} disabled={busy} onChange={() => flip(m)}
+                aria-label={`Send the note-taker to ${m.subject}`} /> <span>{m.send ? 'On' : 'Off'}</span></label></td>
+              <td>{m.noteTakerLabel ?? m.why ?? (m.send ? `Will be booked ${c.bookAheadMinutes} minutes before it starts` : "")}</td>
+            </tr>)}</tbody>
+          </table>}
+        {c.otherMeetings > 0 && <p className="note">{c.otherMeetings} other {c.otherMeetings === 1 ? 'meeting has' : 'meetings have'} no Zoom, Google Meet,
+          Teams or Webex link, so the note-taker cannot join {c.otherMeetings === 1 ? 'it' : 'them'}.</p>}
+      </>}
+    </div>
   );
 }
 

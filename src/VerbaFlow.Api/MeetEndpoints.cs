@@ -36,6 +36,10 @@ public static class MeetEndpoints
             await m.CheckAsync(ct);
             return await m.OverviewAsync(h.Current());
         });
+        api.MapGet("/meet/calendar", (HttpContext h, CalendarService c, CancellationToken ct) => c.OverviewAsync(h.Current(), ct));
+        api.MapPut("/meet/calendar", (HttpContext h, CalendarService c, CalendarConnect b, CancellationToken ct) => c.ConnectAsync(h.Current(), b, ct));
+        api.MapDelete("/meet/calendar", (HttpContext h, CalendarService c, CancellationToken ct) => c.DisconnectAsync(h.Current(), ct));
+        api.MapPost("/meet/calendar/switch", (HttpContext h, CalendarService c, CalendarSwitch b, CancellationToken ct) => c.SwitchAsync(h.Current(), b, ct));
         api.MapPost("/items/{id:guid}/play", async (HttpContext h, MeetingService s, PlaybackLinks links, Guid id) =>
         {
             await s.StartPlaybackAsync(h.Current(), id);
@@ -67,6 +71,23 @@ public sealed class MeetWorker(MeetService meet, FailureReporter reporter) : Bac
             try { await meet.CheckAsync(ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex) { await reporter.ReportAsync("note-taker", null, ex); }
+        } while (await timer.WaitForNextTickAsync(ct));
+    }
+}
+
+/// <summary>Reads connected calendars every five minutes and books (or calls off) note-takers for their online meetings.</summary>
+public sealed class CalendarWorker(CalendarService calendars, FailureReporter reporter) : BackgroundService
+{
+    public static readonly TimeSpan Every = TimeSpan.FromMinutes(5);
+
+    protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(Every);
+        do
+        {
+            try { await calendars.SyncAsync(ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+            catch (Exception ex) { await reporter.ReportAsync("calendar", null, ex); }
         } while (await timer.WaitForNextTickAsync(ct));
     }
 }

@@ -15,6 +15,7 @@ public abstract class Database
         "doc_users", "doc_items", "doc_transcripts", "doc_outputs", "doc_media", "doc_reopen", "doc_delete_requests",
         "doc_exports", "doc_vocabulary", "doc_saved_text", "doc_letterhead", "doc_support_errors", "doc_live_text",
         "doc_widget_sessions", "doc_widget_policy", "doc_note_takers", "doc_meeting_speakers",
+        "doc_calendar_settings", "doc_calendar_choices",
     ];
 
     /// <summary>An open connection.</summary>

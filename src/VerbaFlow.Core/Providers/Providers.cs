@@ -170,3 +170,15 @@ public interface INoteTakerService
     /// <summary>Removes the recording from the note-taker service once VerbaFlow has its own copy.</summary>
     Task ForgetAsync(string botId, CancellationToken ct);
 }
+
+/// <summary>
+/// Reads the meetings in a person's calendar between two times (Microsoft 365 through Microsoft Graph, a private iCal
+/// address, or the sample stand-in). Failures are ProviderExceptions with technical text, for support only.
+/// </summary>
+public interface ICalendarReader
+{
+    /// <summary>The calendar source this reader handles (see CalendarSources).</summary>
+    string Source { get; }
+    Task<IReadOnlyList<VerbaFlow.Core.Domain.CalendarMeeting>> ReadAsync(VerbaFlow.Core.Domain.CalendarSettings settings,
+        VerbaFlow.Core.Domain.User user, DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
+}

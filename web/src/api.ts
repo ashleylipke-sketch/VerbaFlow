@@ -19,6 +19,11 @@ export type Detail = {
 };
 export type NoteTakerRow = { id: string; name: string; platform: string; joinAt: string; state: string; stateLabel: string; failureReason: string | null;
   itemId: string | null; bookedBy: string; alsoFor: string[]; youBookedFirst: boolean; youAsked: boolean; canCancel: boolean; createdAt: string };
+export type CalendarMeetingRow = { eventKey: string; subject: string; start: string; end: string; platform: string | null; send: boolean;
+  choice: boolean | null; why: string | null; noteTakerId: string | null; noteTakerState: string | null; noteTakerLabel: string | null };
+export type CalendarOverview = { sources: { id: string; label: string }[];
+  connected: { source: string; sourceLabel: string; shown: string | null; autoSend: boolean; spokenLanguages: string; connectedAt: string; lastReadAt: string | null; problem: string | null } | null;
+  meetings: CalendarMeetingRow[]; otherMeetings: number; bookAheadMinutes: number };
 export type MeetOverview = { engine: string; real: boolean; noteTakerName: string; platforms: string[]; noteTakers: NoteTakerRow[] };
 export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null; newParagraph: boolean | null; list?: 'bullet' | 'number' | null };
 export type Transcript = {
@@ -120,6 +125,10 @@ export const api = {
     call<{ noteTaker: NoteTakerRow; joinedExisting: boolean; alreadyBooked: boolean }>('POST', '/meet', b),
   cancelNoteTaker: (id: string) => call<NoteTakerRow>('POST', `/meet/${id}/cancel`, {}),
   checkNoteTakers: () => call<MeetOverview>('POST', '/meet/check', {}),
+  calendar: () => call<CalendarOverview>('GET', '/meet/calendar'),
+  connectCalendar: (b: { source?: string; link?: string | null; autoSend?: boolean; spokenLanguages?: string }) => call<CalendarOverview>('PUT', '/meet/calendar', b),
+  disconnectCalendar: () => call<CalendarOverview>('DELETE', '/meet/calendar'),
+  switchCalendarMeeting: (eventKey: string, send: boolean) => call<CalendarOverview>('POST', '/meet/calendar/switch', { eventKey, send }),
   reopenRequests: () => call<Reopen[]>('GET', '/reopen'),
   deleteRequests: () => call<DeleteRequest[]>('GET', '/delete-requests'),
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },

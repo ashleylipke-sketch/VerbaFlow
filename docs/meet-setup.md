@@ -58,6 +58,60 @@ instead, so you can try everything else.
 
 Optional: `Meet:NoteTakerName` changes the name the note-taker shows in meetings (for example your company's name).
 
+## Booking from your calendar
+
+On the **Meet** page, **Your calendar** connects a calendar. VerbaFlow then reads it every 5 minutes and books the
+note-taker for each meeting with a Zoom, Google Meet, Teams or Webex link, **60 minutes before it starts**.
+
+- **Send the note-taker to all my online meetings** (ticked by default). Untick it to choose meeting by meeting instead.
+- Each meeting in the next 7 days has its own **On / Off** tick box. Switching a booked meeting off takes you off its
+  booking (the note-taker is only called off when no colleague needs it).
+- Meetings you **decline** are left out. A meeting that is **cancelled, deleted or moved** before it starts has its
+  booking called off (and booked again for the new time). A note-taker you booked yourself on the page is never called
+  off by the calendar.
+- Colleagues with the same meeting in their calendars still get **one** note-taker.
+- Meeting names stay out of History; History records `calendar.connected`, `calendar.settings_changed`,
+  `calendar.meeting_switched`, `calendar.read_failed`, `calendar.disconnected`, and `via: calendar` on bookings.
+
+There are three kinds of calendar:
+
+1. **Calendar address (iCal link)**: works with any calendar, including Gmail and Outlook.com, and needs no setup.
+   Each person pastes their calendar's private address:
+   - Google Calendar: Settings, click your calendar on the left, **Integrate calendar**, copy the
+     **Secret address in iCal format**.
+   - Outlook.com: Settings, Calendar, **Shared calendars**, **Publish a calendar**, choose "Can view all details",
+     Publish, then copy the **ICS** link.
+   The address works like a password: VerbaFlow keeps it to itself and only ever shows the site's name. If it leaks,
+   reset it in your calendar's settings and connect again. Changes in your calendar can take a while to show in the
+   address (Google can take several hours), so book a last-minute meeting by hand on the page.
+2. **Microsoft 365 (Outlook) calendar**: for people who sign in to VerbaFlow with Microsoft. Their work calendar is read
+   directly and changes show within 5 minutes. It needs the one-off setup below by a Microsoft 365 administrator.
+3. **Sample calendar (stand-in)**: a made-up calendar with a few online meetings (the first starts about 25 minutes
+   after connecting), offered while Microsoft 365 calendars are not set up, so this can be tried without either.
+
+### Setting up Microsoft 365 calendars (once, by an administrator)
+
+This only works when the organisation's mailboxes are in Microsoft 365 (Exchange Online).
+
+1. Go to **entra.microsoft.com**, **App registrations**, open **VerbaFlow**.
+2. **API permissions**, **Add a permission**, **Microsoft Graph**, **Application permissions**, tick
+   **Calendars.Read**, **Add permissions**, then **Grant admin consent**.
+3. **Certificates & secrets**, **New client secret**, description `VerbaFlow calendars`, 24 months, **Add**. Copy the
+   **Value** straight away (it is shown once). Do not paste it into a chat or an email.
+4. On the computer running VerbaFlow, in Command Prompt in the VerbaFlow folder (pasting the value yourself):
+
+   ```
+   cd src\VerbaFlow.Api
+   dotnet user-secrets set "Entra:ClientSecret" "PASTE-THE-VALUE-HERE"
+   cd ..\..
+   ```
+5. Start VerbaFlow again with `run.cmd`. The window should say
+   `Meet calendars: Microsoft 365 calendars read through Microsoft Graph, and calendar addresses`.
+
+Calendars.Read lets VerbaFlow read every calendar in the organisation (it only reads those of people who connected
+theirs on the Meet page). To limit it to some people, an Exchange administrator can add an application access policy
+for the VerbaFlow app. The client secret runs out after 24 months: make a new one and set it again before then.
+
 ## Settings
 
 | Setting | What it is |
@@ -65,7 +119,8 @@ Optional: `Meet:NoteTakerName` changes the name the note-taker shows in meetings
 | `Meet:ApiKey` | Recall.ai API key (secret: user-secrets on your computer, a Container App secret online) |
 | `Meet:Region` | Recall.ai region: `us-west-2`, `us-east-1`, `eu-central-1` or `ap-northeast-1` |
 | `Meet:NoteTakerName` | Name shown in the meeting. Default `VerbaFlow Notetaker` |
-| `Meet:Worker` | `false` stops the every-minute check (for tests) |
+| `Meet:Worker` | `false` stops the every-minute check and the 5-minute calendar check (for tests) |
+| `Entra:ClientSecret` | VerbaFlow app's client secret, for reading Microsoft 365 calendars (secret) |
 
 ## History
 
@@ -86,9 +141,13 @@ How Recall.ai's answers are read was checked against the examples in Recall.ai's
 message, recording permission on Zoom, the speaker names, the video quality, and the video playing in Edge or Chrome
 (the test browser here cannot play MP4 video, so only the streaming itself was checked).
 
+Calendar booking was tested with the sample calendar and test calendars only: repeating, moved, cancelled and
+declined meetings, time zones, colleagues with the same meeting, switching off, and refusing calendar addresses on
+private networks. **Not yet tried with a real Google, Outlook.com or Microsoft 365 calendar.** How Microsoft Graph's
+answers are read was checked against Microsoft's documented format only.
+
 ## Not built yet
 
-- Booking from the Outlook calendar automatically (every meeting with a Teams, Zoom, Meet or Webex link).
 - Separate sound per person (Recall.ai can provide it; it would help speaker separation further).
 - Platforms other than the four above (Recall.ai has GoTo Meeting and Slack huddles in beta). For any other platform,
   record the meeting there and use **Import** on the Meeting page.

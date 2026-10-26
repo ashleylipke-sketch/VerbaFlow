@@ -41,7 +41,8 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             [MeetingPlatforms.Zoom, MeetingPlatforms.GoogleMeet, MeetingPlatforms.Teams, MeetingPlatforms.Webex], await ListAsync(actor));
 
     /// <summary>Sends the note-taker to a meeting, or adds this person to a colleague's booking of the same meeting.</summary>
-    public async Task<NoteTakerBooked> BookAsync(User actor, NoteTakerBooking b, CancellationToken ct = default)
+    /// <param name="via">"page" when the person booked it, "calendar" when their calendar did (recorded in History).</param>
+    public async Task<NoteTakerBooked> BookAsync(User actor, NoteTakerBooking b, CancellationToken ct = default, string via = "page")
     {
         var url = (b.MeetingUrl ?? "").Trim();
         var platform = MeetingPlatforms.Of(url)
@@ -52,7 +53,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
         if (joinAt < now - TimeSpan.FromMinutes(5)) throw new DomainException("That time has already passed. Choose when the meeting starts, or send the note-taker now.");
         if (joinAt > now.AddDays(366)) throw new DomainException("The note-taker can be booked up to a year ahead.");
         if (joinAt < now) joinAt = now;
-        var languages = Languages(b.SpokenLanguages);
+        var languages = NormaliseLanguages(b.SpokenLanguages);
         var name = string.IsNullOrWhiteSpace(b.Name) ? $"{platform} meeting {joinAt:d MMM yyyy}" : b.Name.Trim();
         if (name.Length > 200) throw new DomainException("The name is too long.");
 
@@ -67,7 +68,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
                 if (same.Requesters.Contains(actor.Id)) return new(await RowAsync(actor, same), false, true);
                 var joined = same with { Requesters = [.. same.Requesters, actor.Id] };
                 await stores.NoteTakers.UpsertAsync(same.Id, joined);
-                await Audit(actor, "user", "meet.joined_booking", ("noteTaker", same.Id), ("platform", platform), ("requesters", joined.Requesters.Count));
+                await Audit(actor, "user", "meet.joined_booking", ("noteTaker", same.Id), ("platform", platform), ("requesters", joined.Requesters.Count), ("via", via));
                 return new(await RowAsync(actor, joined), true, false);
             }
 
@@ -78,12 +79,12 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 var rep = await reporter.ReportAsync("note-taker", null, ex);
-                await Audit(actor, "user", "meet.booking_failed", ("platform", platform), ("reference", rep.Reference));
+                await Audit(actor, "user", "meet.booking_failed", ("platform", platform), ("reference", rep.Reference), ("via", via));
                 throw new DomainException($"The note-taker could not be booked. Try again in a few minutes, and contact support if it happens again. Reference: {rep.Reference}.");
             }
             var nt = new NoteTaker(id, [actor.Id], name, url, key, platform, joinAt, languages, now, NoteTakerState.Scheduled, botId, now);
             await stores.NoteTakers.UpsertAsync(id, nt);
-            await Audit(actor, "user", "meet.booked", ("noteTaker", id), ("platform", platform), ("joinAt", joinAt), ("languages", languages), ("engine", service.Name));
+            await Audit(actor, "user", "meet.booked", ("noteTaker", id), ("platform", platform), ("joinAt", joinAt), ("languages", languages), ("engine", service.Name), ("via", via));
             return new(await RowAsync(actor, nt), false, false);
         }
         finally { gate.Release(); }
@@ -93,7 +94,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     /// "I don't need it": the person comes off the booking. The note-taker is called off only when nobody else asked for
     /// it; otherwise the next person who asked becomes the owner.
     /// </summary>
-    public async Task<NoteTakerRow> CancelAsync(User actor, Guid id, CancellationToken ct = default)
+    public async Task<NoteTakerRow> CancelAsync(User actor, Guid id, CancellationToken ct = default, string via = "page")
     {
         await gate.WaitAsync(ct);
         try
@@ -105,7 +106,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             {
                 var left = nt with { Requesters = nt.Requesters.Where(r => r != actor.Id).ToList() };
                 await stores.NoteTakers.UpsertAsync(id, left);
-                await Audit(actor, "user", "meet.left_booking", ("noteTaker", id), ("requesters", left.Requesters.Count));
+                await Audit(actor, "user", "meet.left_booking", ("noteTaker", id), ("requesters", left.Requesters.Count), ("via", via));
                 return await RowAsync(actor, left);
             }
             try { if (nt.BotId is not null) await service.CancelAsync(nt.BotId, ct); }
@@ -116,7 +117,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             }
             var cancelled = nt with { State = NoteTakerState.Cancelled, StateAt = clock.GetUtcNow() };
             await stores.NoteTakers.UpsertAsync(id, cancelled);
-            await Audit(actor, actor.IsAdmin && !nt.Requesters.Contains(actor.Id) ? "admin" : "user", "meet.cancelled", ("noteTaker", id), ("platform", nt.Platform));
+            await Audit(actor, actor.IsAdmin && !nt.Requesters.Contains(actor.Id) ? "admin" : "user", "meet.cancelled", ("noteTaker", id), ("platform", nt.Platform), ("via", via));
             return await RowAsync(actor, cancelled);
         }
         finally { gate.Release(); }
@@ -256,7 +257,8 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             users.GetValueOrDefault(n.OwnerId, "?"), n.Requesters.Skip(1).Select(r => users.GetValueOrDefault(r, "?")).ToList(),
             n.OwnerId == actor.Id, n.Requesters.Contains(actor.Id), n.IsActive && (n.Requesters.Contains(actor.Id) || actor.IsAdmin), n.CreatedAt);
 
-    private static string Languages(string? value)
+    /// <summary>Up to three known spoken languages, comma-separated, or "auto".</summary>
+    public static string NormaliseLanguages(string? value)
     {
         var parts = (value ?? "").Split([',', '+'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(SpokenLanguageCatalogue.Normalise).Where(x => x is not null).Select(x => x!).Distinct()

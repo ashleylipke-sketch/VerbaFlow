@@ -115,7 +115,20 @@ builder.Services.AddSingleton(sp => new MeetService(sp.GetRequiredService<Stores
     sp.GetRequiredService<MeetingService>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<VerbaFlow.Infrastructure.Services.FailureReporter>(),
     noteTaker.DisplayName));
 builder.Services.AddSingleton<PlaybackLinks>();
-if (!string.Equals(builder.Configuration["Meet:Worker"], "false", StringComparison.OrdinalIgnoreCase)) builder.Services.AddHostedService<MeetWorker>();
+// Meet: the note-taker goes to the online meetings in people's calendars (Microsoft 365 through Graph when the app has a
+// client secret; any calendar through its private iCal address; a sample calendar while Microsoft 365 is not set up).
+var graph = new VerbaFlow.Infrastructure.Calendars.GraphOptions((builder.Configuration["Entra:TenantId"] ?? "").Trim(),
+    (builder.Configuration["Entra:ClientId"] ?? "").Trim(), builder.Configuration["Entra:ClientSecret"] ?? "");
+if (graph.IsConfigured)
+{
+    builder.Services.AddSingleton(graph);
+    builder.Services.AddHttpClient<VerbaFlow.Infrastructure.Calendars.GraphCalendarReader>(c => c.Timeout = TimeSpan.FromSeconds(60));
+    builder.Services.AddSingleton<ICalendarReader>(sp => sp.GetRequiredService<VerbaFlow.Infrastructure.Calendars.GraphCalendarReader>());
+}
+else builder.Services.AddSingleton<ICalendarReader, VerbaFlow.Infrastructure.StandIns.SampleCalendarReader>();
+builder.Services.AddSingleton<ICalendarReader>(_ => new VerbaFlow.Infrastructure.Calendars.LinkCalendarReader());
+builder.Services.AddSingleton<CalendarService>();
+if (!string.Equals(builder.Configuration["Meet:Worker"], "false", StringComparison.OrdinalIgnoreCase)) { builder.Services.AddHostedService<MeetWorker>(); builder.Services.AddHostedService<CalendarWorker>(); }
 
 var signIn = SignInOptions.From(builder.Configuration, builder.Environment);
 signIn.AddTo(builder.Services);
@@ -151,6 +164,9 @@ app.Logger.LogInformation(noteTaker.IsConfigured
     ? "Meet: the note-taker joins meetings through Recall.ai ({Region}) as \"{Name}\""
     : "Meet: STAND-IN note-taker (nobody joins; a sample recording comes back). Set Meet:ApiKey and Meet:Region to use Recall.ai (see docs/meet-setup.md).",
     noteTaker.Region, noteTaker.DisplayName);
+app.Logger.LogInformation(graph.IsConfigured
+    ? "Meet calendars: Microsoft 365 calendars read through Microsoft Graph, and calendar addresses"
+    : "Meet calendars: calendar addresses, and a STAND-IN sample calendar. Set Entra:ClientSecret to read Microsoft 365 calendars (see docs/meet-setup.md).");
 app.Logger.LogInformation("Database: {Database}; files in {DataDir}", database.Describe, dataDir);
 app.Logger.LogInformation(signIn.Microsoft
     ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.TestUsers ? ", and the test users while in Development" : "")

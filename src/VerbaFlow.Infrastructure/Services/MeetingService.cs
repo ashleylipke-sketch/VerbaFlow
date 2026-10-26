@@ -491,6 +491,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             removedFiles += removed;
             stuckFiles += failed;
         }
+        var attachments = await AttachmentService.DeleteForChainAsync(stores, chain[0].ChainId);
         foreach (var i in chain)
         {
             i.Purge(actor?.Id ?? RetentionActor, reason, now);
@@ -503,6 +504,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
                 ("reason", reason), ("requestId", requestId),
                 ("agreedBy", string.Join(", ", agreedBy.Select(a => users.GetValueOrDefault(a, "?")))), ("versions", chain.Count),
                 ("audioFilesRemoved", removedFiles), ("audioFilesNotRemoved", stuckFiles == 0 ? null : stuckFiles),
+                ("attachedFilesRemoved", attachments == 0 ? null : attachments),
                 ("by", actor is null ? "retention rules" : null)));
         }
     }
@@ -814,7 +816,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             throw new ForbiddenException("Only the author, importer or an administrator can do this.");
     }
 
-    private static string CapacityOf(User actor, Item item) => PermissionEvaluator.RoleOn(actor, item) switch
+    internal static string CapacityOf(User actor, Item item) => PermissionEvaluator.RoleOn(actor, item) switch
     {
         ItemRole.Owner => item.Source == SourceKind.Imported ? "importer" : "author",
         ItemRole.Assignee => "assignee",

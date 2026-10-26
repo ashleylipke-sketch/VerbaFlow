@@ -33,3 +33,30 @@ public sealed class RetentionWorker(RetentionService retention, FailureReporter 
         } while (await timer.WaitForNextTickAsync(ct));
     }
 }
+
+/// <summary>Files attached to a recording.</summary>
+public static class AttachmentEndpoints
+{
+    public static void MapAttachmentEndpoints(this RouteGroupBuilder api)
+    {
+        api.MapGet("/items/{id:guid}/attachments", (HttpContext h, AttachmentService a, Guid id) => a.ListAsync(h.Current(), id));
+        api.MapPost("/items/{id:guid}/attachments", async (HttpContext h, AttachmentService a, Guid id, CancellationToken ct) =>
+        {
+            var form = await h.Request.ReadFormAsync(ct);
+            var files = form.Files.GetFiles("files");
+            var streams = files.Select(f => f.OpenReadStream()).ToList();
+            try { return Results.Ok(await a.AddAsync(h.Current(), id, files.Select((f, i) => new AttachmentUpload(streams[i], f.FileName)).ToList(), ct)); }
+            finally { foreach (var s in streams) await s.DisposeAsync(); }
+        }).DisableAntiforgery();
+        api.MapGet("/items/{id:guid}/attachments/{aid:guid}", async (HttpContext h, AttachmentService a, Guid id, Guid aid, bool? view) =>
+        {
+            var f = await a.OpenAsync(h.Current(), id, aid);
+            h.Response.Headers.CacheControl = "private, no-store";
+            h.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            // Only PDFs and pictures open in the browser; everything else is downloaded.
+            var inline = view == true && (f.ContentType == "application/pdf" || f.ContentType.StartsWith("image/"));
+            return Results.File(f.Content, f.ContentType, inline ? null : f.FileName, enableRangeProcessing: false);
+        });
+        api.MapDelete("/items/{id:guid}/attachments/{aid:guid}", (HttpContext h, AttachmentService a, Guid id, Guid aid) => a.RemoveAsync(h.Current(), id, aid));
+    }
+}

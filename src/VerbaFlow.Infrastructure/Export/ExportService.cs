@@ -154,6 +154,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         if (!string.IsNullOrWhiteSpace(item.ClientReference)) details.Add(("Client reference", item.ClientReference));
         if (!string.IsNullOrWhiteSpace(item.Description)) details.Add(("Description", item.Description));
         details.Add(("Languages", Languages(item.SpokenLanguages)));
+        var attached = (await stores.Attachments.ListAsync()).Where(a => a.ChainId == item.ChainId).OrderBy(a => a.AddedAt).Select(a => a.FileName).ToList();
+        if (attached.Count > 0) details.Add(("Attached files", string.Join(", ", attached) + " (kept in VerbaFlow)"));
         details.Add(("Version", $"{item.VersionNo} (transcript version {transcript.Current.No})"));
         details.Add(("Exported", $"{When(now)} by {actor.Name}"));
         var everything = parts.Count == ExportParts.All.Count;

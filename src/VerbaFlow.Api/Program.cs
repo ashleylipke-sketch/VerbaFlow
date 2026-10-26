@@ -129,6 +129,7 @@ else builder.Services.AddSingleton<ICalendarReader, VerbaFlow.Infrastructure.Sta
 builder.Services.AddSingleton<ICalendarReader>(_ => new VerbaFlow.Infrastructure.Calendars.LinkCalendarReader());
 builder.Services.AddSingleton<CalendarService>();
 builder.Services.AddSingleton<RetentionService>();
+builder.Services.AddSingleton<AttachmentService>();
 if (!string.Equals(builder.Configuration["Retention:Worker"], "false", StringComparison.OrdinalIgnoreCase)) builder.Services.AddHostedService<RetentionWorker>();
 if (!string.Equals(builder.Configuration["Meet:Worker"], "false", StringComparison.OrdinalIgnoreCase)) { builder.Services.AddHostedService<MeetWorker>(); builder.Services.AddHostedService<CalendarWorker>(); }
 
@@ -229,6 +230,7 @@ api.MapMeetingEndpoints();
 api.MapLiveEndpoints();
 api.MapMeetEndpoints();
 api.MapRetentionEndpoints();
+api.MapAttachmentEndpoints();
 app.MapLiveSocket();
 app.MapPlayback();
 app.MapFallbackToFile("index.html");

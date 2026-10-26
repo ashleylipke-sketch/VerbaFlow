@@ -44,6 +44,8 @@ public sealed class Stores
     public DocTable<RetentionHold> RetentionHolds { get; }
     /// <summary>Recordings whose sound or video the retention rules removed (text kept), by the item whose media it was.</summary>
     public DocTable<RecordingRemoval> RecordingRemovals { get; }
+    /// <summary>Files attached to recordings (agenda, papers), by attachment id.</summary>
+    public DocTable<Attachment> Attachments { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -72,6 +74,7 @@ public sealed class Stores
         Retention = new(db, "doc_retention");
         RetentionHolds = new(db, "doc_retention_holds");
         RecordingRemovals = new(db, "doc_recording_removals");
+        Attachments = new(db, "doc_attachments");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

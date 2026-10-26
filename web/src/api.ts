@@ -115,6 +115,14 @@ export const api = {
   changeSavedText: (id: string, code: string, text: string) => call<SavedText>('PUT', `/saved-text/${id}`, { code, text }),
   removeSavedText: (id: string) => call<void>('DELETE', `/saved-text/${id}`),
   letterhead: () => call<Letterhead>('GET', '/letterhead'),
+  attachments: (id: string) => call<AttachmentList>('GET', `/items/${id}/attachments`),
+  addAttachments: (id: string, files: File[]) => { const f = new FormData(); files.forEach(x => f.append('files', x)); return call<AttachmentList>('POST', `/items/${id}/attachments`, f); },
+  removeAttachment: (id: string, aid: string) => call<AttachmentList>('DELETE', `/items/${id}/attachments/${aid}`),
+  async attachmentFile(id: string, aid: string): Promise<Blob> {
+    const res = await fetch(`/api/items/${id}/attachments/${aid}`, { headers: await authHeaders() });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
+    return res.blob();
+  },
   retention: () => call<Retention>('GET', '/retention'),
   proposeRetention: (meetings: RetentionRules, dictations: RetentionRules, note: string) =>
     call<Retention>('POST', '/retention/propose', { meetings, dictations, note: note.trim() || null }),
@@ -182,6 +190,8 @@ export interface Retention {
   due: { itemId: string; name: string; mode: string; status: string; action: 'delete' | 'remove-recording'; dueAt: string }[];
   holds: { itemId: string; name: string; by: string; at: string; reason: string }[];
 }
+export interface AttachmentRow { id: string; fileName: string; contentType: string; sizeBytes: number; addedBy: string; addedAt: string; canRemove: boolean }
+export interface AttachmentList { files: AttachmentRow[]; canAdd: boolean; why: string | null }
 export interface ItemRetention { note: string | null; held: boolean; holdReason: string | null; canHold: boolean }
 
 export interface ExportCheck { matches: boolean; message: string; sha256: string }

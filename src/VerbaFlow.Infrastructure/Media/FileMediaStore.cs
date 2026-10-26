@@ -73,6 +73,13 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
         return asset;
     }
 
+    /// <summary>A file attached to a recording, stored write-once under the attachment's own id (so removing the recording's sound leaves it).</summary>
+    public Task<MediaAsset> CommitAttachmentAsync(StagedFile staged, Guid attachmentId, string fileName, string contentType) =>
+        CommitAsync(staged, attachmentId, fileName, contentType, "Attached by a person", "attachment");
+
+    public async Task<MediaAsset?> FindAttachmentAsync(Guid attachmentId) =>
+        (await table.ListAsync()).FirstOrDefault(a => a.ItemId == attachmentId && a.Kind == "attachment");
+
     /// <summary>A changed recording of a dictation (more put in or recorded over). Earlier recordings are kept as they were.</summary>
     public Task<MediaAsset> CommitRevisionAsync(StagedFile staged, Guid itemId, int revision, string fileName, string contentType) =>
         CommitAsync(staged, itemId, fileName, contentType, $"Recording changed by the author, change {revision}", $"revision:{revision}");

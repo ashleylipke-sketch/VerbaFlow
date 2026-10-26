@@ -176,7 +176,11 @@ app.Logger.LogInformation(signIn.Microsoft
     : "Sign-in: NOT SET UP. Nobody can sign in until Entra:TenantId and Entra:ClientId are set (see docs/entra-sign-in-setup.md).", signIn.TenantId);
 if (signIn.TestUsers) await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
 
-app.UseExceptionHandler(e => e.Run(async ctx =>
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    // Expected answers ("not ready yet", "not allowed", a plain refusal) are not errors, so they are not printed in the server window.
+    SuppressDiagnosticsCallback = c => c.Exception is DomainException or ForbiddenException or NotFoundException,
+    ExceptionHandler = async ctx =>
 {
     var ex = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
     ctx.Response.StatusCode = ex switch
@@ -194,7 +198,8 @@ app.UseExceptionHandler(e => e.Run(async ctx =>
         message = CustomerMessages.For(FaultKind.Other, "VerbaFlow", rep.Reference);
     }
     await ctx.Response.WriteAsJsonAsync(new { error = message });
-}));
+},
+});
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
 app.UseDefaultFiles();

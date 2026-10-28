@@ -10,6 +10,7 @@ public static class Endpoints
     public sealed record AssignBody(Guid? UserId, string? Reason);
     public sealed record ReasonBody(string Reason);
     public sealed record TextBody(string Text);
+    public sealed record ReplaceBody(string? From, string? To);
     /// <summary>"dictate", "speech" or "meeting" (the default when nothing is given).</summary>
     /// <summary>
     /// Speech mode: the text heard live so far, sent with a save. An unfinished save keeps the session going (the person may
@@ -231,6 +232,13 @@ public static class Endpoints
             s.GetTranscriptAsync(h.Current(), id, version));
         api.MapPost("/items/{id:guid}/segments/{segId:guid}/join", async (HttpContext h, MeetingService s, Guid id, Guid segId) =>
         { await s.JoinParagraphAsync(h.Current(), id, segId); return Results.NoContent(); });
+        api.MapPost("/items/{id:guid}/segments/{segId:guid}/merge", async (HttpContext h, MeetingService s, Guid id, Guid segId) =>
+        { await s.MergeSegmentAsync(h.Current(), id, segId); return Results.NoContent(); });
+        api.MapPost("/items/{id:guid}/replace", async (HttpContext h, MeetingService s, Guid id, ReplaceBody b) =>
+        {
+            var (passages, changes) = await s.ReplaceEverywhereAsync(h.Current(), id, b.From ?? "", b.To ?? "");
+            return Results.Ok(new { passages, changes });
+        });
         api.MapPut("/items/{id:guid}/segments/{segId:guid}", async (HttpContext h, MeetingService s, Guid id, Guid segId, TextBody b) =>
         { await s.EditSegmentAsync(h.Current(), id, segId, b.Text); return Results.NoContent(); });
         // Check grammar: suggestions only; each accepted change is saved as a tracked edit.

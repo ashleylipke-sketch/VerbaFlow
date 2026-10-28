@@ -108,3 +108,7 @@ button.small { padding:0 6px; font-size:12px; line-height:18px; margin-left:3px;
 button.link.danger { color:var(--bad); }
 
 .clip{font-size:.85em;white-space:nowrap;color:var(--muted,#667)}
+.player-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px; }
+.player-bar select { padding:2px 4px; }
+@media (max-width:600px) { .player-bar .hint { display:none; } }
+.seg textarea.fit, .page textarea.fit { overflow:hidden; resize:vertical; }

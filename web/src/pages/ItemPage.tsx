@@ -10,6 +10,15 @@ import { paragraphMarkers, paragraphPieces, type Piece } from '../paragraphs';
 import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
 import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
+import PlayerBar from '../PlayerBar';
+import { countIn, swapsIn } from '../replace';
+
+/** A textarea grows to show all its text, so nobody has to scroll inside it. */
+function useFit(text: string) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { const el = ref.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; }, [text]);
+  return ref;
+}
 
 /** Lets an Edit button pause the recording while the person types, and carry on playing once they save or cancel. */
 const EditPause = createContext<{ pause: () => void; resume: () => void }>({ pause: () => undefined, resume: () => undefined });
@@ -39,6 +48,8 @@ export default function ItemPage({ id }: { id: string }) {
   const [playing, setPlaying] = useState(false);
   // Tracked changes show while the transcript is a draft and are tucked away once it is approved. The reader can override either way.
   const [changesChoice, setChangesChoice] = useState<boolean | null>(null);
+  // After a correction ("Rhys" to "Reiss"), the same words elsewhere in the transcript, offered for changing in one go.
+  const [offers, setOffers] = useState<{ from: string; to: string; count: number }[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -102,6 +113,35 @@ export default function ItemPage({ id }: { id: string }) {
     pause: () => { const a = player.current; if (a && !a.paused) { a.pause(); pausedForEdit.current = true; } },
     resume: () => { if (!pausedForEdit.current) return; pausedForEdit.current = false; player.current?.play().catch(() => undefined); },
   }), []);
+  // Ctrl + Space plays or pauses from anywhere on the page, including while typing a correction.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.code !== 'Space') return;
+      const a = player.current; if (!a) return;
+      e.preventDefault();
+      if (a.paused) a.play().catch(() => undefined); else a.pause();
+    };
+    addEventListener('keydown', key);
+    return () => removeEventListener('keydown', key);
+  }, []);
+  // Looks at what a saved correction swapped, and counts the same words in the other boxes.
+  const offerSwaps = (edits: [string, string][]) => {
+    if (!t) return;
+    const found: { from: string; to: string; count: number }[] = [];
+    for (const [sid, text] of edits) {
+      const before = t.segments.find(x => x.id === sid)?.text ?? '';
+      const others = t.segments.filter(x => !edits.some(([e]) => e === x.id)).map(x => x.text);
+      for (const sw of swapsIn(before, text)) {
+        const count = countIn(others, sw.from);
+        if (count > 0 && !found.some(f => f.from === sw.from && f.to === sw.to)) found.push({ ...sw, count });
+      }
+    }
+    setOffers(found.slice(0, 3));
+  };
+  const replaceAll = (from: string, to: string) => run(async () => {
+    await api.post(`/items/${id}/replace`, { from, to });
+    setOffers(v => v.filter(x => x.from !== from || x.to !== to));
+  });
   const seek = (ms: number) => { const a = player.current; if (!a) return; a.currentTime = ms / 1000; a.play().catch(() => undefined); };
 
   const run = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await load(); } catch (e: any) { setError(e.message); } };
@@ -184,7 +224,8 @@ export default function ItemPage({ id }: { id: string }) {
       <div className="withPlayer">
       {audioUrl && <div className={d.video ? 'player video' : 'player'}>{d.video
         ? <video ref={player as RefObject<HTMLVideoElement>} controls playsInline preload="metadata" src={audioUrl} />
-        : <audio ref={player as RefObject<HTMLAudioElement>} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} />}</div>}
+        : <audio ref={player as RefObject<HTMLAudioElement>} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} />}
+        <PlayerBar player={player} playing={playing} /></div>}
       <div className="split">
         <div className="card">
           <h2>{dictate ? docLabel(d.documentType) : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}</h2>
@@ -197,14 +238,22 @@ export default function ItemPage({ id }: { id: string }) {
               {showChanges ? <> · <ins>Added or changed text</ins> · <del>Original text</del></> : ' · hidden'}
               {approved && ' · approved version'}</span></div>}
           {audioUrl && t && <p className="note">Press play to follow along. Click any word to jump the audio to it.</p>}
+          {offers.map(x => <div key={x.from + '|' + x.to} className="banner" role="status">
+            You changed “{x.from}” to “{x.to}”. The same words appear {x.count} more time{x.count === 1 ? '' : 's'} in this transcript.
+            <div className="actions" style={{ marginTop: 6 }}>
+              <button className="primary" onClick={() => replaceAll(x.from, x.to)}>Change {x.count === 1 ? 'it' : `all ${x.count}`}</button>
+              <button onClick={() => setOffers(v => v.filter(y => y !== x))}>Leave them</button>
+              <span className="note">Tip: add “{x.to}” on the <a href="#/vocabulary">Vocabulary</a> page so it is heard right next time.</span></div></div>)}
           {dictate && t && <DocumentView d={d} t={t} timed={timed} pos={pos} playing={playing} canSeek={!!audioUrl} onSeek={seek}
             editable={d.canEditTranscript} showChanges={showChanges}
-            onSave={async edits => { for (const [sid, text] of edits) await api.put(`/items/${id}/segments/${sid}`, { text }); }} onSaved={load} onError={setError}
+            onSave={async edits => { for (const [sid, text] of edits) await api.put(`/items/${id}/segments/${sid}`, { text }); offerSwaps(edits); }} onSaved={load} onError={setError}
             onJoin={sid => run(() => api.post(`/items/${id}/segments/${sid}/join`))} />}
-          {!dictate && t?.segments.map((s, i) => (s.text || showChanges) && <SegmentRow key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
+          {!dictate && t?.segments.map((s, i) => (s.text || showChanges) && <SegmentRow
+            canMerge={d.canEditTranscript && !!s.text && t.segments.slice(0, i).some(x => x.text)}
+            onMerge={() => run(() => api.post(`/items/${id}/segments/${s.id}/merge`))} key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
             playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript} hideSpeaker={dictate}
             showChanges={showChanges}
-            onSave={text => run(() => api.put(`/items/${id}/segments/${s.id}`, { text }))} />)}
+            onSave={text => run(async () => { await api.put(`/items/${id}/segments/${s.id}`, { text }); offerSwaps([[s.id, text]]); })} />)}
           {!d.canEditTranscript && t && <p className="note">This transcript is read-only for you right now.</p>}
         </div>
         <div>
@@ -267,14 +316,15 @@ export default function ItemPage({ id }: { id: string }) {
 
 type WordT = { text: string; startMs: number; endMs: number };
 
-function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, hideSpeaker }: {
+function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, hideSpeaker, canMerge, onMerge }: {
   s: Transcript['segments'][number]; words: WordT[]; active: boolean; activeWord: number;
   playing: boolean; canSeek: boolean; onSeek: (ms: number) => void; editable: boolean; onSave: (t: string) => void;
-  showChanges: boolean; hideSpeaker?: boolean;
+  showChanges: boolean; hideSpeaker?: boolean; canMerge?: boolean; onMerge?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const edit = useContext(EditPause);
   const [text, setText] = useState(s.text);
+  const fit = useFit(editing ? text : '');
   const row = useRef<HTMLDivElement>(null);
   useEffect(() => setText(s.text), [s.text]);
   // Keep the passage being read in view while playing, without fighting the reader once they pause.
@@ -304,7 +354,7 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
           {marked && <> · <span className="tag">Edited</span></>}</div></div>
       <div>
         {editing ? <>
-          <textarea rows={3} value={text} autoFocus onChange={e => setText(e.target.value)} />
+          <textarea ref={fit} className="fit" rows={3} value={text} autoFocus onChange={e => setText(e.target.value)} />
           <div className="actions"><button className="primary" disabled={text.trim() === s.text}
             onClick={() => { onSave(text); setEditing(false); edit.resume(); }}>Save</button>
             <button onClick={() => { setText(s.text); setEditing(false); edit.resume(); }}>Cancel</button></div>
@@ -314,7 +364,8 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
               : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{' '}</span>
               : <span key={i}>{word(o.cur!)}{' '}</span>)
             : words.map((_, i) => <span key={i}>{word(i)}{' '}</span>)}</p>
-          {editable && <button onClick={() => { edit.pause(); setEditing(true); }}>Edit</button>}
+          {editable && <div className="actions"><button onClick={() => { edit.pause(); setEditing(true); }}>Edit</button>
+            {canMerge && onMerge && <button onClick={onMerge} title="These words move into the box above, with that box's speaker">Join to box above</button>}</div>}
         </>}
         {s.lowConfidence && <div className="note">Low confidence — please check.</div>}
       </div>
@@ -385,8 +436,8 @@ function Paragraph({ pieces, marker, t, timed, pos, playing, canSeek, onSeek, ed
   if (editing) return (
     <div className="para" ref={el}>
       <p className="note">Press Enter where a new paragraph should start. Empty a box to take its words out.</p>
-      {segs.map((s, k) => <textarea key={s.id} rows={Math.max(2, Math.ceil(texts[k].length / 80) + (texts[k].match(/\n/g)?.length ?? 0))} value={texts[k]}
-        aria-label={`Sentence ${k + 1} of this paragraph`} onChange={e => setTexts(v => v.map((x, j) => j === k ? e.target.value : x))} />)}
+      {segs.map((s, k) => <FitArea key={s.id} value={texts[k]}
+        label={`Sentence ${k + 1} of this paragraph`} onChange={x => setTexts(v => v.map((y, j) => j === k ? x : y))} />)}
       <div className="actions para-tools"><button className="primary" disabled={saving || outgoing().length === 0}
         onClick={async () => { setSaving(true); try { await onSave(outgoing()); setEditing(false); onSaved(); edit.resume(); } catch (e: any) { onError(e.message); } finally { setSaving(false); } }}>
         {saving ? 'Saving…' : 'Save'}</button>
@@ -428,4 +479,10 @@ function Words({ s, words, from, to, activeWord, canSeek, onSeek, showChanges }:
   return <>{ops.map((o, i) => o.kind === 'del' ? <span key={i}><del>{o.text}</del>{' '}</span>
     : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{i < ops.length - 1 ? ' ' : ''}</span>
     : <span key={i}>{word(o.cur!)}{i < ops.length - 1 ? ' ' : ''}</span>)}</>;
+}
+
+/** A dictation passage's edit box, grown to show all its text. */
+function FitArea({ value, label, onChange }: { value: string; label: string; onChange: (v: string) => void }) {
+  const ref = useFit(value);
+  return <textarea ref={ref} className="fit" rows={2} value={value} aria-label={label} onChange={e => onChange(e.target.value)} />;
 }

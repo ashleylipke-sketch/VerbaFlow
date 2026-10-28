@@ -115,6 +115,77 @@ public sealed class Transcript
     }
 
     /// <summary>
+    /// In a meeting: the passage's words move up into the nearest passage above that has text, which keeps its speaker.
+    /// The passage itself stays in the version with no text, so the count of passages does not change (tracked changes
+    /// compare passage by passage) and Restore brings it back. Word timings move with the words.
+    /// </summary>
+    public TranscriptVersion MergeWithPrevious(Guid segmentId, Guid actor, string capacity, DateTimeOffset now)
+    {
+        var cur = Current;
+        var index = cur.SegmentIds.IndexOf(segmentId);
+        if (index < 0) throw new DomainException("That passage is not part of the current version.");
+        var lower = Segments[segmentId];
+        if (lower.Text.Length == 0) throw new DomainException("This box is empty, so there is nothing to move up.");
+        var above = index - 1;
+        while (above >= 0 && Segments[cur.SegmentIds[above]].Text.Length == 0) above--;
+        if (above < 0) throw new DomainException("There is no box above this one to join it to.");
+        var upper = Segments[cur.SegmentIds[above]];
+        var words = upper.Words is { } a && lower.Words is { } b ? a.Concat(b).ToList() : null;
+        var merged = upper with
+        {
+            Id = Guid.NewGuid(), Text = upper.Text + " " + lower.Text, EndMs = Math.Max(upper.EndMs, lower.EndMs), Words = words,
+            LowConfidence = upper.LowConfidence || lower.LowConfidence, Confidence = Math.Min(upper.Confidence, lower.Confidence)
+        };
+        var emptied = lower with { Id = Guid.NewGuid(), Text = "", Words = [] };
+        Segments[merged.Id] = merged;
+        Segments[emptied.Id] = emptied;
+        var ids = cur.SegmentIds.ToList();
+        ids[above] = merged.Id;
+        ids[index] = emptied.Id;
+        return Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, $"Joined the box at {lower.StartMs} ms to the box above");
+    }
+
+    /// <summary>
+    /// Changes every whole-word match of <paramref name="from"/> (any capitals, any spacing between its words) to
+    /// <paramref name="to"/> in every passage of the current version, as one version. A match that starts with a capital
+    /// keeps it. Passages holding saved text are left alone. Returns null when nothing matched.
+    /// </summary>
+    public (TranscriptVersion Version, int Passages, int Changes)? ReplaceEverywhere(string from, string to, Guid actor, string capacity, DateTimeOffset now)
+    {
+        var parts = from.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        to = to.Trim();
+        if (parts.Length == 0 || parts.Length > 8 || to.Length > 200) throw new DomainException("Give the words to change, up to 8 of them.");
+        if (string.Equals(string.Join(' ', parts), to, StringComparison.Ordinal)) throw new DomainException("The new words are the same as the old ones.");
+        var pattern = new System.Text.RegularExpressions.Regex(
+            @"(?<![\p{L}\p{N}])" + string.Join(@"\s+", parts.Select(System.Text.RegularExpressions.Regex.Escape)) + @"(?![\p{L}\p{N}])",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+        var cur = Current;
+        var ids = cur.SegmentIds.ToList();
+        int passages = 0, changes = 0;
+        for (var i = 0; i < ids.Count; i++)
+        {
+            var old = Segments[ids[i]];
+            if (old.Text.Length == 0 || old.Inserted is not null) continue;
+            var n = 0;
+            var text = pattern.Replace(old.Text, m =>
+            {
+                n++;
+                return char.IsUpper(m.Value[0]) && to.Length > 0 && char.IsLower(to[0]) ? char.ToUpper(to[0]) + to[1..] : to;
+            });
+            if (n == 0 || text == old.Text) continue;
+            var replacement = old with { Id = Guid.NewGuid(), Text = text, Words = RetimedWords(old.Words, text) };
+            Segments[replacement.Id] = replacement;
+            ids[i] = replacement.Id;
+            passages++;
+            changes += n;
+        }
+        if (passages == 0) return null;
+        var v = Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, $"Changed \"{string.Join(' ', parts)}\" to \"{to}\" everywhere");
+        return (v, passages, changes);
+    }
+
+    /// <summary>
     /// The app's own corrections to the machine text (restarted sentences in a dictation), as a version of their own so
     /// the original stays visible as tracked changes and Restore brings it back. Not counted as a person's correction.
     /// </summary>

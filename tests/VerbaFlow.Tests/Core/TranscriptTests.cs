@@ -138,4 +138,47 @@ public class WordTimingTests
         Assert.Null(t.Render().Single().Segment.Words);
         Assert.Equal(3, t.Render(1).Single().Segment.Words!.Count);
     }
+
+    [Fact]
+    public void Joining_a_box_to_the_one_above_moves_its_words_and_timings_up_and_keeps_the_count_of_boxes()
+    {
+        var a = new Speaker(Guid.NewGuid(), "Reiss"); var b = new Speaker(Guid.NewGuid(), "Pat");
+        var s1 = new Segment(Guid.NewGuid(), a.Id, "en", 0, 1000, "I think so", 0.9, false, [new("I", 0, 200), new("think", 200, 600), new("so", 600, 1000)]);
+        var s2 = new Segment(Guid.NewGuid(), b.Id, "en", 1000, 1500, "too.", 0.9, false, [new("too.", 1000, 1500)]);
+        var s3 = new Segment(Guid.NewGuid(), b.Id, "en", 1600, 2000, "Next point", 0.9, false);
+        var t = Transcript.CreateMachineV1(Guid.NewGuid(), "test", [a, b], [s1, s2, s3], T.Now);
+        t.MergeWithPrevious(s2.Id, Guid.NewGuid(), "Owner", T.Now);
+        var now = t.Render();
+        Assert.Equal(3, now.Count);
+        Assert.Equal("I think so too.", now[0].Segment.Text);
+        Assert.Equal(a.Id, now[0].Segment.SpeakerId);
+        Assert.Equal(1500, now[0].Segment.EndMs);
+        Assert.Equal(["I", "think", "so", "too."], now[0].Segment.Words!.Select(w => w.Text));
+        Assert.Equal("", now[1].Segment.Text);
+        // The next box skips the empty one and joins the nearest box with text.
+        t.MergeWithPrevious(now[2].Segment.Id, Guid.NewGuid(), "Owner", T.Now);
+        Assert.Equal("I think so too. Next point", t.Render()[0].Segment.Text);
+        Assert.Throws<DomainException>(() => t.MergeWithPrevious(t.Render()[0].Segment.Id, Guid.NewGuid(), "Owner", T.Now));
+        Assert.Equal("too.", t.Render(1)[1].Segment.Text); // the machine version is untouched
+    }
+
+    [Fact]
+    public void A_correction_can_be_made_in_every_box_at_once()
+    {
+        var sp = new Speaker(Guid.NewGuid(), "Pat");
+        var segs = new[]
+        {
+            new Segment(Guid.NewGuid(), sp.Id, "en", 0, 1000, "Rhys said all notes are done.", 0.9, false),
+            new Segment(Guid.NewGuid(), sp.Id, "en", 1000, 2000, "Thanks, rhys. All  notes and Rhyss.", 0.9, false),
+            new Segment(Guid.NewGuid(), sp.Id, "en", 2000, 3000, "Nothing here.", 0.9, false),
+        };
+        var t = Transcript.CreateMachineV1(Guid.NewGuid(), "test", [sp], segs, T.Now);
+        var r = t.ReplaceEverywhere("Rhys", "Reiss", Guid.NewGuid(), "Owner", T.Now)!.Value;
+        Assert.Equal((2, 2), (r.Passages, r.Changes));
+        var r2 = t.ReplaceEverywhere("all notes", "AllNote", Guid.NewGuid(), "Owner", T.Now)!.Value;
+        Assert.Equal(2, r2.Changes);
+        Assert.Equal(["Reiss said AllNote are done.", "Thanks, Reiss. AllNote and Rhyss.", "Nothing here."], t.Render().Select(x => x.Segment.Text));
+        Assert.Equal(3, t.Current.No); // one version per change, whatever the number of boxes
+        Assert.Null(t.ReplaceEverywhere("nobody", "Somebody", Guid.NewGuid(), "Owner", T.Now));
+    }
 }

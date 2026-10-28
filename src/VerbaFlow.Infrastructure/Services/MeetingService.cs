@@ -574,6 +574,32 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         await Audit(actor, v.Capacity, id, "transcript.paragraphs_joined", ("version", v.No), ("segmentId", segmentId));
     }
 
+    /// <summary>A meeting box's words move up into the box above (a few words given to the wrong person, say).</summary>
+    public async Task MergeSegmentAsync(User actor, Guid id, Guid segmentId)
+    {
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Write);
+        var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
+        var v = t.MergeWithPrevious(segmentId, actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
+        await stores.Transcripts.UpsertAsync(id, t);
+        await Audit(actor, v.Capacity, id, "transcript.boxes_joined", ("version", v.No), ("segmentId", segmentId));
+    }
+
+    /// <summary>The same correction made in every box at once ("Rhys" to "Reiss"). Returns how many boxes and places changed.</summary>
+    public async Task<(int Passages, int Changes)> ReplaceEverywhereAsync(User actor, Guid id, string from, string to)
+    {
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Write);
+        var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
+        var r = t.ReplaceEverywhere(from ?? "", to ?? "", actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
+        if (r is null) return (0, 0);
+        await stores.Transcripts.UpsertAsync(id, t);
+        await Audit(actor, r.Value.Version.Capacity, id, "transcript.replaced_everywhere", ("version", r.Value.Version.No),
+            ("from", string.Join(' ', (from ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))), ("to", (to ?? "").Trim()),
+            ("passages", r.Value.Passages), ("changes", r.Value.Changes));
+        return (r.Value.Passages, r.Value.Changes);
+    }
+
     public async Task RenameSpeakerAsync(User actor, Guid id, Guid speakerId, string name)
     {
         var item = await stores.RequireItemAsync(id);

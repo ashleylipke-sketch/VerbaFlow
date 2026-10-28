@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VerbaFlow Widget",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Speak into any text box on a website. The text appears as you speak; you check it, then Accept.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtaSpmUuiTphCA+log89g0HL5V/eQLypFcwHQxwvYjpWB+8VWxp+kVRnK40/vUfmNvQmadv9YeNJccM/DFxjSdwyheg74fQSe4JYLSEfph+kjoHpDArtGw3JaMuSjKIgrmHwZGWRhV7S98c4S82JwouZWziPkMxm9vCx8qslufvQRBaAO08uOK19MDJACWGDrEQgGkgaTLO5gJPqNJZlgbawXuGi+/JEnNlsTfHe1AZBy8KnzJsaNkEG8JRGmhIxl8AE+PKbksMsaT7phcEYBTzuRp//YdrryjOL4p7UU/uruqFPSC5svI5G/4OQo/HeAMHAEEJay8Ah1b6RDJRUEQQIDAQAB",
   "permissions": [

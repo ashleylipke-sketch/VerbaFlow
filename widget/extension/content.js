@@ -118,8 +118,14 @@
     attach();
     const r = focused.getBoundingClientRect();
     micBtn.style.display = 'flex';
-    micBtn.style.left = `${Math.min(innerWidth - 32, Math.max(4, r.right - 32))}px`;
-    micBtn.style.top = `${Math.min(innerHeight - 32, Math.max(4, r.top + (r.height < 40 ? (r.height - 28) / 2 : 4)))}px`;
+    // Beside the box, so it never covers the words; above its corner when there is no room at the side; inside it only
+    // when neither fits.
+    const top = r.height < 40 ? r.top + (r.height - 28) / 2 : r.top;
+    let left = r.right + 4, y = top;
+    if (left + 28 > innerWidth - 4) { left = r.right - 28; y = r.top - 32; }
+    if (y < 4) { left = r.right - 32; y = r.top + (r.height < 40 ? (r.height - 28) / 2 : 4); }
+    micBtn.style.left = `${Math.min(innerWidth - 32, Math.max(4, left))}px`;
+    micBtn.style.top = `${Math.min(innerHeight - 32, Math.max(4, y))}px`;
   }
   function hideMic() { micBtn.style.display = 'none'; }
   function place() {

@@ -42,6 +42,9 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const [message, setMessage] = useState('');
   const [notice, setNotice] = useState('');
   const awake = useRef<(() => void) | null>(null);
+  // The page can be long on a phone, so the reason recording stopped is shown at the top and scrolled into view.
+  const noticeBox = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (notice) noticeBox.current?.scrollIntoView({ block: 'center' }); }, [notice]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Changing the recording of a dictation that has been converted but not approved (instead of carrying on with an unfinished one).
   const [changing, setChanging] = useState(false);
@@ -331,6 +334,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   return (
     <div className="card">
       <h2>{changing ? 'Insert or amend' : draftId ? 'Carry on dictating' : 'New dictation'}</h2>
+      {notice && <div className="banner" role="alert" ref={noticeBox}>{notice}</div>}
       {changing && phase === 'ready' && <p className="note">Put the cursor where you want to make a change, then put more in, record over, or mark a part and delete it.
         When you are done, the dictation is converted to text again. The recording as it was is kept in the history.</p>}
       {phase === 'loading' && <p>Opening the dictation…</p>}
@@ -428,7 +432,6 @@ export default function Dictate({ draftId }: { draftId?: string }) {
           <div className="actions" style={{ marginTop: 8 }}><button className="danger" onClick={remove}>{id ? 'Yes, delete it' : 'Yes, discard it'}</button><button onClick={() => setConfirmDelete(false)}>No, keep it</button></div></div>}
       </>}
 
-      {notice && <div className="banner" role="alert">{notice}</div>}
       {message && <div className="ok" role="status">{message}</div>}
       {error && <div className="error">{error}</div>}
     </div>

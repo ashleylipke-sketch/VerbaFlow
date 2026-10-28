@@ -38,6 +38,8 @@ export default function Speech({ draftId }: { draftId?: string }) {
   const [notice, setNotice] = useState('');
   const [lost, setLost] = useState('');
   const awake = useRef<(() => void) | null>(null);
+  const lostBox = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (lost) lostBox.current?.scrollIntoView({ block: 'center' }); }, [lost]);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -332,6 +334,7 @@ export default function Speech({ draftId }: { draftId?: string }) {
   return (
     <div className="card">
       <h2>{id ? 'Carry on speaking' : 'Speech to text'}</h2>
+      {lost && <div className="banner" role="alert" ref={lostBox}>{lost}</div>}
       {phase === 'loading' && <p>Opening the draft…</p>}
       {phase === 'setup' && <>
         <p className="note">The text is typed as you speak. Say "comma", "full stop" or "new paragraph" for punctuation, as when dictating.</p>
@@ -368,7 +371,6 @@ export default function Speech({ draftId }: { draftId?: string }) {
         <p className="note">Length {fmtLen(elapsed)}.{' '}
           {finished.current ? 'Finish it to correct, approve, assign or export it like a dictation. It then shows under Speech to Text.'
             : 'The live text did not finish, so when you finish, the text is worked out again from the recording. That takes a little longer.'}</p>
-        {lost && <div className="banner" role="alert">{lost}</div>}
         {notice && <div className="banner" role="status">{notice}</div>}
         {!confirmDiscard && <div className="actions">
           <button className="primary" disabled={phase === 'saving'} onClick={save}>{phase === 'saving' ? 'Saving…' : 'Finish'}</button>

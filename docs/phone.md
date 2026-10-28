@@ -21,7 +21,7 @@ Once VerbaFlow is online (see `going-online.md`) none of this is needed: open it
 
 ## While recording on a phone
 
-- Keep VerbaFlow on screen. VerbaFlow asks the phone to keep the screen on while recording (on iPhones it also plays a tiny silent, invisible video, which is what keeps them awake). In battery saving (Low Power) mode a phone may still lock.
+- Keep VerbaFlow on screen. VerbaFlow asks the phone to keep the screen on while recording. In battery saving (Low Power) mode a phone may still lock.
 - If the screen locks, you switch app, or a phone call takes the microphone, recording stops and a message at the top of the page says so. Everything recorded up to then is kept; choose what to do next as after Stop.
 - On the sound wave, tap to put the cursor; use **Delete…** and **Overwrite…** (tap where the part starts, then where it ends) to mark a part.
 

@@ -13,28 +13,13 @@ export function keepAwake(stream: MediaStream, onLost: (why: 'hidden' | 'ended')
       lock = await wl.request('screen');
       // The phone can take the lock back (for example in battery saving); ask again while still recording.
       lock?.addEventListener?.('release', () => { lock = null; if (!done && document.visibilityState === 'visible') setTimeout(ask, 1000); });
-    } catch { /* not offered by this browser, or refused: the playing video below still keeps most phones awake */ }
+    } catch { /* not offered by this browser, or refused: recording still works while the screen stays on */ }
   };
-  // iPhones (Safari and Chrome alike) do not always honour the wake lock, but they stay awake while a video plays,
-  // so on a phone a tiny silent video plays out of sight while recording.
-  let video: HTMLVideoElement | null = null;
-  const playVideo = () => { video?.play().catch(() => undefined); };
-  if (isPhone()) {
-    try {
-      video = document.createElement('video');
-      video.src = 'keep-awake.mp4';
-      video.muted = true; video.loop = true; video.playsInline = true;
-      video.setAttribute('playsinline', ''); video.setAttribute('muted', ''); video.setAttribute('aria-hidden', 'true');
-      Object.assign(video.style, { position: 'fixed', left: '0', bottom: '0', width: '1px', height: '1px', opacity: '0.01', pointerEvents: 'none' });
-      document.body.appendChild(video);
-      playVideo();
-    } catch { video = null; }
-  }
   const lost = (why: 'hidden' | 'ended') => { if (done) return; done = true; onLost(why); };
   const onEnded = () => lost('ended');
   // If the track itself ends, recording cannot go on. On a phone, hiding the page usually stops the microphone a moment later.
   const onVisible = () => {
-    if (document.visibilityState === 'visible') { if (!done) { ask(); playVideo(); } }
+    if (document.visibilityState === 'visible') { if (!done) ask(); }
     else if (isPhone()) lost('hidden');
   };
   stream.getAudioTracks().forEach(t => t.addEventListener('ended', onEnded));
@@ -45,7 +30,6 @@ export function keepAwake(stream: MediaStream, onLost: (why: 'hidden' | 'ended')
     stream.getAudioTracks().forEach(t => t.removeEventListener('ended', onEnded));
     document.removeEventListener('visibilitychange', onVisible);
     lock?.release().catch(() => undefined); lock = null;
-    if (video) { video.pause(); video.removeAttribute('src'); video.load(); video.remove(); video = null; }
   };
 }
 

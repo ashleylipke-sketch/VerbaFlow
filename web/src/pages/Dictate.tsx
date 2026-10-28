@@ -7,6 +7,7 @@ import { cut, decode, msOf, samplesAt, splice, toWav, type TakeMode } from '../t
 import WaveEditor, { type Selection } from '../WaveEditor';
 import { CommandHelp, drawWave } from './Record';
 import { layout, textWords, type Take, type TextWord } from '../takeMap';
+import { keepAwake, lostMessage, tapWord } from '../keepAwake';
 
 type Phase = 'setup' | 'loading' | 'ready' | 'recording' | 'paused' | 'adding';
 
@@ -39,6 +40,8 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [notice, setNotice] = useState('');
+  const awake = useRef<(() => void) | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Changing the recording of a dictation that has been converted but not approved (instead of carrying on with an unfinished one).
   const [changing, setChanging] = useState(false);
@@ -67,7 +70,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const activeMs = useRef(0);
   const lastTick = useRef(0);
 
-  const stopMic = () => { cancelAnimationFrame(raf.current); stream.current?.getTracks().forEach(t => t.stop()); audioCtx.current?.close().catch(() => {}); audioCtx.current = null; };
+  const stopMic = () => { awake.current?.(); awake.current = null; cancelAnimationFrame(raf.current); stream.current?.getTracks().forEach(t => t.stop()); audioCtx.current?.close().catch(() => {}); audioCtx.current = null; };
   useEffect(() => () => stopMic(), []);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
 
@@ -164,7 +167,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   };
 
   const start = async (wanted: TakeMode | 'replace' = 'end') => {
-    setError(''); setMessage('');
+    setError(''); setMessage(''); setNotice('');
     const p = player.current; if (p && !p.paused) p.pause();
     const mode = track.current.length === 0 ? 'end' : wanted === 'replace' && !selection ? 'overwrite' : wanted;
     takeMode_.current = mode;
@@ -173,7 +176,9 @@ export default function Dictate({ draftId }: { draftId?: string }) {
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
       stream.current = s;
-      const ctx = new AudioContext(); audioCtx.current = ctx;
+      const ctx = new AudioContext(); audioCtx.current = ctx; ctx.resume().catch(() => undefined);
+      // Keeps the phone's screen on; if the microphone stops anyway, what was said so far becomes a take as usual.
+      awake.current = keepAwake(s, why => { setNotice(lostMessage(why)); if (rec.current?.state !== 'inactive') stop(); });
       const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(s).connect(an);
       const buf = new Uint8Array(an.fftSize);
       const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -374,7 +379,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
             ? `click where the ${markFor === 'delete' ? 'deletion' : 'part to record over'} should start, on the sound wave${shown.length ? ' or on a word' : ''}.`
             : `now click where it should end. It starts at ${fmtFine(deleteFrom.current)}.`}{' '}
             <button className="link" onClick={() => setDeleteStep(null)}>Cancel</button></div>}
-          <p className="note">Click the sound wave{shown.length ? ' or a word in the text' : ''} to put the cursor there. Drag across the sound wave{shown.length ? ', or Shift + click a word,' : ''} to mark a part.</p>
+          <p className="note">{tapWord()} the sound wave{shown.length ? ' or a word in the text' : ''} to put the cursor there. Drag across the sound wave{shown.length && tapWord() === 'Click' ? ', or Shift + click a word,' : ''} to mark a part{tapWord() === 'Tap' ? ', or use Delete… and Overwrite… to tap where a part starts and ends' : ''}.</p>
         </>}
         {shown.length > 0 && <div className="take-text">
           <p className="note">The text as it was converted. A click on a word puts the cursor just before it.{takes.length ? ' Words deleted or recorded over are crossed out; new recordings are marked and will be converted when you send them.' : ''}</p>
@@ -423,6 +428,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
           <div className="actions" style={{ marginTop: 8 }}><button className="danger" onClick={remove}>{id ? 'Yes, delete it' : 'Yes, discard it'}</button><button onClick={() => setConfirmDelete(false)}>No, keep it</button></div></div>}
       </>}
 
+      {notice && <div className="banner" role="alert">{notice}</div>}
       {message && <div className="ok" role="status">{message}</div>}
       {error && <div className="error">{error}</div>}
     </div>

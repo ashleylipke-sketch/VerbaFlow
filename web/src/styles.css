@@ -112,3 +112,27 @@ button.link.danger { color:var(--bad); }
 .player-bar select { padding:2px 4px; }
 @media (max-width:600px) { .player-bar .hint { display:none; } }
 .seg textarea.fit, .page textarea.fit { overflow:hidden; resize:vertical; }
+
+/* Phones: the page list folds behind a Menu button. */
+header.top .menu-button { display:none; margin-left:auto; }
+@media (max-width: 700px) {
+  header.top { padding:8px 16px; gap:8px; }
+  header.top .menu-button { display:inline-block; }
+  header.top nav { display:none; flex-basis:100%; flex-direction:column; gap:2px; }
+  header.top nav.open { display:flex; }
+  header.top nav a { padding:10px 8px; }
+  header.top .signin { flex-basis:100%; }
+}
+
+/* Phones: each row of a list becomes a small card, name first, empty details left out. */
+@media (max-width: 700px) {
+  table.list thead { display:none; }
+  table.list, table.list tbody { display:block; }
+  table.list tr { display:flex; flex-direction:column; border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:10px; background:var(--card); }
+  table.list td { display:flex; gap:8px; border:0; padding:3px 0; white-space:normal; }
+  table.list td[data-label]::before { content:attr(data-label); flex:0 0 7.5em; color:var(--muted, #666); font-size:13px; }
+  table.list td[data-label="Description"] { order:-1; font-weight:600; font-size:16px; }
+  table.list td[data-label="Description"]::before, table.list td[data-label="Actions"]::before { display:none; }
+  table.list td[data-label]:empty { display:none; }
+  table.list td[data-label="Actions"] .actions button { padding:8px 12px; }
+}

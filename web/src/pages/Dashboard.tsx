@@ -87,24 +87,24 @@ export default function Dashboard({ mode }: { mode: Mode }) {
       </div>
       {error && <div className="error">{error}</div>}
       <div className="scroll">
-        <table>
+        <table className="list">
           <thead><tr><th>Priority</th><th>Status</th><th>Length</th><th>Client Reference</th><th>Description</th><th>Author</th><th>Assigned to</th><th>Created on</th><th>Due date</th><th>Actions</th></tr></thead>
           <tbody>
             {rows === null && <tr><td colSpan={10}>Loading…</td></tr>}
             {rows !== null && shown.length === 0 && <tr><td colSpan={10} className="note">{speech ? 'Nothing to show with these views. Choose Start speaking to get started.' : dictate ? 'Nothing to show with these views. Start a new dictation or import one to get started.' : 'Nothing to show with these views. Record or import a meeting to get started.'}</td></tr>}
             {shown.map(r => (
               <tr key={r.id}>
-                <td>{r.priority}</td>
-                <td><span className="pill" title={r.statusCode === 'ConversionFailed' && r.failureReason ? r.failureReason : undefined}>{r.status}</span> {r.tags.map(t => <span key={t} className={'tag' + (t === 'Objection logged' ? ' warn' : '')}>{t}</span>)}</td>
-                <td>{fmtLen(r.lengthMs)}</td>
-                <td>{r.clientReference ?? ''}</td>
-                <td className="wrap"><a href={r.actions.includes('continue') ? carryOnLink(mode, r.id) : `#/items/${r.id}`}>{r.name}</a>{!!r.attachments && <> <span className="clip" title={`${r.attachments} attached file${r.attachments === 1 ? '' : 's'}`}
+                <td data-label="Priority">{r.priority}</td>
+                <td data-label="Status"><span className="pill" title={r.statusCode === 'ConversionFailed' && r.failureReason ? r.failureReason : undefined}>{r.status}</span> {r.tags.map(t => <span key={t} className={'tag' + (t === 'Objection logged' ? ' warn' : '')}>{t}</span>)}</td>
+                <td data-label="Length">{fmtLen(r.lengthMs)}</td>
+                <td data-label="Client Reference">{r.clientReference ?? ''}</td>
+                <td data-label="Description" className="wrap"><a href={r.actions.includes('continue') ? carryOnLink(mode, r.id) : `#/items/${r.id}`}>{r.name}</a>{!!r.attachments && <> <span className="clip" title={`${r.attachments} attached file${r.attachments === 1 ? '' : 's'}`}
                   aria-label={`${r.attachments} attached file${r.attachments === 1 ? '' : 's'}`}>📎{r.attachments}</span></>}{r.description ? ` — ${r.description}` : ''}</td>
-                <td>{r.author ?? ''}</td>
-                <td>{r.assignedTo ?? ''}</td>
-                <td>{fmtDate(r.createdOn)}</td>
-                <td className={r.overdue ? 'overdue' : ''}>{r.dueDate ? fmtDate(r.dueDate) : ''}{r.overdue && <> <span aria-hidden="true">⚠</span> Overdue</>}</td>
-                <td><div className="actions">{r.actions.filter(a => a in ACTION_LABEL).map(a => <button key={a} onClick={() => act(r, a)}>{ACTION_LABEL[a]}</button>)}</div></td>
+                <td data-label="Author">{r.author ?? ''}</td>
+                <td data-label="Assigned to">{r.assignedTo ?? ''}</td>
+                <td data-label="Created on">{fmtDate(r.createdOn)}</td>
+                <td data-label="Due date" className={r.overdue ? 'overdue' : ''}>{r.dueDate ? fmtDate(r.dueDate) : ''}{r.overdue && <> <span aria-hidden="true">⚠</span> Overdue</>}</td>
+                <td data-label="Actions"><div className="actions">{r.actions.filter(a => a in ACTION_LABEL).map(a => <button key={a} onClick={() => act(r, a)}>{ACTION_LABEL[a]}</button>)}</div></td>
               </tr>
             ))}
           </tbody>

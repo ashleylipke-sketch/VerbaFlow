@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { keepAwake, lostMessage } from '../keepAwake';
 import { api, fmtLen } from '../api';
 import LanguagePicker from '../LanguagePicker';
 import DocumentTypePicker, { docLabel, type DocType } from '../DocumentType';
@@ -35,6 +36,8 @@ export default function Speech({ draftId }: { draftId?: string }) {
   const [quiet, setQuiet] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [lost, setLost] = useState('');
+  const awake = useRef<(() => void) | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -60,6 +63,7 @@ export default function Speech({ draftId }: { draftId?: string }) {
   const wave = useRef<HTMLCanvasElement>(null);
 
   const stopMic = () => {
+    awake.current?.(); awake.current = null;
     cancelAnimationFrame(raf.current);
     stream.current?.getTracks().forEach(t => t.stop()); stream.current = null;
     audioCtx.current?.close().catch(() => {}); audioCtx.current = null;
@@ -170,6 +174,9 @@ export default function Speech({ draftId }: { draftId?: string }) {
       const s = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
       stream.current = s;
       const ctx = new AudioContext(); audioCtx.current = ctx;
+      await ctx.resume().catch(() => {}); // iPhones start the audio paused
+      setLost('');
+      awake.current = keepAwake(s, why => { setLost(lostMessage(why)); if (!stopping.current) stop(); });
       const url = URL.createObjectURL(new Blob([TAP], { type: 'application/javascript' }));
       await ctx.audioWorklet.addModule(url);
       URL.revokeObjectURL(url);
@@ -361,6 +368,7 @@ export default function Speech({ draftId }: { draftId?: string }) {
         <p className="note">Length {fmtLen(elapsed)}.{' '}
           {finished.current ? 'Finish it to correct, approve, assign or export it like a dictation. It then shows under Speech to Text.'
             : 'The live text did not finish, so when you finish, the text is worked out again from the recording. That takes a little longer.'}</p>
+        {lost && <div className="banner" role="alert">{lost}</div>}
         {notice && <div className="banner" role="status">{notice}</div>}
         {!confirmDiscard && <div className="actions">
           <button className="primary" disabled={phase === 'saving'} onClick={save}>{phase === 'saving' ? 'Saving…' : 'Finish'}</button>

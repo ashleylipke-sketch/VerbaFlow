@@ -15,6 +15,7 @@ One platform for three apps: **Speak** (Dictate, Speech and Meeting modes), **Me
 | Retention | **Built, not yet tried by the owner**: administrators set how long meetings and dictations are kept (delete approved ones after N days, remove only the sound or video, delete never-approved ones after N days without activity); a change needs two administrators and starts a week later; recordings can be put on hold. See `docs/retention.md` |
 | Telephony bridge (ADR-15) | Designed, not built |
 | Running online | **Built, not yet run in Azure**: one container (Azure Container Apps), PostgreSQL, an Azure Files share for recordings, set up by one script in Azure Cloud Shell. See `docs/going-online.md` |
+| Phones | **Built, not yet tried on a real phone**: pages fit a phone screen (Menu button, lists as cards), Dictate and Speech keep the screen on and stop safely if it locks; `phone.cmd` opens a private https address (Microsoft Dev Tunnels). See `docs/phone.md` |
 | Azure services | Speech and OpenAI (summary, action points, minutes, tone) adapters built, each needs your key. ffmpeg audio clean-up built. Entra ID sign-in built and confirmed. PostgreSQL built for online use. Blob immutability, Service Bus, Defender not written |
 
 ## What is real and what is a stand-in

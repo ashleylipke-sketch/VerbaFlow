@@ -6,3 +6,4 @@ data/
 *.user
 .vs/
 src/VerbaFlow.Api/wwwroot/
+phone-tunnel.txt

@@ -29,6 +29,8 @@ export default function App() {
   const [me, setMe] = useState<UserView | null>(null);
   const [way, setWay] = useState(signedIn());
   const [problem, setProblem] = useState(signInProblem());
+  const [menu, setMenu] = useState(false); // the page list on a phone, folded away until asked for
+  useEffect(() => setMenu(false), [hash]);
   // The test users to pick from (only on the owner's computer); the server lists them to anyone while test users are on.
   useEffect(() => {
     if (info.testUsers) fetch('/api/users', { headers: { 'X-Dev-User': 'alice' } }).then(r => r.json()).then(setUsers).catch(() => setUsers([]));
@@ -50,7 +52,8 @@ export default function App() {
     <>
       <header className="top">
         <h1>VerbaFlow · Speak</h1>
-        <nav>
+        <button className="menu-button" aria-expanded={menu} aria-controls="pages" onClick={() => setMenu(m => !m)}>{menu ? 'Close' : 'Menu'}</button>
+        <nav id="pages" className={menu ? 'open' : ''}>
           <a href="#/dictate" className={path.startsWith('/dictate') ? 'on' : ''}>Dictate</a>
           <a href="#/speech" className={path.startsWith('/speech') ? 'on' : ''}>Speech</a>
           <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>

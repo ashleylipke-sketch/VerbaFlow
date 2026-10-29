@@ -181,4 +181,65 @@ public class WordTimingTests
         Assert.Equal(3, t.Current.No); // one version per change, whatever the number of boxes
         Assert.Null(t.ReplaceEverywhere("nobody", "Somebody", Guid.NewGuid(), "Owner", T.Now));
     }
+
+    [Fact]
+    public void Words_said_by_someone_else_become_a_box_of_their_own()
+    {
+        var reiss = new Speaker(Guid.NewGuid(), "Reiss"); var rich = new Speaker(Guid.NewGuid(), "Rich");
+        var s0 = new Segment(Guid.NewGuid(), rich.Id, "en", 0, 900, "Shall we start?", 0.9, false);
+        var s1 = new Segment(Guid.NewGuid(), reiss.Id, "en", 1000, 3000, "Yes. Good point, thanks.", 0.9, false,
+            [new("Yes.", 1000, 1300), new("Good", 1500, 1800), new("point,", 1800, 2300), new("thanks.", 2400, 3000)]);
+        var s2 = new Segment(Guid.NewGuid(), rich.Id, "en", 3100, 4000, "Next item", 0.9, false);
+        var t = Transcript.CreateMachineV1(Guid.NewGuid(), "test", [reiss, rich], [s0, s1, s2], T.Now);
+        // An edit first, so tracked changes have something to carry across the split.
+        t.EditSegment(s2.Id, "Next item please", Guid.NewGuid(), "Owner", T.Now);
+
+        var r = t.GiveToSpeaker(t.Render()[1].Segment.Id, 0, 1, rich.Id, null, Guid.NewGuid(), "Owner", T.Now);
+        Assert.Equal(2, r.Boxes);
+        var now = t.Render();
+        Assert.Equal(["Shall we start?", "Yes.", "Good point, thanks.", "Next item please"], now.Select(x => x.Segment.Text));
+        Assert.Equal(["Rich", "Rich", "Reiss", "Rich"], now.Select(x => x.SpeakerName));
+        Assert.Equal((1000, 1300), (now[1].Segment.StartMs, now[1].Segment.EndMs));
+        Assert.Equal((1500, 3000), (now[2].Segment.StartMs, now[2].Segment.EndMs));
+        Assert.Equal(["Good", "point,", "thanks."], now[2].Segment.Words!.Select(w => w.Text));
+        // Tracked changes still line up: unchanged parts show nothing, the edited box still shows its edit.
+        Assert.Equal([null, null, null, "Next item"], t.Baselines().Select((b, i) => b == now[i].Segment.Text ? null : b));
+
+        // A word in the middle, given to someone new: three boxes, the new name is a speaker of its own.
+        var r2 = t.GiveToSpeaker(now[2].Segment.Id, 1, 2, null, "Sam Jones", Guid.NewGuid(), "Owner", T.Now);
+        Assert.Equal(3, r2.Boxes);
+        Assert.Equal("Sam Jones", r2.SpeakerName);
+        now = t.Render();
+        Assert.Equal(["Shall we start?", "Yes.", "Good", "point,", "thanks.", "Next item please"], now.Select(x => x.Segment.Text));
+        Assert.Equal(["Rich", "Rich", "Reiss", "Sam Jones", "Reiss", "Rich"], now.Select(x => x.SpeakerName));
+        Assert.Equal(3, t.Speakers.Count);
+        // Typing a name that is already a speaker uses that speaker.
+        var r3 = t.GiveToSpeaker(now[4].Segment.Id, 0, 1, null, "sam jones", Guid.NewGuid(), "Owner", T.Now);
+        Assert.Equal(r2.SpeakerId, r3.SpeakerId);
+        Assert.Equal(3, t.Speakers.Count);
+        Assert.Throws<DomainException>(() => t.GiveToSpeaker(t.Render()[0].Segment.Id, 0, 1, rich.Id, null, Guid.NewGuid(), "Owner", T.Now));
+        Assert.Throws<DomainException>(() => t.GiveToSpeaker(t.Render()[0].Segment.Id, 2, 2, reiss.Id, null, Guid.NewGuid(), "Owner", T.Now));
+        Assert.Equal(3, t.Render(1).Count); // the machine version is untouched
+        // Restore goes back to the version before the split.
+        t.Restore(2, Guid.NewGuid(), "Owner", T.Now);
+        Assert.Equal(["Shall we start?", "Yes. Good point, thanks.", "Next item please"], t.Render().Select(x => x.Segment.Text));
+        Assert.Equal([null, null, "Next item"], t.Baselines().Select((b, i) => b == t.Render()[i].Segment.Text ? null : b));
+    }
+
+    [Fact]
+    public void A_split_of_an_edited_box_shares_out_the_original_words()
+    {
+        var a = new Speaker(Guid.NewGuid(), "A"); var b = new Speaker(Guid.NewGuid(), "B");
+        var s1 = new Segment(Guid.NewGuid(), a.Id, "en", 0, 2000, "Yes the cat sat on mat", 0.9, false);
+        var t = Transcript.CreateMachineV1(Guid.NewGuid(), "test", [a, b], [s1], T.Now);
+        t.EditSegment(s1.Id, "Yes. The cat sat on the mat", Guid.NewGuid(), "Owner", T.Now);
+        t.GiveToSpeaker(t.Render()[0].Segment.Id, 0, 1, b.Id, null, Guid.NewGuid(), "Owner", T.Now);
+        var now = t.Render();
+        Assert.Equal(["Yes.", "The cat sat on the mat"], now.Select(x => x.Segment.Text));
+        Assert.Equal(["Yes", "the cat sat on mat"], t.Baselines());
+        // Estimated timings when the speech service gave none: split by length of text.
+        Assert.Equal(0, now[0].Segment.StartMs);
+        Assert.True(now[1].Segment.StartMs > 0 && now[1].Segment.StartMs < 1000);
+        Assert.Equal(2000, now[1].Segment.EndMs);
+    }
 }

@@ -1,3 +1,4 @@
+import { scrollIntoClearView } from '../clearView';
 import AttachmentsCard from '../AttachmentsCard';
 import RetentionLine from '../RetentionLine';
 import type { RefObject } from 'react';
@@ -44,6 +45,17 @@ export default function ItemPage({ id }: { id: string }) {
   const [deleteReason, setDeleteReason] = useState('');
   const [showAudit, setShowAudit] = useState(false);
   const player = useRef<HTMLMediaElement>(null);
+  // The pinned player's height, so a box scrolled into view (a typed edit, Tab) is not left underneath it.
+  const playerBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = playerBox.current;
+    const root = document.documentElement.style;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const set = () => root.setProperty('--player-h', `${el.offsetHeight + 12}px`);
+    set();
+    const ro = new ResizeObserver(set); ro.observe(el);
+    return () => { ro.disconnect(); root.removeProperty('--player-h'); };
+  }, [audioUrl]);
   const [pos, setPos] = useState({ seg: -1, word: -1 });
   const [playing, setPlaying] = useState(false);
   // Tracked changes show while the transcript is a draft and are tucked away once it is approved. The reader can override either way.
@@ -222,7 +234,7 @@ export default function ItemPage({ id }: { id: string }) {
       {!d.deletedAt && <AttachmentsCard id={id} onChange={() => api.audit(id).then(setAudit).catch(() => {})} />}
 
       <div className="withPlayer">
-      {audioUrl && <div className={d.video ? 'player video' : 'player'}>{d.video
+      {audioUrl && <div ref={playerBox} className={d.video ? 'player video' : 'player'}>{d.video
         ? <video ref={player as RefObject<HTMLVideoElement>} controls playsInline preload="metadata" src={audioUrl} />
         : <audio ref={player as RefObject<HTMLAudioElement>} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} />}
         <PlayerBar player={player} playing={playing} /></div>}
@@ -250,7 +262,8 @@ export default function ItemPage({ id }: { id: string }) {
             onJoin={sid => run(() => api.post(`/items/${id}/segments/${sid}/join`))} />}
           {!dictate && t?.segments.map((s, i) => (s.text || showChanges) && <SegmentRow
             canMerge={d.canEditTranscript && !!s.text && t.segments.slice(0, i).some(x => x.text)}
-            onMerge={() => run(() => api.post(`/items/${id}/segments/${s.id}/merge`))} key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
+            onMerge={() => run(() => api.post(`/items/${id}/segments/${s.id}/merge`))}
+            speakers={t.speakers} onGive={g => run(() => api.post(`/items/${id}/segments/${s.id}/speaker`, g))} key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
             playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript} hideSpeaker={dictate}
             showChanges={showChanges}
             onSave={text => run(async () => { await api.put(`/items/${id}/segments/${s.id}`, { text }); offerSwaps([[s.id, text]]); })} />)}
@@ -316,24 +329,26 @@ export default function ItemPage({ id }: { id: string }) {
 
 type WordT = { text: string; startMs: number; endMs: number };
 
-function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, hideSpeaker, canMerge, onMerge }: {
+function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, hideSpeaker, canMerge, onMerge, speakers, onGive }: {
   s: Transcript['segments'][number]; words: WordT[]; active: boolean; activeWord: number;
   playing: boolean; canSeek: boolean; onSeek: (ms: number) => void; editable: boolean; onSave: (t: string) => void;
   showChanges: boolean; hideSpeaker?: boolean; canMerge?: boolean; onMerge?: () => void;
+  speakers?: Transcript['speakers']; onGive?: (g: GiveWords) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [giving, setGiving] = useState(false);
   const edit = useContext(EditPause);
   const [text, setText] = useState(s.text);
   const fit = useFit(editing ? text : '');
   const row = useRef<HTMLDivElement>(null);
   useEffect(() => setText(s.text), [s.text]);
   // Keep the passage being read in view while playing, without fighting the reader once they pause.
+  // The pinned header and player cover the top of the screen, so the box is placed in the part below them.
+  useEffect(() => { if (active && playing) scrollIntoClearView(row.current); }, [active, playing]);
+  // In a long box, follow the word being read once it goes under the player or off the bottom.
   useEffect(() => {
-    if (active && playing) {
-      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      row.current?.scrollIntoView({ block: 'center', behavior: calm ? 'auto' : 'smooth' });
-    }
-  }, [active, playing]);
+    if (active && playing && activeWord >= 0) scrollIntoClearView(row.current?.querySelector<HTMLElement>('.w.now') ?? null, true);
+  }, [active, playing, activeWord]);
 
   const word = (i: number) => {
     const w = words[i];
@@ -364,11 +379,64 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
               : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{' '}</span>
               : <span key={i}>{word(o.cur!)}{' '}</span>)
             : words.map((_, i) => <span key={i}>{word(i)}{' '}</span>)}</p>
-          {editable && <div className="actions"><button onClick={() => { edit.pause(); setEditing(true); }}>Edit</button>
-            {canMerge && onMerge && <button onClick={onMerge} title="These words move into the box above, with that box's speaker">Join to box above</button>}</div>}
+          {editable && !giving && <div className="actions"><button onClick={() => { edit.pause(); setEditing(true); }}>Edit</button>
+            {canMerge && onMerge && <button onClick={onMerge} title="These words move into the box above, with that box's speaker">Join to box above</button>}
+            {speakers && onGive && s.text && <button onClick={() => { edit.pause(); setGiving(true); }}
+              title="Some or all of these words were said by someone else">Change speaker…</button>}</div>}
+          {giving && speakers && onGive && <GiveToSpeaker s={s} speakers={speakers}
+            onGive={g => { onGive(g); setGiving(false); edit.resume(); }} onCancel={() => { setGiving(false); edit.resume(); }} />}
         </>}
         {s.lowConfidence && <div className="note">Low confidence — please check.</div>}
       </div>
+    </div>
+  );
+}
+
+type GiveWords = { fromWord: number; toWord: number; speakerId: string | null; newSpeaker: string | null };
+
+/**
+ * Pick the words someone else said (click the first, then the last; or keep the whole box) and who said them.
+ * Words before and after stay with this box's speaker, each in a box of its own.
+ */
+function GiveToSpeaker({ s, speakers, onGive, onCancel }: {
+  s: Transcript['segments'][number]; speakers: Transcript['speakers']; onGive: (g: GiveWords) => void; onCancel: () => void;
+}) {
+  const tokens = useMemo(() => s.text.split(/\s+/).filter(Boolean), [s.text]);
+  const [range, setRange] = useState<[number, number]>([0, tokens.length - 1]);
+  const [anchor, setAnchor] = useState<number | null>(null);
+  const others = speakers.filter(x => x.id !== s.speakerId);
+  const [who, setWho] = useState(others[0]?.id ?? 'new');
+  const [name, setName] = useState('');
+  const pick = (i: number) => {
+    if (anchor === null) { setRange([i, i]); setAnchor(i); }
+    else { setRange([Math.min(anchor, i), Math.max(anchor, i)]); setAnchor(null); }
+  };
+  const [from, to] = range;
+  const whole = from === 0 && to === tokens.length - 1;
+  const chosen = tokens.slice(from, to + 1);
+  const whoName = who === 'new' ? name.trim() : speakers.find(x => x.id === who)?.name ?? '';
+  const boxes = (from > 0 ? 1 : 0) + 1 + (to < tokens.length - 1 ? 1 : 0);
+  const quoted = chosen.length <= 4 ? `“${chosen.join(' ')}”` : `${chosen.length} words`;
+  return (
+    <div className="give" role="group" aria-label="Change speaker">
+      <p className="note">Click the first word the other person said, then the last (click one word twice for just that word).
+        {' '}<button className="link" onClick={() => { setRange([0, tokens.length - 1]); setAnchor(null); }}>Whole box</button></p>
+      <p className="words give-words">{tokens.map((w, i) => <span key={i}>
+        <button className={'gw' + (i >= from && i <= to ? ' on' : '')} aria-pressed={i >= from && i <= to} onClick={() => pick(i)}>{w}</button>{' '}</span>)}</p>
+      <div className="actions">
+        <label>Said by{' '}<select value={who} onChange={e => setWho(e.target.value)}>
+          {others.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+          <option value="new">Someone else…</option></select></label>
+        {who === 'new' && <input aria-label="Their name" placeholder="Their name" value={name} maxLength={100} onChange={e => setName(e.target.value)} />}
+      </div>
+      <p className="note">{whole ? `The whole box goes to ${whoName || 'them'}.`
+        : `${quoted} goes to ${whoName || 'them'} in a box of its own; the rest stays with ${s.speaker}. This box becomes ${boxes} boxes.`}
+        {anchor !== null && ' Now click the last word.'}</p>
+      <div className="actions">
+        <button className="primary" disabled={!whoName || anchor !== null}
+          onClick={() => onGive({ fromWord: from, toWord: to + 1, speakerId: who === 'new' ? null : who, newSpeaker: who === 'new' ? name.trim() : null })}>
+          Give {whole ? "the whole box" : quoted} to {whoName || "…"}</button>
+        <button onClick={onCancel}>Cancel</button></div>
     </div>
   );
 }
@@ -422,8 +490,11 @@ function Paragraph({ pieces, marker, t, timed, pos, playing, canSeek, onSeek, ed
   const reading = pieces.some(p => p.seg === pos.seg && (pos.word < 0 ? p.from === 0 : pos.word >= p.from && pos.word < p.to));
   useEffect(() => { if (!editing) setTexts(segs.map(s => s.text)); }, [t]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (reading && playing) el.current?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    if (reading && playing) scrollIntoClearView(el.current);
   }, [reading, playing]);
+  useEffect(() => {
+    if (reading && playing) scrollIntoClearView(el.current?.querySelector<HTMLElement>('.w.now') ?? null, true);
+  }, [reading, playing, pos.word]);
   // A line break typed at the end of a box belongs to the start of the next passage, so that passage begins a new paragraph.
   const outgoing = () => {
     const v = texts.map(x => x.replace(/\r\n?/g, '\n'));

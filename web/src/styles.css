@@ -138,5 +138,11 @@ header.top .menu-button { display:none; margin-left:auto; }
 }
 
 /* The header stays at the top while scrolling; things scrolled into view stop below it. */
-html { scroll-padding-top:calc(var(--header-h, 0px) + 8px); }
+html { scroll-padding-top:calc(var(--header-h, 0px) + var(--player-h, 0px) + 8px); }
 @media (max-width: 700px) { header.top nav.open { max-height:70vh; overflow:auto; } }
+.give { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-top:6px; background:var(--bg, transparent); }
+.give-words { line-height:2; }
+.give-words .gw { padding:1px 4px; border:1px solid transparent; background:none; font:inherit; cursor:pointer; border-radius:4px; }
+.give-words .gw:hover { border-color:var(--line); }
+.give-words .gw.on { background:#dbe7ff; border-color:#7aa2f7; color:#0b2a6b; }
+.give input { padding:4px 6px; }

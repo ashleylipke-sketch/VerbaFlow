@@ -10,7 +10,10 @@ public sealed record WordTiming(string Text, int StartMs, int EndMs);
 
 public sealed record Segment(Guid Id, Guid SpeakerId, string Language, int StartMs, int EndMs, string Text,
     double Confidence, bool LowConfidence, IReadOnlyList<WordTiming>? Words = null, bool? NewParagraph = null,
-    string? Inserted = null, string? List = null);
+    string? Inserted = null, string? List = null, string? Baseline = null, bool? SplitPart = null);
+// Baseline: the machine text this passage is compared with for tracked changes, set when a box was split (each part gets
+// its share of the original). SplitPart: true on the boxes a split added after the first, which have no passage of their
+// own in machine version 1; the others line up with version 1 passage by passage.
 // NewParagraph: in a dictation, true where a paragraph starts and false where the passage carries on the paragraph before it.
 // Null (meetings, and dictations saved before this existed) means every passage stands alone.
 // List: in a dictation, "bullet" or "number" on a passage that starts a list point ("bullet point", "numbered point").
@@ -143,6 +146,141 @@ public sealed class Transcript
         ids[above] = merged.Id;
         ids[index] = emptied.Id;
         return Append(VersionKind.HumanEdit, actor, capacity, now, ids, cur.SpeakerNames, $"Joined the box at {lower.StartMs} ms to the box above");
+    }
+
+    /// <summary>
+    /// The machine text each passage of a version is compared with for tracked changes (null where it cannot be told).
+    /// A split part carries its own; the others line up with machine version 1 passage by passage once split parts are left out.
+    /// </summary>
+    public IReadOnlyList<string?> Baselines(int? versionNo = null)
+    {
+        var v = versionNo is null ? Current : Version(versionNo.Value);
+        var machine = Versions[0].SegmentIds;
+        var segs = v.SegmentIds.Select(id => Segments[id]).ToList();
+        var lined = segs.Count(s => s.SplitPart != true) == machine.Count;
+        var result = new List<string?>(segs.Count);
+        var k = 0;
+        foreach (var s in segs)
+        {
+            string? m = null;
+            if (s.SplitPart != true) { if (lined) m = Segments[machine[k]].Text; k++; }
+            result.Add(s.Baseline ?? m);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// In a meeting: words <paramref name="fromWord"/> up to (not including) <paramref name="toWord"/> of a box were said by
+    /// someone else. Those words become a box of their own with that speaker; words before and after stay with the box's
+    /// speaker in boxes of their own (so one box can become up to three). Word timings move with the words. Each part
+    /// keeps its share of the original text so tracked changes still line up. The other person is an existing speaker, or
+    /// a new one named here. Returns the version, the speaker given the words and how many boxes there are now.
+    /// </summary>
+    public (TranscriptVersion Version, Guid SpeakerId, string SpeakerName, int Boxes) GiveToSpeaker(Guid segmentId, int fromWord, int toWord,
+        Guid? speakerId, string? newSpeakerName, Guid actor, string capacity, DateTimeOffset now)
+    {
+        var cur = Current;
+        var index = cur.SegmentIds.IndexOf(segmentId);
+        if (index < 0) throw new DomainException("That passage is not part of the current version.");
+        var old = Segments[segmentId];
+        var spans = System.Text.RegularExpressions.Regex.Matches(old.Text, @"\S+").ToList();
+        if (spans.Count == 0) throw new DomainException("This box is empty.");
+        if (fromWord < 0 || toWord > spans.Count || fromWord >= toWord) throw new DomainException("Choose the words the other person said.");
+
+        var names = new Dictionary<Guid, string>(cur.SpeakerNames);
+        Guid who;
+        var typed = newSpeakerName?.Trim() ?? "";
+        if (typed.Length > 0)
+        {
+            if (typed.Length > 100) throw new DomainException("That name is too long.");
+            var same = Speakers.FirstOrDefault(s => string.Equals(names.GetValueOrDefault(s.Id, s.Label), typed, StringComparison.OrdinalIgnoreCase));
+            if (same is not null) who = same.Id;
+            else
+            {
+                who = Guid.NewGuid();
+                Speakers.Add(new Speaker(who, $"Speaker {Speakers.Count + 1}"));
+                names[who] = typed;
+            }
+        }
+        else if (speakerId is { } sid && Speakers.Any(s => s.Id == sid)) who = sid;
+        else throw new DomainException("Choose who said these words.");
+        if (who == old.SpeakerId) throw new DomainException("These words are already given to that speaker.");
+        names.TryAdd(who, Speakers.First(s => s.Id == who).Label);
+
+        // Each word's timing: the speech service's when they line up with the words, else spread across the box as the page does.
+        var timed = old.Words is { } ws && ws.Count == spans.Count ? ws.ToList() : null;
+        var total = spans.Sum(m => m.Length + 1);
+        var span = Math.Max(0, old.EndMs - old.StartMs);
+        int Est(int w) => old.StartMs + (int)Math.Round((double)spans.Take(w).Sum(m => m.Length + 1) / total * span);
+        int StartOf(int w) => timed?[w].StartMs ?? Est(w);
+        int EndOf(int w) => timed?[w].EndMs ?? Est(w + 1);
+
+        var cuts = new List<(int From, int To, Guid Speaker)>();
+        if (fromWord > 0) cuts.Add((0, fromWord, old.SpeakerId));
+        cuts.Add((fromWord, toWord, who));
+        if (toWord < spans.Count) cuts.Add((toWord, spans.Count, old.SpeakerId));
+
+        // Share out the original text: each original word goes with the part holding the word it matches, and a word taken
+        // out goes with the next matched word's part.
+        var baseline = Baselines()[index] ?? old.Text;
+        var shown = spans.Select(m => m.Value).ToArray();
+        var orig = WordDiff.Words(baseline.Replace('\n', ' '));
+        var partOfShown = new int[shown.Length];
+        for (var c = 0; c < cuts.Count; c++) for (var w = cuts[c].From; w < cuts[c].To; w++) partOfShown[w] = c;
+        var match = MatchWords(orig, shown);
+        var shares = cuts.Select(_ => new List<string>()).ToList();
+        for (var j = 0; j < orig.Length; j++)
+        {
+            var next = -1;
+            for (var x = j; x < orig.Length && next < 0; x++) if (match[x] >= 0) next = match[x];
+            shares[next >= 0 ? partOfShown[next] : cuts.Count - 1].Add(orig[j]);
+        }
+
+        var ids = cur.SegmentIds.ToList();
+        ids.RemoveAt(index);
+        for (var c = 0; c < cuts.Count; c++)
+        {
+            var (from, to, speaker) = cuts[c];
+            var text = old.Text[spans[from].Index..(spans[to - 1].Index + spans[to - 1].Length)].Trim();
+            var part = old with
+            {
+                Id = Guid.NewGuid(), SpeakerId = speaker, Text = text,
+                StartMs = c == 0 ? old.StartMs : StartOf(from), EndMs = c == cuts.Count - 1 ? old.EndMs : EndOf(to - 1),
+                Words = timed?.Skip(from).Take(to - from).ToList(), Baseline = string.Join(' ', shares[c]),
+                SplitPart = c == 0 ? old.SplitPart : true
+            };
+            Segments[part.Id] = part;
+            ids.Insert(index + c, part.Id);
+        }
+        var whoName = names[who];
+        var words = string.Join(' ', shown[fromWord..toWord]);
+        var v = Append(VersionKind.HumanEdit, actor, capacity, now, ids, names,
+            $"Gave {(toWord - fromWord == 1 ? $"\"{words}\"" : $"{toWord - fromWord} words")} at {StartOf(fromWord)} ms to {whoName}");
+        return (v, who, whoName, cuts.Count);
+    }
+
+    /// <summary>
+    /// For each word of <paramref name="a"/>, the index of the word of <paramref name="b"/> it matches (longest common
+    /// subsequence, ignoring capitals and punctuation), or -1.
+    /// </summary>
+    private static int[] MatchWords(string[] wa, string[] wb)
+    {
+        static string Bare(string w) { var x = new string(w.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant(); return x.Length > 0 ? x : w; }
+        var a = wa.Select(Bare).ToArray();
+        var b = wb.Select(Bare).ToArray();
+        var l = new int[a.Length + 1, b.Length + 1];
+        for (var i = a.Length - 1; i >= 0; i--)
+            for (var j = b.Length - 1; j >= 0; j--)
+                l[i, j] = a[i] == b[j] ? l[i + 1, j + 1] + 1 : Math.Max(l[i + 1, j], l[i, j + 1]);
+        var m = Enumerable.Repeat(-1, a.Length).ToArray();
+        int x = 0, y = 0;
+        while (x < a.Length && y < b.Length)
+        {
+            if (a[x] == b[y]) { m[x] = y; x++; y++; }
+            else if (l[x + 1, y] >= l[x, y + 1]) x++;
+            else y++;
+        }
+        return m;
     }
 
     /// <summary>

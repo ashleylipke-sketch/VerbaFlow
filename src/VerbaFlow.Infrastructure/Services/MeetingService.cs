@@ -539,12 +539,11 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
         var v = versionNo is null ? t.Current : t.Version(versionNo.Value);
-        // The machine output (version 1) is the baseline for tracked changes. It is only comparable passage by passage
-        // while both versions have the same number of passages; edits replace a passage in place, so that holds today.
+        // The machine output (version 1) is the baseline for tracked changes, passage by passage; a box split in parts
+        // carries its share of the original (Transcript.Baselines).
         var current = t.Render(v.No);
-        var machine = t.Render(1);
-        string? OriginalOf(int i) => machine.Count == current.Count && machine[i].Segment.Text != current[i].Segment.Text
-            ? machine[i].Segment.Text : null;
+        var baselines = t.Baselines(v.No);
+        string? OriginalOf(int i) => baselines[i] is { } b && b != current[i].Segment.Text ? b : null;
         return new TranscriptView(v.No,
             t.Versions.Select(x => new VersionView(x.No, x.Kind.ToString(), x.Capacity,
                 x.CreatedBy is { } u ? users.GetValueOrDefault(u) : null, x.CreatedAt, x.Note)).ToList(),
@@ -583,6 +582,20 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var v = t.MergeWithPrevious(segmentId, actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
         await stores.Transcripts.UpsertAsync(id, t);
         await Audit(actor, v.Capacity, id, "transcript.boxes_joined", ("version", v.No), ("segmentId", segmentId));
+    }
+
+    /// <summary>Some words of a meeting box were said by someone else: they become a box of their own with that speaker.</summary>
+    public async Task<int> GiveToSpeakerAsync(User actor, Guid id, Guid segmentId, int fromWord, int toWord, Guid? speakerId, string? newSpeaker)
+    {
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Write);
+        if (item.IsDictation) throw new DomainException("A dictation has one speaker.");
+        var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
+        var r = t.GiveToSpeaker(segmentId, fromWord, toWord, speakerId, newSpeaker, actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
+        await stores.Transcripts.UpsertAsync(id, t);
+        await Audit(actor, r.Version.Capacity, id, "transcript.words_given_to_speaker", ("version", r.Version.No), ("segmentId", segmentId),
+            ("words", toWord - fromWord), ("speakerId", r.SpeakerId), ("speaker", r.SpeakerName), ("boxes", r.Boxes));
+        return r.Boxes;
     }
 
     /// <summary>The same correction made in every box at once ("Rhys" to "Reiss"). Returns how many boxes and places changed.</summary>

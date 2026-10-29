@@ -11,6 +11,7 @@ public static class Endpoints
     public sealed record ReasonBody(string Reason);
     public sealed record TextBody(string Text);
     public sealed record ReplaceBody(string? From, string? To);
+    public sealed record GiveWordsBody(int FromWord, int ToWord, Guid? SpeakerId, string? NewSpeaker);
     /// <summary>"dictate", "speech" or "meeting" (the default when nothing is given).</summary>
     /// <summary>
     /// Speech mode: the text heard live so far, sent with a save. An unfinished save keeps the session going (the person may
@@ -234,6 +235,8 @@ public static class Endpoints
         { await s.JoinParagraphAsync(h.Current(), id, segId); return Results.NoContent(); });
         api.MapPost("/items/{id:guid}/segments/{segId:guid}/merge", async (HttpContext h, MeetingService s, Guid id, Guid segId) =>
         { await s.MergeSegmentAsync(h.Current(), id, segId); return Results.NoContent(); });
+        api.MapPost("/items/{id:guid}/segments/{segId:guid}/speaker", async (HttpContext h, MeetingService s, Guid id, Guid segId, GiveWordsBody b) =>
+            Results.Ok(new { boxes = await s.GiveToSpeakerAsync(h.Current(), id, segId, b.FromWord, b.ToWord, b.SpeakerId, b.NewSpeaker) }));
         api.MapPost("/items/{id:guid}/replace", async (HttpContext h, MeetingService s, Guid id, ReplaceBody b) =>
         {
             var (passages, changes) = await s.ReplaceEverywhereAsync(h.Current(), id, b.From ?? "", b.To ?? "");

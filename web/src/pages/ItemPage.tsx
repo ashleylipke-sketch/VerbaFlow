@@ -419,7 +419,7 @@ function GiveToSpeaker({ s, speakers, onGive, onCancel }: {
   const quoted = chosen.length <= 4 ? `“${chosen.join(' ')}”` : `${chosen.length} words`;
   return (
     <div className="give" role="group" aria-label="Change speaker">
-      <p className="note">Click the first word the other person said, then the last (click one word twice for just that word).
+      <p className="note">Click the word the other person said. For several words, click the first and then the last.
         {' '}<button className="link" onClick={() => { setRange([0, tokens.length - 1]); setAnchor(null); }}>Whole box</button></p>
       <p className="words give-words">{tokens.map((w, i) => <span key={i}>
         <button className={'gw' + (i >= from && i <= to ? ' on' : '')} aria-pressed={i >= from && i <= to} onClick={() => pick(i)}>{w}</button>{' '}</span>)}</p>
@@ -431,9 +431,9 @@ function GiveToSpeaker({ s, speakers, onGive, onCancel }: {
       </div>
       <p className="note">{whole ? `The whole box goes to ${whoName || 'them'}.`
         : `${quoted} goes to ${whoName || 'them'} in a box of its own; the rest stays with ${s.speaker}. This box becomes ${boxes} boxes.`}
-        {anchor !== null && ' Now click the last word.'}</p>
+        {anchor !== null && ' To take more words, click the last one too.'}</p>
       <div className="actions">
-        <button className="primary" disabled={!whoName || anchor !== null}
+        <button className="primary" disabled={!whoName}
           onClick={() => onGive({ fromWord: from, toWord: to + 1, speakerId: who === 'new' ? null : who, newSpeaker: who === 'new' ? name.trim() : null })}>
           Give {whole ? "the whole box" : quoted} to {whoName || "…"}</button>
         <button onClick={onCancel}>Cancel</button></div>

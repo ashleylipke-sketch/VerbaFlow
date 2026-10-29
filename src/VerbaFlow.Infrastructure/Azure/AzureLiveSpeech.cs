@@ -76,6 +76,7 @@ public sealed class AzureLiveSpeech(AzureSpeechOptions options) : ILiveSpeech
                 var spoken = best?.Words?.Select(w => new WordTiming(w.Word,
                     (int)(w.Offset / TimeSpan.TicksPerMillisecond), (int)((w.Offset + w.Duration) / TimeSpan.TicksPerMillisecond))).ToList();
                 var text = res.Text.Trim();
+                if (spoken is { Count: > 0 }) text = WordTimingAligner.RestoreSpokenCommands(text, spoken);
                 var words = spoken is { Count: > 0 } ? WordTimingAligner.Align(text, spoken, start, end) : null;
                 var confidence = best?.Confidence ?? 1.0;
                 var phrase = new Segment(Guid.NewGuid(), _voice, Language(res), start, end, text,

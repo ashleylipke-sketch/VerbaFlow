@@ -66,6 +66,7 @@ public sealed class AzureWordForWordSpeech(AzureSpeechOptions options, string? f
                     (int)(w.Offset / TimeSpan.TicksPerMillisecond), (int)((w.Offset + w.Duration) / TimeSpan.TicksPerMillisecond))).ToList();
                 // The timed words are the words as spoken; give each shown word a time so following along stays in step.
                 var text = r.Text.Trim();
+                if (spoken is { Count: > 0 }) text = WordTimingAligner.RestoreSpokenCommands(text, spoken);
                 var words = spoken is { Count: > 0 } ? WordTimingAligner.Align(text, spoken, start, end) : null;
                 var confidence = best?.Confidence ?? 1.0;
                 lock (phrases)

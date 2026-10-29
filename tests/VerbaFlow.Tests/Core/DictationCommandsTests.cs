@@ -158,6 +158,30 @@ public class DictationCommandsTests
     }
 
     [Fact]
+    public void Insert_number_and_insert_numbering_start_numbered_points()
+    {
+        var (segs, _, heard) = DictationCommands.ApplyCounted([Seg("Steps colon insert number open the box insert numbering close it insert numbered tidy up")],
+            [], spokenPunctuationOnly: true);
+        Assert.Equal("Steps: | Open the box | Close it | Tidy up", Text(segs));
+        Assert.Equal([null, "number", "number", "number"], segs.Select(x => x.List));
+        Assert.Equal(1, heard["insert number"]);
+    }
+
+    [Fact]
+    public void A_full_stop_the_speech_service_wrote_as_a_mark_is_kept_when_only_spoken_punctuation_is_kept()
+    {
+        var spoken = "thank you full stop next item comma please".Split(' ').Select((w, i) => new WordTiming(w, i * 300, i * 300 + 250)).ToList();
+        var restored = WordTimingAligner.RestoreSpokenCommands("Thank you. Next item, please", spoken);
+        Assert.Equal("Thank you. full stop Next item, comma please", restored);
+        var (segs, _, heard) = DictationCommands.ApplyCounted([Seg(restored)], [], spokenPunctuationOnly: true);
+        Assert.Equal("Thank you. Next item, please", Text(segs));
+        Assert.Equal(1, heard["full stop"]);
+        // Commands already shown as words, and punctuation the service added by itself, are left as they were.
+        Assert.Equal("Thank you full stop next item", WordTimingAligner.RestoreSpokenCommands("Thank you full stop next item", spoken.Take(5).ToList()));
+        Assert.Equal("Thank you.\nNext", WordTimingAligner.RestoreSpokenCommands("Thank you.\nNext", spoken.Take(2).Append(new WordTiming("next", 900, 1000)).ToList()));
+    }
+
+    [Fact]
     public void A_list_point_said_at_the_end_of_a_passage_carries_over_to_the_next_passage_and_carrying_on_text_is_not_a_new_point()
     {
         var (segs, _, _) = DictationCommands.ApplyCounted([Seg("Items colon numbered point"), Seg("First thing"), Seg("still the first thing")]);

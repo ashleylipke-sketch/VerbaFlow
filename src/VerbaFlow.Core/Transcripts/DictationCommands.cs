@@ -24,6 +24,8 @@ public static class DictationCommands
         // People also say "insert bullet" (owner, 2026-10-21). A saved text whose code starts with "bullet" still wins.
         new(["insert", "bullet", "point"], Kind.ListPoint, Bullet), new(["insert", "bullet"], Kind.ListPoint, Bullet),
         new(["insert", "numbered", "point"], Kind.ListPoint, Number), new(["insert", "number", "point"], Kind.ListPoint, Number),
+        // And "insert number" / "insert numbered" / "insert numbering" by analogy with "insert bullet" (owner, 2026-10-29).
+        new(["insert", "numbered"], Kind.ListPoint, Number), new(["insert", "number"], Kind.ListPoint, Number), new(["insert", "numbering"], Kind.ListPoint, Number),
         new(["end", "list"], Kind.Break), new(["end", "lists"], Kind.Break), new(["end", "of", "list"], Kind.Break),
         new(["new", "paragraph"], Kind.Break), new(["next", "paragraph"], Kind.Break), new(["new", "line"], Kind.Break), new(["next", "line"], Kind.Break),
         new(["full", "stop"], Kind.Punctuation, "."), new(["question", "mark"], Kind.Punctuation, "?"),
@@ -42,7 +44,7 @@ public static class DictationCommands
     public static readonly IReadOnlyList<(string Say, string Gives)> Help =
     [
         ("new paragraph / new line", "starts a new paragraph"), ("bullet point (or insert bullet)", "starts a bulleted point"),
-        ("numbered point", "starts the next numbered point (1, 2, 3 counted for you)"), ("end list", "back to ordinary paragraphs"), ("full stop", "."), ("comma", ","), ("question mark", "?"),
+        ("numbered point (or insert number)", "starts the next numbered point (1, 2, 3 counted for you)"), ("end list", "back to ordinary paragraphs"), ("full stop", "."), ("comma", ","), ("question mark", "?"),
         ("exclamation mark", "!"), ("colon", ":"), ("semicolon", ";"), ("open bracket / close bracket", "( )"),
         ("open quote / close quote", "\" \""),
         ("scratch that", "takes away what you said since the last punctuation mark"),

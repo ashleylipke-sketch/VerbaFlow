@@ -25,23 +25,23 @@ export default function AttachmentsCard({ id, onChange }: { id: string; onChange
   if (!l) return error ? <div className="card"><h2>Attached files</h2><div className="error">{error}</div></div> : null;
   if (l.files.length === 0 && !l.canAdd) return null;
 
+  // Kept small: a heading line with Add files, then one short line per file.
   return (
     <div className="card attachments">
-      <h2>Attached files</h2>
-      {l.files.length === 0 && <p className="note">None yet. Add the agenda, papers or anything else that belongs with this recording.</p>}
+      <div className="att-head">
+        <h2>Attached files{l.files.length > 0 && <span className="note"> ({l.files.length})</span>}</h2>
+        {l.canAdd && <label className="btn" title="PDF, Word, Excel, PowerPoint, text, pictures or emails, up to 25 MB each. Locked once approved.">{busy ? 'Adding…' : 'Add files…'}
+          <input type="file" hidden multiple accept={ACCEPT} disabled={busy}
+            onChange={e => { const fs = [...(e.target.files ?? [])]; e.target.value = ''; if (fs.length) run(() => api.addAttachments(id, fs)); }} /></label>}
+        {l.files.length === 0 && <span className="note">None yet: the agenda, papers or anything else that belongs with this recording.</span>}
+      </div>
       {l.files.map(f => (
         <div key={f.id} className="attachment">
           <button className="link" disabled={busy} onClick={() => open(f)} title="Open or download">{f.fileName}</button>
-          <div className="note">{size(f.sizeBytes)} · {f.addedBy} · {fmtDate(f.addedAt)}
+          <span className="note"> · {size(f.sizeBytes)} · {f.addedBy} · {fmtDate(f.addedAt)}
             {f.canRemove && confirming !== f.id && <> · <button className="link" disabled={busy} onClick={() => setConfirming(f.id)}>Remove</button></>}
-            {confirming === f.id && <> · Remove it? <button className="link danger" onClick={() => run(() => api.removeAttachment(id, f.id))}>Yes</button> <button className="link" onClick={() => setConfirming(null)}>No</button></>}</div>
+            {confirming === f.id && <> · Remove it? <button className="link danger" onClick={() => run(() => api.removeAttachment(id, f.id))}>Yes</button> <button className="link" onClick={() => setConfirming(null)}>No</button></>}</span>
         </div>))}
-      {l.canAdd && <div className="actions" style={{ marginTop: 8 }}>
-        <label className="btn">{busy ? 'Adding…' : 'Add files…'}
-          <input type="file" hidden multiple accept={ACCEPT} disabled={busy}
-            onChange={e => { const fs = [...(e.target.files ?? [])]; e.target.value = ''; if (fs.length) run(() => api.addAttachments(id, fs)); }} /></label>
-      </div>}
-      {l.canAdd && <p className="note">PDF, Word, Excel, PowerPoint, text, pictures or emails, up to 25 MB each. Locked once approved.</p>}
       {!l.canAdd && l.why && l.files.length > 0 && <p className="note">{l.why}</p>}
       {error && <div className="error">{error}</div>}
     </div>

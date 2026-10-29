@@ -146,3 +146,12 @@ html { scroll-padding-top:calc(var(--header-h, 0px) + var(--player-h, 0px) + 8px
 .give-words .gw:hover { border-color:var(--line); }
 .give-words .gw.on { background:#dbe7ff; border-color:#7aa2f7; color:#0b2a6b; }
 .give input { padding:4px 6px; }
+/* Item page top: actions on one line, compact attached files. */
+.item-actions { margin-top:10px; flex-wrap:wrap; }
+.item-actions .inline-group { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.inline-form { margin-top:8px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; }
+.card.attachments { padding-top:10px; padding-bottom:10px; }
+.attachments .att-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.attachments .att-head h2 { margin:0; font-size:1rem; }
+.attachments .attachment { padding:4px 0; }
+p.back { margin:0 0 8px; }

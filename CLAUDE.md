@@ -131,6 +131,9 @@ Plan and cost agreed in principle: `/mnt/project-files/verbaflow/going-online-pl
 ## Page header
 **Stays at the top while scrolling** (owner asked 2026-10-29): `header.top` is sticky; its height is kept in the CSS variable `--header-h` (ResizeObserver in App.tsx) so the item page's pinned player sits just below it, and `scroll-padding-top` keeps things scrolled into view out from under it. On phones the open Menu list scrolls within 70% of the screen. Checked in Chromium (desktop and phone width); not yet seen by the owner.
 
+## Item page top (owner asked 2026-10-29: "a lot of wasted space")
+The first card's actions sit on one line: Accept / Return / Approve, an **Assign to…** list (Apply and, for a reassign, the reason box appear once someone is chosen), Download audio/video, **Reopen…** and **Delete…** (their reason boxes open only when clicked, with Cancel). The Attached files card is compact: heading with the count and Add files… on one line (the allowed types are on the button's tooltip), one line per file. Checked in Chromium (desktop and phone width); not yet seen by the owner.
+
 ## Recently added, confirmed by the owner
 - **Live sound wave** on the Record page and **pinned player** on the item page: both confirmed working on the owner's computer (2026-10-10).
 

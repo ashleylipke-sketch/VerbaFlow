@@ -43,6 +43,7 @@ export default function ItemPage({ id }: { id: string }) {
   const [reason, setReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
+  const [open, setOpen] = useState<'reopen' | 'delete' | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const player = useRef<HTMLMediaElement>(null);
   // The pinned player's height, so a box scrolled into view (a typed edit, Tab) is not left underneath it.
@@ -168,7 +169,7 @@ export default function ItemPage({ id }: { id: string }) {
 
   return (
     <EditPause.Provider value={editPause}>
-      <p>{d.mode === 'Speech' ? <a href="#/speech">← Back to Speech</a> : dictate ? <a href="#/dictate">← Back to Dictate</a> : <a href="#/">← Back to Meeting</a>}</p>
+      <p className="back">{d.mode === 'Speech' ? <a href="#/speech">← Back to Speech</a> : dictate ? <a href="#/dictate">← Back to Dictate</a> : <a href="#/">← Back to Meeting</a>}</p>
       <div className="card">
         <div className="item-head">
           <h2>{r.name} {r.tags.map(x => <span key={x} className="tag">{x}</span>)}</h2>
@@ -195,37 +196,38 @@ export default function ItemPage({ id }: { id: string }) {
             <span className="note">The recording is safe. Retrying starts the conversion again from the original audio.</span></div>}</div>}
         {d.markers.length > 0 && <div className="note">Markers: {d.markers.map(m => `${fmtLen(m.offsetMs)} ${m.type}${m.note ? ` (${m.note})` : ''}`).join(' · ')}</div>}
         {d.chain.length > 1 && <div className="note">Versions: {d.chain.map(c => <span key={c.id}>{c.isCurrent ? <b>v{c.versionNo}</b> : <a href={`#/items/${c.id}`}>v{c.versionNo}</a>} ({c.status}){' '}</span>)}</div>}
-        {audioUrl && d.canDownloadAudio && <div className="actions" style={{ marginTop: 8 }}><button onClick={download}>{d.video ? 'Download original video' : 'Download original audio'}</button></div>}
         {error && <div className="error">{error}</div>}
-        <div className="actions" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+        {/* Everything you can do with the recording, on one line; Reopen and Delete open their reason box only when clicked. */}
+        <div className="actions item-actions">
           {acts.has('accept') && <button className="primary" onClick={() => run(() => api.post(`/items/${id}/accept`))}>Accept</button>}
           {acts.has('return') && <button onClick={() => run(() => api.post(`/items/${id}/return`))}>Return to owner</button>}
           {acts.has('approve') && <button className="primary" onClick={() => { if (confirm('Approving locks this item. Continue?')) run(() => api.post(`/items/${id}/approve`)); }}>Approve</button>}
-        </div>
-        {(acts.has('assign') || acts.has('reassign')) && <div style={{ marginTop: 12 }}>
-          <h3>{acts.has('reassign') ? 'Reassign' : 'Assign'}</h3>
-          <div className="actions" style={{ flexWrap: 'wrap' }}>
-            <select value={assignTo} onChange={e => setAssignTo(e.target.value)}>
-              <option value="">Choose a person…</option><option value="none">Nobody (take back)</option>
+          {(acts.has('assign') || acts.has('reassign')) && <span className="inline-group">
+            <select aria-label={acts.has('reassign') ? 'Reassign to' : 'Assign to'} value={assignTo} onChange={e => setAssignTo(e.target.value)}>
+              <option value="">{acts.has('reassign') ? 'Reassign to…' : 'Assign to…'}</option><option value="none">Nobody (take back)</option>
               {assignee.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
-            {acts.has('reassign') && <input placeholder="Reason (required)" value={reason} onChange={e => setReason(e.target.value)} />}
-            <button disabled={!assignTo} onClick={() => run(() => api.post(`/items/${id}/assign`, { userId: assignTo === 'none' ? null : assignTo, reason: reason || null }))}>Apply</button>
-          </div></div>}
-        {acts.has('request-reopen') && <div style={{ marginTop: 12 }}>
-          <h3>Reopen</h3>
-          <div className="actions"><input placeholder="Why does this need reopening?" value={reopenReason} onChange={e => setReopenReason(e.target.value)} style={{ minWidth: 280 }} />
-            <button disabled={!reopenReason.trim()} onClick={() => run(async () => { await api.post(`/items/${id}/reopen`, { reason: reopenReason }); setReopenReason(''); })}>Request reopen</button></div>
+            {acts.has('reassign') && assignTo && <input placeholder="Reason (required)" value={reason} onChange={e => setReason(e.target.value)} />}
+            {assignTo && <button onClick={() => run(async () => { await api.post(`/items/${id}/assign`, { userId: assignTo === 'none' ? null : assignTo, reason: reason || null }); setAssignTo(''); })}>Apply</button>}
+          </span>}
+          {audioUrl && d.canDownloadAudio && <button onClick={download}>{d.video ? 'Download video' : 'Download audio'}</button>}
+          {acts.has('request-reopen') && open !== 'reopen' && <button onClick={() => setOpen('reopen')}>Reopen…</button>}
+          {(acts.has('delete') || acts.has('request-delete')) && open !== 'delete' && <button className="danger" onClick={() => setOpen('delete')}>Delete…</button>}
+        </div>
+        {open === 'reopen' && acts.has('request-reopen') && <div className="inline-form">
+          <div className="actions"><input autoFocus placeholder="Why does this need reopening?" value={reopenReason} onChange={e => setReopenReason(e.target.value)} style={{ minWidth: 280 }} />
+            <button disabled={!reopenReason.trim()} onClick={() => run(async () => { await api.post(`/items/${id}/reopen`, { reason: reopenReason }); setReopenReason(''); setOpen(null); })}>Request reopen</button>
+            <button onClick={() => setOpen(null)}>Cancel</button></div>
           <div className="note">Needs approval from two different administrators.</div></div>}
-        {(acts.has('delete') || acts.has('request-delete')) && <div style={{ marginTop: 12 }}>
-          <h3>Delete</h3>
-          <div className="actions"><input placeholder="Why should this be deleted?" value={deleteReason} onChange={e => setDeleteReason(e.target.value)} style={{ minWidth: 280 }} />
+        {open === 'delete' && (acts.has('delete') || acts.has('request-delete')) && <div className="inline-form">
+          <div className="actions"><input autoFocus placeholder="Why should this be deleted?" value={deleteReason} onChange={e => setDeleteReason(e.target.value)} style={{ minWidth: 280 }} />
             {acts.has('delete')
               ? <button className="danger" disabled={!deleteReason.trim()} onClick={() => {
                   if (confirm('This permanently removes the recording, its transcript and its summary. Only a record that it was deleted, by whom and why, is kept. Continue?'))
-                    run(async () => { await api.post(`/items/${id}/delete`, { reason: deleteReason }); setDeleteReason(''); setAudioUrl(''); });
+                    run(async () => { await api.post(`/items/${id}/delete`, { reason: deleteReason }); setDeleteReason(''); setAudioUrl(''); setOpen(null); });
                 }}>Delete</button>
-              : <button className="danger" disabled={!deleteReason.trim()} onClick={() => run(async () => { await api.post(`/items/${id}/delete-request`, { reason: deleteReason }); setDeleteReason(''); })}>Ask to delete</button>}</div>
+              : <button className="danger" disabled={!deleteReason.trim()} onClick={() => run(async () => { await api.post(`/items/${id}/delete-request`, { reason: deleteReason }); setDeleteReason(''); setOpen(null); })}>Ask to delete</button>}
+            <button onClick={() => setOpen(null)}>Cancel</button></div>
           <div className="note">{acts.has('delete')
             ? 'Removes the recording, transcript and summary for good. The history keeps a record of the deletion.'
             : 'This recording was approved before, so two different administrators must agree (an administrator who asks counts as one). Every version, including the approved one, is then removed for good.'}</div></div>}

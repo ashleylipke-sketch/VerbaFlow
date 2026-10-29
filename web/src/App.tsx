@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type UserView } from './api';
 import { getTestUser, microsoftName, setTestUser, signedIn, signInInfo, signInProblem, signInWithMicrosoft, signOut } from './auth';
 import Dashboard from './pages/Dashboard';
@@ -31,6 +31,16 @@ export default function App() {
   const [problem, setProblem] = useState(signInProblem());
   const [menu, setMenu] = useState(false); // the page list on a phone, folded away until asked for
   useEffect(() => setMenu(false), [hash]);
+  // The header stays at the top of the screen; its height is shared so the pinned player sits just below it.
+  const header = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = header.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const set = () => document.documentElement.style.setProperty('--header-h', `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set); ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // The test users to pick from (only on the owner's computer); the server lists them to anyone while test users are on.
   useEffect(() => {
     if (info.testUsers) fetch('/api/users', { headers: { 'X-Dev-User': 'alice' } }).then(r => r.json()).then(setUsers).catch(() => setUsers([]));
@@ -50,7 +60,7 @@ export default function App() {
 
   return (
     <>
-      <header className="top">
+      <header className="top" ref={header}>
         <h1>VerbaFlow · Speak</h1>
         <button className="menu-button" aria-expanded={menu} aria-controls="pages" onClick={() => setMenu(m => !m)}>{menu ? 'Close' : 'Menu'}</button>
         <nav id="pages" className={menu ? 'open' : ''}>

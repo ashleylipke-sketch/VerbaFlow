@@ -2,7 +2,7 @@
 @media (prefers-color-scheme: dark) { :root { --ins:#5fcf9a; --del:#f08a80; --bg:#12161c; --card:#1a2028; --ink:#e7ebf0; --muted:#9aa7b5; --line:#2c3541; --brand:#6d97f0; --brand-ink:#0b1220; --warn:#f0b35a; --bad:#f08a80; --ok:#5fcf9a; } }
 * { box-sizing: border-box; }
 body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
-header.top { display:flex; gap:16px; align-items:center; padding:10px 20px; background:var(--card); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+header.top { position:sticky; top:0; z-index:20; display:flex; gap:16px; align-items:center; padding:10px 20px; background:var(--card); border-bottom:1px solid var(--line); flex-wrap:wrap; }
 header.top h1 { font-size:18px; margin:0; } header.top nav { display:flex; gap:12px; flex:1; flex-wrap:wrap; min-width:0; } header.top a { color:var(--ink); text-decoration:none; padding:4px 8px; border-radius:6px; } header.top a.on { background:var(--brand); color:var(--brand-ink); }
 main { max-width:1200px; margin:0 auto; padding:20px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
@@ -23,7 +23,7 @@ label.row { display:flex; gap:8px; align-items:flex-start; margin:10px 0; } .fie
 .banner { background:rgba(180,83,9,.12); border:1px solid var(--warn); border-radius:8px; padding:10px 12px; margin-bottom:12px; }
 
 .withPlayer { position:relative; }
-.player { position:sticky; top:0; z-index:5; background:var(--card); padding:8px 12px; margin-bottom:12px; border:1px solid var(--line); border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
+.player { position:sticky; top:var(--header-h, 0px); z-index:5; background:var(--card); padding:8px 12px; margin-bottom:12px; border:1px solid var(--line); border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
 .player.video video { display:block; width:100%; max-height:36vh; background:#000; border-radius:6px; }
 .words { margin:0 0 6px; line-height:1.7; }
 .w { border-radius:4px; padding:1px 2px; margin:0 -2px; }
@@ -136,3 +136,7 @@ header.top .menu-button { display:none; margin-left:auto; }
   table.list td[data-label]:empty { display:none; }
   table.list td[data-label="Actions"] .actions button { padding:8px 12px; }
 }
+
+/* The header stays at the top while scrolling; things scrolled into view stop below it. */
+html { scroll-padding-top:calc(var(--header-h, 0px) + 8px); }
+@media (max-width: 700px) { header.top nav.open { max-height:70vh; overflow:auto; } }

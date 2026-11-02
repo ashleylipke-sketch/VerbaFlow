@@ -262,7 +262,7 @@ export default function ItemPage({ id }: { id: string }) {
             editable={d.canEditTranscript} showChanges={showChanges}
             onSave={async edits => { for (const [sid, text] of edits) await api.put(`/items/${id}/segments/${sid}`, { text }); offerSwaps(edits); }} onSaved={load} onError={setError}
             onJoin={sid => run(() => api.post(`/items/${id}/segments/${sid}/join`))} />}
-          {!dictate && t?.segments.map((s, i) => (s.text || showChanges) && <SegmentRow
+          {!dictate && t?.segments.map((s, i) => (s.text || (showChanges && s.originalText !== null)) && <SegmentRow
             canMerge={d.canEditTranscript && !!s.text && t.segments.slice(0, i).some(x => x.text)}
             onMerge={() => run(() => api.post(`/items/${id}/segments/${s.id}/merge`))}
             speakers={t.speakers} onGive={g => run(() => api.post(`/items/${id}/segments/${s.id}/speaker`, g))} key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
@@ -272,7 +272,7 @@ export default function ItemPage({ id }: { id: string }) {
           {!d.canEditTranscript && t && <p className="note">This transcript is read-only for you right now.</p>}
         </div>
         <div>
-          {t && dictate && d.canEditTranscript && d.processingState !== 'Processing' && <GrammarCard itemId={id} onSaved={load} />}
+          {t && d.canEditTranscript && d.processingState !== 'Processing' && <GrammarCard itemId={id} onSaved={load} />}
           {t && !dictate && (o || d.canEditTranscript) && <div className="card"><h2>Summary</h2>
             {!o && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No summary yet.'}</p>}
             {o && <>

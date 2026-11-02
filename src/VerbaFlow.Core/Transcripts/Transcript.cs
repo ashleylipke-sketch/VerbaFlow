@@ -134,12 +134,17 @@ public sealed class Transcript
         if (above < 0) throw new DomainException("There is no box above this one to join it to.");
         var upper = Segments[cur.SegmentIds[above]];
         var words = upper.Words is { } a && lower.Words is { } b ? a.Concat(b).ToList() : null;
+        // Moving words to another box is not a change to the words: the joined box is compared with both boxes' original
+        // text, and the emptied box with nothing, so tracked changes show only real edits.
+        var baselines = Baselines();
+        string? upperBase = baselines[above], lowerBase = baselines[index];
         var merged = upper with
         {
             Id = Guid.NewGuid(), Text = upper.Text + " " + lower.Text, EndMs = Math.Max(upper.EndMs, lower.EndMs), Words = words,
-            LowConfidence = upper.LowConfidence || lower.LowConfidence, Confidence = Math.Min(upper.Confidence, lower.Confidence)
+            LowConfidence = upper.LowConfidence || lower.LowConfidence, Confidence = Math.Min(upper.Confidence, lower.Confidence),
+            Baseline = upperBase is null || lowerBase is null ? null : string.Join(' ', new[] { upperBase, lowerBase }.Where(x => x.Length > 0))
         };
-        var emptied = lower with { Id = Guid.NewGuid(), Text = "", Words = [] };
+        var emptied = lower with { Id = Guid.NewGuid(), Text = "", Words = [], Baseline = lowerBase is null ? null : "" };
         Segments[merged.Id] = merged;
         Segments[emptied.Id] = emptied;
         var ids = cur.SegmentIds.ToList();

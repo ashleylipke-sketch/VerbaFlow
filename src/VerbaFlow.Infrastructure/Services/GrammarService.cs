@@ -13,7 +13,7 @@ public sealed record GrammarSuggestion(Guid SegmentId, string Text, string Sugge
 public sealed record GrammarCheckView(string Engine, int PassagesChecked, IReadOnlyList<GrammarSuggestion> Suggestions, int LeftOut);
 
 /// <summary>
-/// Check grammar (owner chose "Suggest, I accept", 2026-10-13): suggestions for a dictation's or Speech item's text.
+/// Check grammar (owner chose "Suggest, I accept", 2026-10-13): suggestions for a dictation's, Speech item's or (from 2026-11-02, owner asked) meeting's text.
 /// Nothing changes until the person accepts a change; an accepted change is an ordinary tracked edit.
 /// </summary>
 public sealed class GrammarService(Stores stores, IGrammarChecker checker, TimeProvider clock, FailureReporter reporter)
@@ -28,7 +28,6 @@ public sealed class GrammarService(Stores stores, IGrammarChecker checker, TimeP
     {
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, Capability.Write);
-        if (!item.IsDictation) throw new DomainException("Check grammar is for dictations and Speech items.");
         if (item.Processing == ProcessingState.Running) throw new DomainException("Wait for the text to be ready first.");
         var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
         // Saved text is the company's own wording, so a passage holding some is left alone, as are empty ones.

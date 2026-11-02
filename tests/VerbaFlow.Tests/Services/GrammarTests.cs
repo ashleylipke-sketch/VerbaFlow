@@ -99,7 +99,10 @@ public class GrammarTests
 
         var meeting = await env.Meeting.CreateRecordingAsync(env.Alice, env.Recording());
         await env.Processing.ProcessAsync(meeting);
-        await Assert.ThrowsAsync<DomainException>(() => g.CheckAsync(env.Alice, meeting));
+        // Meetings have it too (owner asked 2026-11-02).
+        c.Fail = false;
+        var check = await g.CheckAsync(env.Alice, meeting);
+        Assert.True(check.PassagesChecked > 0);
     }
 
     [Fact]

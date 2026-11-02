@@ -242,4 +242,23 @@ public class WordTimingTests
         Assert.True(now[1].Segment.StartMs > 0 && now[1].Segment.StartMs < 1000);
         Assert.Equal(2000, now[1].Segment.EndMs);
     }
+
+    [Fact]
+    public void Joining_boxes_is_not_shown_as_a_change_to_the_words()
+    {
+        var a = new Speaker(Guid.NewGuid(), "A"); var b = new Speaker(Guid.NewGuid(), "B");
+        var s1 = new Segment(Guid.NewGuid(), a.Id, "en", 0, 1000, "I think so", 0.9, false);
+        var s2 = new Segment(Guid.NewGuid(), b.Id, "en", 1000, 1500, "too.", 0.9, false);
+        var s3 = new Segment(Guid.NewGuid(), b.Id, "en", 1600, 2000, "Next point", 0.9, false);
+        var t = Transcript.CreateMachineV1(Guid.NewGuid(), "test", [a, b], [s1, s2, s3], T.Now);
+        t.MergeWithPrevious(s2.Id, Guid.NewGuid(), "Owner", T.Now);
+        string? Changed(int i) => t.Baselines()[i] is { } x && x != t.Render()[i].Segment.Text ? x : null;
+        Assert.Equal([null, null, null], new[] { Changed(0), Changed(1), Changed(2) });
+        // A real edit after the join still shows, against both boxes' original words.
+        t.EditSegment(t.Render()[0].Segment.Id, "I think so too!", Guid.NewGuid(), "Owner", T.Now);
+        Assert.Equal("I think so too.", Changed(0));
+        // Restore to version 1 still works.
+        t.Restore(1, Guid.NewGuid(), "Owner", T.Now);
+        Assert.Equal(["I think so", "too.", "Next point"], t.Render().Select(x => x.Segment.Text));
+    }
 }

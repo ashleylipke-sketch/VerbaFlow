@@ -33,6 +33,16 @@ public sealed record PlatformSpeech(int StartMs, int EndMs, int Participant, str
 /// </summary>
 public sealed record MeetingSpeakers(Guid ItemId, IReadOnlyList<PlatformSpeech> Stretches);
 
+/// <summary>
+/// One stretch of one person's own audio from an online meeting (the meeting platform gives each participant's microphone
+/// separately). <paramref name="AssetId"/> is the stored, write-once file; <paramref name="StartMs"/> is where it starts
+/// in the meeting's recording. A person who muted and unmuted can have several.
+/// </summary>
+public sealed record PersonAudioPart(Guid AssetId, int Participant, string Name, int StartMs, int DurationMs);
+
+/// <summary>Each person's own audio of an online meeting, kept with the item (by its MediaSourceItemId). Deleted with the item.</summary>
+public sealed record MeetingVoices(Guid ItemId, IReadOnlyList<PersonAudioPart> Parts);
+
 /// <summary>The meeting platforms the note-taker can join, worked out from the link.</summary>
 public static class MeetingPlatforms
 {

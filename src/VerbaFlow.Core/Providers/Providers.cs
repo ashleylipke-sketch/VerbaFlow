@@ -150,7 +150,17 @@ public enum NoteTakerPhase { Scheduled, Joining, WaitingToBeLetIn, Recording, Me
 /// When Ready, <paramref name="VideoUrl"/> is where the video can be downloaded and <paramref name="SpeakersUrl"/>
 /// (if any) where the platform's record of who spoke when can be.
 /// </summary>
-public sealed record NoteTakerStatus(NoteTakerPhase Phase, string? Detail = null, string? VideoUrl = null, string? SpeakersUrl = null);
+/// <paramref name="RecordingId"/> is the service's id for the recording, used to ask for each person's own audio.
+public sealed record NoteTakerStatus(NoteTakerPhase Phase, string? Detail = null, string? VideoUrl = null, string? SpeakersUrl = null, string? RecordingId = null);
+
+/// <summary>Where one stretch of one participant's own audio can be downloaded, and where it starts in the meeting.</summary>
+public sealed record PersonAudioDownload(int Participant, string Name, int StartMs, int DurationMs, string Url, string Format);
+
+/// <summary>
+/// Each participant's own audio. <paramref name="Ready"/> is false while the service is still preparing it; an empty,
+/// ready list means there is none (not asked for, or the platform does not give it). <paramref name="Detail"/> is technical.
+/// </summary>
+public sealed record PersonAudio(bool Ready, IReadOnlyList<PersonAudioDownload> Parts, string? Detail = null);
 
 /// <summary>
 /// A note-taker that joins an online meeting as a visible participant and records it (Recall.ai in production, which
@@ -168,6 +178,10 @@ public interface INoteTakerService
     Task<Stream> DownloadVideoAsync(string url, CancellationToken ct);
     /// <summary>Who spoke when, as the meeting platform reported it.</summary>
     Task<IReadOnlyList<VerbaFlow.Core.Domain.PlatformSpeech>> DownloadSpeakersAsync(string url, CancellationToken ct);
+    /// <summary>Each participant's own audio of the recording, if the service made it.</summary>
+    Task<PersonAudio> ListPersonAudioAsync(string botId, NoteTakerStatus status, CancellationToken ct);
+    /// <summary>One stretch of one participant's own audio (from <see cref="ListPersonAudioAsync"/>).</summary>
+    Task<Stream> DownloadPersonAudioAsync(PersonAudioDownload part, CancellationToken ct);
     /// <summary>Removes the recording from the note-taker service once VerbaFlow has its own copy.</summary>
     Task ForgetAsync(string botId, CancellationToken ct);
 }

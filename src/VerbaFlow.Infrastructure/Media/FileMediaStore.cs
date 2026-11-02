@@ -73,6 +73,12 @@ public sealed class FileMediaStore(string root, DocTable<MediaAsset> table, Time
         return asset;
     }
 
+    /// <summary>One stretch of one person's own audio of an online meeting, kept write-once beside the meeting's recording.</summary>
+    public Task<MediaAsset> CommitVoiceAsync(StagedFile staged, Guid itemId, int n, string fileName, string contentType, string provenance) =>
+        CommitAsync(staged, itemId, fileName, contentType, provenance, $"voice:{n}");
+
+    public async Task<MediaAsset?> FindAsync(Guid assetId) => await table.GetAsync(assetId);
+
     /// <summary>A file attached to a recording, stored write-once under the attachment's own id (so removing the recording's sound leaves it).</summary>
     public Task<MediaAsset> CommitAttachmentAsync(StagedFile staged, Guid attachmentId, string fileName, string contentType) =>
         CommitAsync(staged, attachmentId, fileName, contentType, "Attached by a person", "attachment");

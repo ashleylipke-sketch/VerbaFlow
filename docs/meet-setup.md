@@ -27,6 +27,16 @@ works on your own computer as well as online. If your computer is off when a mee
 back the next time VerbaFlow runs (Recall.ai keeps it for about 7 days). Once VerbaFlow has its own copy, it asks
 Recall.ai to delete theirs.
 
+**Each person's own audio.** The note-taker also asks for each participant's microphone separately (Recall.ai's
+"separate audio", available on Zoom, Microsoft Teams and Google Meet). When it comes back, each person's words are
+transcribed from their own audio and given their name from the meeting, so who said what no longer has to be worked
+out from the mixed sound. The files are kept write-once beside the meeting's video and deleted with it. VerbaFlow waits
+up to 30 minutes after the meeting for them; if they do not come, or any one cannot be fetched or turned into text, the
+mixed sound and the platform's record of who spoke when are used instead (History says so). The speech service then
+hears each person's audio separately, so it is billed for roughly the meeting's length once per person (three people
+for an hour: about three hours of speech). Running a meeting again with a "Speakers look wrong?" choice uses the mixed
+sound.
+
 **Things to know before using it for real**
 - The meeting's video and sound pass through Recall.ai (a company in the United States) until VerbaFlow has fetched
   them. Pick the region closest to you when you sign up (Frankfurt, `eu-central-1`, is the closest to South Africa and
@@ -128,14 +138,17 @@ for the VerbaFlow app. The client secret runs out after 24 months: make a new on
   platform, time, languages. The meeting link is not recorded (it can hold a passcode).
 - `meet.state_changed`: joining, waiting to be let in, recording, meeting ended, not recorded (with a plain reason).
 - On the item: `item.created` (source "Online meeting (note-taker)", platform, owner, number of colleagues, file
-  fingerprint), `meet.recording_fetched`, and on `processing.completed` `speakerSeparation: meeting platform` and
-  `speakersNamedByPlatform`.
+  fingerprint, `personAudioParts`, `personAudioPeople`, `personAudioNotStored`), `meet.recording_fetched`, and on
+  `processing.completed` `speakerSeparation` ("each person's own audio" or "meeting platform"), `personAudio`
+  ("3 people, 4 parts") and `speakersNamedByPlatform`.
 
 ## What has been tested
 
 Tested with the stand-in only: booking, one note-taker for colleagues booking the same meeting, calling off, the
 recording coming back as an item, speaker names from the platform, deleting, and the video streaming to the item page.
-How Recall.ai's answers are read was checked against the examples in Recall.ai's documentation.
+How Recall.ai's answers are read was checked against the examples in Recall.ai's documentation. Each person's own
+audio was tested with the stand-in only (two made-up people); **not yet with Recall.ai**, so its exact list format,
+how long it takes to be ready, and whether its timings line up with the video are unconfirmed.
 
 **Not yet tried with Recall.ai or in a real meeting** on any platform: whether the note-taker gets in, the chat
 message, recording permission on Zoom, the speaker names, the video quality, and the video playing in Edge or Chrome
@@ -148,6 +161,5 @@ answers are read was checked against Microsoft's documented format only.
 
 ## Not built yet
 
-- Separate sound per person (Recall.ai can provide it; it would help speaker separation further).
 - Platforms other than the four above (Recall.ai has GoTo Meeting and Slack huddles in beta). For any other platform,
   record the meeting there and use **Import** on the Meeting page.

@@ -27,7 +27,11 @@ public sealed record ImportUpload(Stream File, string FileName, string ContentTy
 
 /// <summary>A recording brought back by Meet's note-taker. <paramref name="Requesters"/>: first asker first (the owner).</summary>
 public sealed record OnlineMeetingUpload(Stream Video, string FileName, string ContentType, string Name, IReadOnlyList<Guid> Requesters,
-    string Platform, string NoteTakerName, Guid NoteTakerId, string SpokenLanguages, IReadOnlyList<PlatformSpeech> Speakers);
+    string Platform, string NoteTakerName, Guid NoteTakerId, string SpokenLanguages, IReadOnlyList<PlatformSpeech> Speakers,
+    IReadOnlyList<PersonAudioUpload>? Voices = null);
+
+/// <summary>One stretch of one person's own audio, opened only when it is stored (so a failed one can be left out).</summary>
+public sealed record PersonAudioUpload(VerbaFlow.Core.Providers.PersonAudioDownload Part, Func<CancellationToken, Task<Stream>> Open);
 
 public sealed record RetryRequest(string? SpokenLanguages);
 public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null, string? Audio = null, string? DictationService = null);

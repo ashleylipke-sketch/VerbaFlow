@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using VerbaFlow.Core.Domain;
 using VerbaFlow.Core.Providers;
 using VerbaFlow.Core.Security;
+using VerbaFlow.Core.Transcripts;
 using VerbaFlow.Infrastructure.MeetingBots;
 using VerbaFlow.Infrastructure.Services;
 using VerbaFlow.Infrastructure.StandIns;
@@ -24,6 +25,12 @@ public sealed class CountingNoteTaker(TimeProvider clock) : INoteTakerService
     public async Task<Stream> DownloadVideoAsync(string url, CancellationToken ct) { await Task.Delay(DownloadDelay, ct); return await inner.DownloadVideoAsync(url, ct); }
     public Task<IReadOnlyList<PlatformSpeech>> DownloadSpeakersAsync(string url, CancellationToken ct) => inner.DownloadSpeakersAsync(url, ct);
     public Task ForgetAsync(string botId, CancellationToken ct) { Forgotten++; return inner.ForgetAsync(botId, ct); }
+    /// <summary>Set to report each person's own audio differently (null: the stand-in's two people).</summary>
+    public PersonAudio? Voices;
+    public int VoiceDownloads;
+    public Task<PersonAudio> ListPersonAudioAsync(string botId, NoteTakerStatus status, CancellationToken ct) =>
+        Voices is { } v ? Task.FromResult(v) : inner.ListPersonAudioAsync(botId, status, ct);
+    public Task<Stream> DownloadPersonAudioAsync(PersonAudioDownload part, CancellationToken ct) { VoiceDownloads++; return inner.DownloadPersonAudioAsync(part, ct); }
 }
 
 public class MeetTests
@@ -102,6 +109,7 @@ public class MeetTests
     {
         using var env = new Env();
         var (bot, meet) = Make(env);
+        bot.Voices = new PersonAudio(true, []); // a platform that gives no separate audio: the speaker timeline names people
         var booked = await meet.BookAsync(env.Alice, Zoom());
         await meet.BookAsync(env.Bob, Zoom());
         for (var i = 0; i < 3; i++) Assert.Equal(0, await meet.CheckAsync()); // joining, recording, meeting ended
@@ -195,6 +203,77 @@ public class MeetTests
     }
 
     [Fact]
+    public async Task Each_persons_own_audio_is_kept_and_their_words_come_from_it()
+    {
+        using var env = new Env();
+        var (bot, meet) = Make(env);
+        await meet.BookAsync(env.Alice, Zoom());
+        for (var i = 0; i < 4; i++) await meet.CheckAsync();
+        var id = (await meet.ListAsync(env.Alice))[0].ItemId!.Value;
+        Assert.Equal(2, bot.VoiceDownloads);
+        var voices = await env.Stores.MeetingVoices.GetAsync(id);
+        Assert.Equal(["Lee Stand-in", "Pat Stand-in"], voices!.Parts.Select(p => p.Name).Order());
+        // Stored write-once beside the recording; the recording itself is still the meeting's video (or sample).
+        foreach (var p in voices.Parts) Assert.True(await env.Stores.Media.VerifyAsync((await env.Stores.Media.FindAsync(p.AssetId))!));
+        Assert.Equal("original", (await env.Stores.Media.FindCurrentAsync(id))!.Kind);
+
+        await env.Processing.ProcessAsync(id);
+        var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        Assert.Equal(["Lee Stand-in", "Pat Stand-in"], t.Speakers.Select(s => s.Name).Order());
+        Assert.EndsWith("+per-person-audio", t.Engine);
+        var done = (await env.Stores.Audit.ListAsync()).Last(a => a.Type == "processing.completed");
+        Assert.Contains("\"speakerSeparation\":\"each person's own audio\"", done.Details.Replace("\\u0027", "'"));
+        Assert.Contains("\"personAudio\":\"2 people, 2 parts\"", done.Details);
+
+        // Running it again with another way of telling voices apart uses the mixed sound.
+        await env.Meeting.RerunAsync(env.Alice, id, 2, method: "azure");
+        await env.Processing.ProcessAsync(id);
+        Assert.DoesNotContain("per-person-audio", (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Engine);
+
+        // Deleting the meeting removes each person's audio too.
+        await env.Meeting.DeleteAsync(env.Alice, id, "test");
+        Assert.Null(await env.Stores.MeetingVoices.GetAsync(id));
+        await Assert.ThrowsAsync<NotFoundException>(async () => env.Stores.Media.OpenRead((await env.Stores.Media.FindAsync(voices.Parts[0].AssetId))!));
+    }
+
+    [Fact]
+    public async Task The_meeting_waits_a_while_for_each_persons_audio_then_comes_back_without_it()
+    {
+        using var env = new Env();
+        var (bot, meet) = Make(env);
+        await meet.BookAsync(env.Alice, Zoom());
+        for (var i = 0; i < 3; i++) await meet.CheckAsync();
+        bot.Voices = new PersonAudio(false, [], "processing");
+        Assert.Equal(0, await meet.CheckAsync());
+        Assert.Contains("each person's own audio", (await meet.ListAsync(env.Alice))[0].Waiting);
+        env.Clock.Now += MeetService.PersonAudioWait + TimeSpan.FromMinutes(1);
+        Assert.Equal(1, await meet.CheckAsync());
+        var id = (await meet.ListAsync(env.Alice))[0].ItemId!.Value;
+        Assert.Null(await env.Stores.MeetingVoices.GetAsync(id));
+        await env.Processing.ProcessAsync(id);
+        var done = (await env.Stores.Audit.ListAsync()).Last(a => a.Type == "processing.completed");
+        Assert.Contains("\"speakerSeparation\":\"meeting platform\"", done.Details);
+    }
+
+    [Fact]
+    public void Someone_who_speaks_in_the_middle_of_another_persons_passage_lands_where_they_said_it()
+    {
+        static Segment Said(string text, int start, int each) {
+            var words = text.Split(' ').Select((w, i) => new WordTiming(w, start + i * each, start + i * each + each - 50)).ToList();
+            return new Segment(Guid.NewGuid(), Guid.Empty, "en", words[0].StartMs, words[^1].EndMs, text, 0.9, false, words);
+        }
+        var ann = new TranscriptionResult("azure", [], [Said("I think we should move the date to next week", 0, 500)]);
+        var rich = new TranscriptionResult("azure", [], [Said("Yes.", 0, 400)]);
+        var combined = PersonAudioMerger.Combine([new(1, 10_000, ann), new(2, 12_100, rich)],
+            PersonAudioMerger.Names([(1, "Ann"), (2, "Rich"), (3, "Ann")]), "azure+per-person-audio");
+        var names = combined.Speakers.ToDictionary(s => s.Id, s => s.Label);
+        Assert.Equal([("Ann", "I think we should move"), ("Rich", "Yes."), ("Ann", "the date to next week")],
+            combined.Segments.Select(s => (names[s.SpeakerId], s.Text)));
+        Assert.Equal(12_500, combined.Segments[2].StartMs); // moved onto the meeting's clock
+        Assert.Equal("Ann (2)", PersonAudioMerger.Names([(1, "Ann"), (3, "Ann")])[3]);
+    }
+
+    [Fact]
     public void Recall_answers_are_read_into_plain_phases()
     {
         static JsonNode Bot(string code, string? sub = null, JsonNode? recordings = null) => new JsonObject
@@ -212,7 +291,7 @@ public class MeetTests
               "video_mixed":{"status":{"code":"done"},"data":{"download_url":"https://s3.example/v.mp4"},"format":"mp4"},
               "participant_events":{"status":{"code":"done"},"data":{"speaker_timeline_download_url":"https://s3.example/t.json"}}}}]
             """)));
-        Assert.Equal((NoteTakerPhase.Ready, "https://s3.example/v.mp4", "https://s3.example/t.json"), (ready.Phase, ready.VideoUrl, ready.SpeakersUrl));
+        Assert.Equal((NoteTakerPhase.Ready, "https://s3.example/v.mp4", "https://s3.example/t.json", "r1"), (ready.Phase, ready.VideoUrl, ready.SpeakersUrl, ready.RecordingId));
         var processing = RecallNoteTaker.Read(Bot("done", null, JsonNode.Parse("""[{"media_shortcuts":{"video_mixed":{"status":{"code":"processing"}}}}]""")));
         Assert.Equal(NoteTakerPhase.MeetingEnded, processing.Phase);
 
@@ -221,5 +300,14 @@ public class MeetTests
              {"participant":{"id":200,"name":null},"start_timestamp":{"relative":4.5},"end_timestamp":null}]
             """);
         Assert.Equal([new PlatformSpeech(1500, 4250, 100, "Ann Smith"), new PlatformSpeech(4500, 4500, 200, "Participant 200")], speakers);
+
+        var parts = RecallNoteTaker.ReadPersonAudio("""
+            [{"id":"a1","participant":{"id":100,"name":"Ann Smith","is_host":true,"platform":"desk_client"},
+              "start_timestamp":{"absolute":"2026-11-02T14:03:10Z","relative":2.5},"duration":61.25,"download_url":"https://s3.example/100-1.mp3"},
+             {"id":"a2","participant":{"id":200,"name":""},"start_timestamp":{"relative":0},"end_timestamp":{"relative":30},"download_url":"https://s3.example/200.mp3"},
+             {"id":"a3","participant":{"id":300,"name":"No link"},"start_timestamp":{"relative":0},"duration":5}]
+            """);
+        Assert.Equal([new PersonAudioDownload(100, "Ann Smith", 2500, 61250, "https://s3.example/100-1.mp3", "mp3"),
+            new PersonAudioDownload(200, "Participant 200", 0, 30000, "https://s3.example/200.mp3", "mp3")], parts);
     }
 }

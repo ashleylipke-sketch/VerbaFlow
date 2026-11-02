@@ -36,11 +36,20 @@ public sealed class RecallNoteTaker(HttpClient http, RecallOptions options) : IN
             ["meeting_url"] = r.MeetingUrl,
             ["bot_name"] = r.DisplayName,
             ["metadata"] = new JsonObject { ["verbaflow"] = r.Reference.ToString() },
-            ["recording_config"] = new JsonObject { ["video_mixed_mp4"] = new JsonObject(), ["participant_events"] = new JsonObject() },
+            // audio_separate_mp3: each participant's own microphone as well (Zoom, Teams, Google Meet), so their words can be
+            // transcribed from their own audio instead of being shared out from the mixed sound.
+            ["recording_config"] = new JsonObject { ["video_mixed_mp4"] = new JsonObject(), ["participant_events"] = new JsonObject(), ["audio_separate_mp3"] = new JsonObject() },
             ["chat"] = new JsonObject { ["on_bot_join"] = new JsonObject { ["send_to"] = "everyone", ["message"] = r.Announcement } },
         };
         if (r.JoinAt is { } at && at - DateTimeOffset.UtcNow > BookAhead) body["join_at"] = at.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-        var json = await SendAsync(HttpMethod.Post, "bot/", body, ct);
+        JsonNode? json;
+        try { json = await SendAsync(HttpMethod.Post, "bot/", body, ct); }
+        catch (ProviderException ex) when (ex.Message.Contains("audio_separate", StringComparison.OrdinalIgnoreCase))
+        {
+            // An account or platform that refuses separate audio still gets a note-taker; the mixed sound is used.
+            ((JsonObject)body["recording_config"]!).Remove("audio_separate_mp3");
+            json = await SendAsync(HttpMethod.Post, "bot/", body, ct);
+        }
         return json?["id"]?.GetValue<string>() ?? throw new ProviderException(FaultKind.Other, "Recall.ai gave no bot id.");
     }
 
@@ -63,6 +72,7 @@ public sealed class RecallNoteTaker(HttpClient http, RecallOptions options) : IN
         var video = shortcuts?["video_mixed"];
         var videoUrl = video?["status"]?["code"]?.GetValue<string>() == "done" ? video["data"]?["download_url"]?.GetValue<string>() : null;
         var speakers = shortcuts?["participant_events"]?["data"]?["speaker_timeline_download_url"]?.GetValue<string>();
+        var recordingId = recording?["id"]?.GetValue<string>();
         return code switch
         {
             "joining_call" => new(NoteTakerPhase.Joining, detail),
@@ -70,7 +80,7 @@ public sealed class RecallNoteTaker(HttpClient http, RecallOptions options) : IN
             "in_call_not_recording" or "recording_permission_allowed" => new(NoteTakerPhase.Joining, detail),
             "in_call_recording" => new(NoteTakerPhase.Recording, detail),
             "call_ended" => new(NoteTakerPhase.MeetingEnded, detail),
-            "done" or "analysis_done" or "analysis_failed" => videoUrl is not null ? new(NoteTakerPhase.Ready, detail, videoUrl, speakers)
+            "done" or "analysis_done" or "analysis_failed" => videoUrl is not null ? new(NoteTakerPhase.Ready, detail, videoUrl, speakers, recordingId)
                 : recording is null ? new(NoteTakerPhase.Failed, detail + ": no recording was made")
                 : video?["status"]?["code"]?.GetValue<string>() is "failed" ? new(NoteTakerPhase.Failed, detail + ": the video failed")
                 : new(NoteTakerPhase.MeetingEnded, detail),
@@ -124,6 +134,58 @@ public sealed class RecallNoteTaker(HttpClient http, RecallOptions options) : IN
                 string.IsNullOrWhiteSpace(name) ? $"Participant {id}" : name.Trim()));
         }
         return list;
+    }
+
+    public async Task<PersonAudio> ListPersonAudioAsync(string botId, NoteTakerStatus status, CancellationToken ct)
+    {
+        if (status.RecordingId is null) return new PersonAudio(true, [], "no recording id");
+        var list = await SendAsync(HttpMethod.Get, $"audio_separate/?recording_id={Uri.EscapeDataString(status.RecordingId)}", null, ct);
+        var results = (list?["results"] as JsonArray ?? list as JsonArray)?.Where(r => r is not null).ToList() ?? [];
+        if (results.Count == 0) return new PersonAudio(true, [], "none made"); // booked before it was asked for, or a platform without it
+        var latest = results[^1]!;
+        var code = latest["status"]?["code"]?.GetValue<string>();
+        if (code == "failed") return new PersonAudio(true, [], "failed: " + latest["status"]?["sub_code"]?.GetValue<string>());
+        if (code != "done") return new PersonAudio(false, [], code);
+        var url = latest["data"]?["download_url"]?.GetValue<string>();
+        if (url is null) return new PersonAudio(true, [], "done but no download link");
+        using var res = await http.GetAsync(Checked(url), ct);
+        if (!res.IsSuccessStatusCode) throw new ProviderException(FailureFor(res.StatusCode), $"Recall.ai separate audio list download returned {(int)res.StatusCode}.");
+        var format = latest["format"]?.GetValue<string>() ?? "mp3";
+        return new PersonAudio(true, ReadPersonAudio(await res.Content.ReadAsStringAsync(ct), format));
+    }
+
+    /// <summary>
+    /// The separate audio's parts list: per part the participant, where it starts (seconds from the start of the recording),
+    /// how long it lasts and a pre-signed download link.
+    /// </summary>
+    public static IReadOnlyList<PersonAudioDownload> ReadPersonAudio(string json, string format = "mp3")
+    {
+        var list = new List<PersonAudioDownload>();
+        if (JsonNode.Parse(json) is not JsonArray items) return list;
+        foreach (var e in items)
+        {
+            var p = e?["participant"];
+            var url = e?["download_url"]?.GetValue<string>();
+            var start = Number(e?["start_timestamp"]?["relative"]) ?? Number(e?["start_timestamp"]);
+            var end = Number(e?["end_timestamp"]?["relative"]);
+            var duration = Number(e?["duration"]) ?? (end is not null && start is not null ? end - start : null);
+            if (p?["id"] is null || url is null || start is null) continue;
+            var id = (int)Number(p["id"])!.Value;
+            var name = p["name"]?.GetValue<string>();
+            list.Add(new PersonAudioDownload(id, string.IsNullOrWhiteSpace(name) ? $"Participant {id}" : name.Trim(),
+                (int)(start.Value * 1000), (int)((duration ?? 0) * 1000), url, format));
+        }
+        return list;
+    }
+
+    private static double? Number(JsonNode? n) => n is JsonValue v ? v.TryGetValue<double>(out var d) ? d
+        : v.TryGetValue<string>(out var s) && double.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out d) ? d : null : null;
+
+    public async Task<Stream> DownloadPersonAudioAsync(PersonAudioDownload part, CancellationToken ct)
+    {
+        var res = await http.GetAsync(Checked(part.Url), HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!res.IsSuccessStatusCode) throw new ProviderException(FailureFor(res.StatusCode), $"Recall.ai separate audio download returned {(int)res.StatusCode}.");
+        return await res.Content.ReadAsStreamAsync(ct);
     }
 
     private static Uri Checked(string url) =>

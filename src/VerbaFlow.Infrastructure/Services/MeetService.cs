@@ -30,6 +30,8 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     public static readonly TimeSpan SameMeetingWindow = TimeSpan.FromHours(3);
     /// <summary>A note-taker that has still not got into its meeting this long after the start is given up on.</summary>
     public static readonly TimeSpan GiveUpAfter = TimeSpan.FromHours(6);
+    /// <summary>How long to wait after the meeting ends for each person's own audio before bringing back the meeting without it.</summary>
+    public static readonly TimeSpan PersonAudioWait = TimeSpan.FromMinutes(30);
     /// <summary>After this many failed checks or downloads in a row, the note-taker is marked failed.</summary>
     public const int MaxFailuresInARow = 20;
 
@@ -209,6 +211,16 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
         // A recording already brought back (for example the app stopped just after) is not brought back twice.
         if ((await stores.NoteTakers.GetAsync(nt.Id))?.ItemId is { } already) nt = nt with { ItemId = already };
         if (nt.ItemId is not null) { await SetStateAsync(nt, NoteTakerState.Fetched, null); return false; }
+        // Each person's own audio is prepared by the service after the video; wait a while for it, then go on without.
+        var voices = new PersonAudio(true, []);
+        try { voices = await service.ListPersonAudioAsync(nt.BotId!, status, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { await reporter.ReportAsync("note-taker", null, ex); }
+        var current = await stores.NoteTakers.GetAsync(nt.Id) ?? nt;
+        if (!voices.Ready && clock.GetUtcNow() - (current.StateAt ?? clock.GetUtcNow()) < PersonAudioWait)
+        {
+            await NoteAsync(nt, "The meeting has ended. The note-taker service is still preparing each person's own audio; this can take a few minutes.");
+            return false;
+        }
         IReadOnlyList<PlatformSpeech> speakers = [];
         if (status.SpeakersUrl is not null)
             try { speakers = await service.DownloadSpeakersAsync(status.SpeakersUrl, ct); }
@@ -220,7 +232,8 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             var sample = service is StandIns.StandInNoteTaker s && !s.MakesVideo;
             var (file, type) = sample ? ("meeting.wav", "audio/wav") : ("meeting.mp4", "video/mp4");
             itemId = await meetings.CreateFromOnlineMeetingAsync(new OnlineMeetingUpload(video, file, type, nt.Name, nt.Requesters, nt.Platform,
-                noteTakerName, nt.Id, nt.SpokenLanguages, speakers), ct);
+                noteTakerName, nt.Id, nt.SpokenLanguages, speakers,
+                voices.Parts.Select(p => new PersonAudioUpload(p, c => service.DownloadPersonAudioAsync(p, c))).ToList()), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { await FailedTryAsync(nt, ex, "The recording could not be brought back from the note-taker"); return false; }
         failuresInARow.TryRemove(nt.Id, out _);

@@ -209,11 +209,37 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             Note = $"The note-taker joined as a visible participant named {up.NoteTakerName} and announced the recording in the meeting chat" });
         var asset = await stores.Media.CommitOriginalAsync(staged, id, SafeName(up.FileName), up.ContentType, note);
         if (up.Speakers.Count > 0) await stores.MeetingSpeakers.UpsertAsync(id, new MeetingSpeakers(id, up.Speakers));
+        // Each person's own audio, best effort: one that cannot be brought back or scanned is left out, and the meeting's
+        // mixed sound is used for the words instead (processing does that when any part is missing).
+        var voices = new List<PersonAudioPart>();
+        int voicesFailed = 0;
+        foreach (var v in up.Voices ?? [])
+        {
+            try
+            {
+                await using var stream = await v.Open(ct);
+                var ext = v.Part.Format.ToLowerInvariant() switch { "wav" => "wav", _ => "mp3" };
+                var file = $"person-{v.Part.Participant}-{voices.Count + 1}.{ext}";
+                var voiceStaged = await StageAndScanAsync(owner, stream, file, "online-meeting-voice", ct, MaxMeetingVideoBytes);
+                var voiceAsset = await stores.Media.CommitVoiceAsync(voiceStaged, id, voices.Count + 1, file, ext == "wav" ? "audio/wav" : "audio/mpeg",
+                    $"{up.Platform} meeting, one person's own audio, recorded by the note-taker {up.NoteTakerName}");
+                voices.Add(new PersonAudioPart(voiceAsset.Id, v.Part.Participant, v.Part.Name, v.Part.StartMs, v.Part.DurationMs));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                voicesFailed++;
+                await reporter.ReportAsync("note-taker", id, ex);
+            }
+        }
+        // All or nothing: words from some people's own audio and not others' would leave people out of the transcript.
+        if (voices.Count > 0 && voicesFailed == 0) await stores.MeetingVoices.UpsertAsync(id, new MeetingVoices(id, voices));
         await stores.Items.UpsertAsync(id, item);
         await stores.Audit.AppendAsync(null, "system", Product, id, "item.created", AuditChain.Details(("source", "Online meeting (note-taker)"),
             ("platform", up.Platform), ("noteTaker", up.NoteTakerId), ("owner", owner.Id), ("attendees", item.Attendees.Count),
             ("sha256", asset.Sha256), ("sizeBytes", asset.SizeBytes), ("contentType", up.ContentType), ("platformSpeakerStretches", up.Speakers.Count),
-            ("platformSpeakers", up.Speakers.Select(x => x.Participant).Distinct().Count())));
+            ("platformSpeakers", up.Speakers.Select(x => x.Participant).Distinct().Count()),
+            ("personAudioParts", up.Voices is null ? null : voices.Count), ("personAudioPeople", up.Voices is null ? null : voices.Select(v => v.Participant).Distinct().Count()),
+            ("personAudioNotStored", voicesFailed == 0 ? null : voicesFailed)));
         queue.Enqueue(id);
         return id;
     }
@@ -500,6 +526,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             await stores.Outputs.DeleteAsync(i.Id);
             await stores.LiveText.DeleteAsync(i.Id);
             await stores.MeetingSpeakers.DeleteAsync(i.MediaSourceItemId);
+            await stores.MeetingVoices.DeleteAsync(i.MediaSourceItemId);
             await stores.Audit.AppendAsync(actor?.Id, actor is null ? "system" : CapacityOf(actor, i), Product, i.Id, "item.deleted", AuditChain.Details(
                 ("reason", reason), ("requestId", requestId),
                 ("agreedBy", string.Join(", ", agreedBy.Select(a => users.GetValueOrDefault(a, "?")))), ("versions", chain.Count),

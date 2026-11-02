@@ -43,7 +43,7 @@ public sealed class StandInNoteTaker(TimeProvider clock, string? ffmpegPath = nu
             1 => new NoteTakerStatus(NoteTakerPhase.Joining),
             2 => new NoteTakerStatus(NoteTakerPhase.Recording),
             3 => new NoteTakerStatus(NoteTakerPhase.MeetingEnded),
-            _ => new NoteTakerStatus(NoteTakerPhase.Ready, null, $"standin://{botId}/video", $"standin://{botId}/speakers"),
+            _ => new NoteTakerStatus(NoteTakerPhase.Ready, null, $"standin://{botId}/video", $"standin://{botId}/speakers", botId),
         });
     }
 
@@ -90,6 +90,16 @@ public sealed class StandInNoteTaker(TimeProvider clock, string? ffmpegPath = nu
             list.Add(new PlatformSpeech(i * 4000, Math.Min(SampleMs, i * 4000 + 3900), i % 2 == 0 ? 100 : 200, i % 2 == 0 ? "Pat Stand-in" : "Lee Stand-in"));
         return Task.FromResult<IReadOnlyList<PlatformSpeech>>(list);
     }
+
+    /// <summary>Each made-up person's own audio: the whole sample, one part each.</summary>
+    public Task<PersonAudio> ListPersonAudioAsync(string botId, NoteTakerStatus status, CancellationToken ct) =>
+        Task.FromResult(new PersonAudio(true, [
+            new PersonAudioDownload(100, "Pat Stand-in", 0, SampleMs, $"standin://{botId}/voice/100", "wav"),
+            new PersonAudioDownload(200, "Lee Stand-in", 0, SampleMs, $"standin://{botId}/voice/200", "wav"),
+        ]));
+
+    public Task<Stream> DownloadPersonAudioAsync(PersonAudioDownload part, CancellationToken ct) =>
+        Task.FromResult<Stream>(new MemoryStream(ToneWav(part.DurationMs)));
 
     private static string Exe(string? path) => string.IsNullOrWhiteSpace(path) ? "ffmpeg" : path;
 

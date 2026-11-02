@@ -34,6 +34,8 @@ public sealed class Stores
     public DocTable<NoteTaker> NoteTakers { get; }
     /// <summary>Meet: who the meeting platform said was speaking when, by the item whose recording it is.</summary>
     public DocTable<MeetingSpeakers> MeetingSpeakers { get; }
+    /// <summary>Meet: each person's own audio of an online meeting (stored files), by the item whose recording it is.</summary>
+    public DocTable<MeetingVoices> MeetingVoices { get; }
     /// <summary>Meet: each person's connected calendar, by their user id.</summary>
     public DocTable<CalendarSettings> CalendarSettings { get; }
     /// <summary>Meet: each person's on/off choice and booking for a meeting in their calendar.</summary>
@@ -69,6 +71,7 @@ public sealed class Stores
         WidgetPolicy = new(db, "doc_widget_policy");
         NoteTakers = new(db, "doc_note_takers");
         MeetingSpeakers = new(db, "doc_meeting_speakers");
+        MeetingVoices = new(db, "doc_meeting_voices");
         CalendarSettings = new(db, "doc_calendar_settings");
         CalendarChoices = new(db, "doc_calendar_choices");
         Retention = new(db, "doc_retention");

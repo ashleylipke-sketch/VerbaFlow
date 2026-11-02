@@ -59,10 +59,10 @@ public static class SpeakerAligner
         return result with { Speakers = speakers.Values.ToList(), Segments = AzureSpeechService.MergeTurns(relabelled) };
     }
 
-    private sealed record Token(string Text, int Start, int End);
+    internal sealed record Token(string Text, int Start, int End);
 
     /// <summary>The words of a segment, if their text matches the segment's text closely enough to split it safely.</summary>
-    private static List<Token>? Tokens(Segment seg)
+    internal static List<Token>? Tokens(Segment seg)
     {
         if (seg.Words is not { Count: > 1 } words) return null;
         static string Squash(string s) => new(s.Where(c => !char.IsWhiteSpace(c)).ToArray());

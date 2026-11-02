@@ -76,6 +76,25 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 }
             }
             else if (dictation) dictationService = wordForWord is null ? "fast (word for word not available)" : request.CandidateLanguages.Length != 1 ? "fast (more than one language)" : "fast (chosen)";
+            // An online meeting with each person's own audio (from Meet's note-taker): every person's words come from their
+            // own microphone, so who said what is certain. Unless the owner chose another way when running it again.
+            var voices = result is null && !dictation && item.SpeakerMethod is null ? await stores.MeetingVoices.GetAsync(item.MediaSourceItemId) : null;
+            string? personAudio = null;
+            if (voices is { Parts.Count: > 0 })
+            {
+                try
+                {
+                    result = await TranscribePeopleAsync(voices, request, useOriginal, ct);
+                    var people = voices.Parts.Select(p => p.Participant).Distinct().Count();
+                    personAudio = $"{people} {(people == 1 ? "person" : "people")}, {voices.Parts.Count} part{(voices.Parts.Count == 1 ? "" : "s")}";
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var rep = await reporter.ReportAsync("person-audio", itemId, ex);
+                    notices.Add($"each person's own audio could not be used, so the meeting's mixed sound was ({rep.Reference})");
+                    if (copy.CanSeek) copy.Position = 0;
+                }
+            }
             result ??= await speech.TranscribeAsync(copy, request, ct);
             int? commands = null; string? commandsHeard = null, paragraphsMade = null, savedTextUsed = null;
             if (dictation)
@@ -103,18 +122,17 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             int? localTurns = null, localSpeakers = null, mergedSmall = null; string? voiceSeconds = null;
             // An online meeting recorded by Meet's note-taker: the meeting platform said who was speaking when, by name.
             // That is better than any guess from the sound, unless the owner chose another way when running it again.
-            var platform = !dictation && item.SpeakerMethod is null ? await stores.MeetingSpeakers.GetAsync(item.MediaSourceItemId) : null;
+            var platform = !dictation && item.SpeakerMethod is null && personAudio is null ? await stores.MeetingSpeakers.GetAsync(item.MediaSourceItemId) : null;
             int? platformNames = null;
-            if (platform is { Stretches.Count: > 0 })
+            if (personAudio is not null)
             {
-                var names = new Dictionary<int, string>();
-                foreach (var g in platform.Stretches.GroupBy(x => x.Participant)) names[g.Key] = g.First().Name;
+                separation = "each person's own audio";
+                platformNames = result.Speakers.Count;
+            }
+            else if (platform is { Stretches.Count: > 0 })
+            {
                 // Two people with the same display name keep apart: the second gets a number.
-                foreach (var dup in names.GroupBy(n => n.Value).Where(g => g.Count() > 1).ToList())
-                {
-                    var k = 1;
-                    foreach (var n in dup.Skip(1)) names[n.Key] = $"{n.Value} ({++k})";
-                }
+                var names = PersonAudioMerger.Names(platform.Stretches.Select(x => (x.Participant, x.Name)));
                 result = SpeakerAligner.Relabel(result, platform.Stretches.Select(x => new SpeakerTurn(x.StartMs, x.EndMs, x.Participant)).ToList(), names)
                     with { Engine = result.Engine + "+meeting-platform" };
                 separation = "meeting platform";
@@ -181,7 +199,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Items.UpsertAsync(itemId, item);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
-                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames),
+                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames), ("personAudio", personAudio),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
                     ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
@@ -196,4 +214,28 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 AuditChain.Details(("kind", rep.Kind.ToString()), ("reference", rep.Reference)));
         }
     }
+
+    /// <summary>Each stretch of each person's own audio goes to the speech service alone (one voice, no speaker separation).</summary>
+    private async Task<TranscriptionResult> TranscribePeopleAsync(MeetingVoices voices, TranscribeOptions request, bool useOriginal, CancellationToken ct)
+    {
+        var one = request with { MaxSpeakers = 1, Diarize = false };
+        var heard = new List<PersonAudioMerger.Heard>();
+        string? engine = null;
+        foreach (var part in voices.Parts.OrderBy(p => p.StartMs))
+        {
+            if (part.DurationMs is > 0 and < MinPersonAudioMs) continue; // a blip when someone unmuted: nothing to hear
+            var asset = await stores.Media.FindAsync(part.AssetId) ?? throw new InvalidOperationException($"Person audio {part.AssetId} is missing.");
+            await using var raw = stores.Media.OpenRead(asset);
+            var prepared = useOriginal ? new EnhancedAudio(stores.Media.OpenRead(asset), "none") : await enhancer.EnhanceAsync(raw, ct);
+            await using var audio = prepared.Audio;
+            var result = await speech.TranscribeAsync(audio, one, ct);
+            engine ??= result.Engine;
+            heard.Add(new PersonAudioMerger.Heard(part.Participant, part.StartMs, result));
+        }
+        var names = PersonAudioMerger.Names(voices.Parts.Select(p => (p.Participant, p.Name)));
+        return PersonAudioMerger.Combine(heard, names, (engine ?? "speech") + "+per-person-audio");
+    }
+
+    /// <summary>Parts of a person's own audio shorter than this are not sent to the speech service.</summary>
+    public const int MinPersonAudioMs = 300;
 }

@@ -11,7 +11,7 @@ namespace VerbaFlow.Infrastructure.Export;
 
 /// <summary>One file that was exported: its fingerprint, so a copy can later be checked for changes.</summary>
 public sealed record ExportRecord(Guid Id, Guid ItemId, int VersionNo, int TranscriptVersionNo, string Format, string Marker,
-    string Sha256, long SizeBytes, Guid ExportedBy, DateTimeOffset ExportedAt, string? Parts = null);
+    string Sha256, long SizeBytes, Guid ExportedBy, DateTimeOffset ExportedAt, string? Parts = null, string? Signature = null);
 
 public sealed record ExportFile(byte[] Content, string ContentType, string FileName);
 
@@ -23,9 +23,11 @@ public sealed record ExportCheck(bool Matches, string Message, string Sha256, Da
 /// Exports a meeting (details, summary, action points, minutes, tone and transcript) as Word or PDF. Every export is
 /// marked Approved, Draft or Superseded, its SHA-256 fingerprint is stored and written to the audit trail, and a file can
 /// be checked later against those fingerprints: any change to the file, even one character, gives a different fingerprint.
-/// Digital signing with the organisation's certificate (decision 13) is not built yet.
+/// PDFs are digitally signed when a <see cref="PdfSigner"/> is set up (decision 13): with the organisation's certificate,
+/// or a test certificate made on this computer until there is one. The fingerprint is taken after signing.
 /// </summary>
-public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSender? email = null, FailureReporter? reporter = null)
+public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSender? email = null, FailureReporter? reporter = null,
+    PdfSigner? signer = null)
 {
     /// <summary>The most people one email can go to.</summary>
     public const int MaxRecipients = 10;
@@ -199,13 +201,30 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                     new LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm));
         }
         else bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
+        // Recorded in History: who signed the PDF, or why it went out unsigned.
+        string? signature = null, signatureNote = null;
+        if (format == ExportFormats.Pdf && signer is not null)
+        {
+            try
+            {
+                bytes = await signer.SignAsync(bytes, $"Exported from VerbaFlow ({marker.ToLowerInvariant()})");
+                signature = signer.Signature.Describe;
+            }
+            catch (Exception ex) when (reporter is not null)
+            {
+                // The file still goes out, unsigned; the fingerprint below still lets it be checked.
+                var failure = await reporter.ReportAsync("signing", id, ex);
+                signatureNote = $"not signed ({failure.Reference})";
+            }
+        }
         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         var record = new ExportRecord(Guid.NewGuid(), id, item.VersionNo, transcript.Current.No, format, marker, sha, bytes.LongLength, actor.Id, now,
-            string.Join(",", parts));
+            string.Join(",", parts), signature);
         await stores.Exports.UpsertAsync(record.Id, record);
         (string, object?)[] audit = [("format", format), ("marker", marker), ("purpose", purpose), ("parts", string.Join(",", parts)),
             ("transcriptVersion", transcript.Current.No), ("sha256", sha), ("bytes", bytes.LongLength)];
         if (letterheadUsed is not null) audit = [.. audit, ("letterhead", letterheadUsed)];
+        if (signature is not null || signatureNote is not null) audit = [.. audit, ("signature", signature ?? signatureNote)];
         await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.exported", AuditChain.Details(audit));
 
         var safeName = SafeFileName(item.Name);
@@ -231,7 +250,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         var by = Name(users, match.ExportedBy);
         var version = (await stores.Items.GetAsync(match.ItemId))?.VersionNo;
         return new ExportCheck(true,
-            $"This file is unchanged. It is the {(match.Format == ExportFormats.Word ? "Word" : "PDF")} file exported by {by} on {When(match.ExportedAt)} ({match.Marker.ToLowerInvariant()}, version {version}).",
+            $"This file is unchanged. It is the {(match.Format == ExportFormats.Word ? "Word" : "PDF")} file exported by {by} on {When(match.ExportedAt)} ({match.Marker.ToLowerInvariant()}, version {version})."
+                + (match.Signature is null ? "" : " It carries VerbaFlow's digital signature."),
             sha, match.ExportedAt, by, match.Marker, match.Format);
     }
 

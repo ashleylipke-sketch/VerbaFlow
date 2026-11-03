@@ -85,6 +85,20 @@ if (diarizationOn)
 }
 builder.Services.AddSingleton<VerbaFlow.Infrastructure.Services.FailureReporter>();
 builder.Services.AddSingleton<MeetingService>();
+// Exported PDFs are signed: with the organisation's certificate (Signing:CertificatePath and Signing:CertificatePassword)
+// or, until there is one, a test certificate made in the data folder. Signing:Enabled=false switches it off.
+VerbaFlow.Infrastructure.Export.PdfSigner? pdfSigner = null;
+string? signingProblem = null;
+if (builder.Configuration.GetValue("Signing:Enabled", true))
+{
+    try
+    {
+        pdfSigner = VerbaFlow.Infrastructure.Export.PdfSigner.Create(builder.Configuration["Signing:CertificatePath"],
+            builder.Configuration["Signing:CertificatePassword"], Path.Combine(dataDir, "keys"));
+        builder.Services.AddSingleton(pdfSigner);
+    }
+    catch (Exception ex) { signingProblem = ex.Message; }
+}
 builder.Services.AddSingleton<VerbaFlow.Infrastructure.Export.ExportService>();
 builder.Services.AddSingleton<VocabularyService>();
 builder.Services.AddSingleton<SavedTextService>();
@@ -170,6 +184,12 @@ app.Logger.LogInformation(noteTaker.IsConfigured
 app.Logger.LogInformation(graph.IsConfigured
     ? "Meet calendars: Microsoft 365 calendars read through Microsoft Graph, and calendar addresses"
     : "Meet calendars: calendar addresses, and a STAND-IN sample calendar. Set Entra:ClientSecret to read Microsoft 365 calendars (see docs/meet-setup.md).");
+if (pdfSigner is not null)
+    app.Logger.LogInformation("Signing: PDF exports are signed by {Signer}{Test}", pdfSigner.Signature.SignedBy,
+        pdfSigner.Signature.TestCertificate ? " (a test certificate; set Signing:CertificatePath for the organisation's own)" : "");
+else if (signingProblem is not null)
+    app.Logger.LogWarning("Signing: off, the certificate could not be loaded: {Problem}", signingProblem);
+else app.Logger.LogInformation("Signing: off (Signing:Enabled=false)");
 app.Logger.LogInformation("Database: {Database}; files in {DataDir}", database.Describe, dataDir);
 app.Logger.LogInformation(signIn.Microsoft
     ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.TestUsers ? ", and the test users while in Development" : "")

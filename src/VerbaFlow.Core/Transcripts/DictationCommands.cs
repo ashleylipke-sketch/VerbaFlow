@@ -423,10 +423,26 @@ public static class DictationCommands
                 Id = Guid.NewGuid(),
                 Text = string.Join(' ', tokens.Select(t => t.Text)), StartMs = start, EndMs = Math.Max(start, end), Words = words,
                 Inserted = codes.Count == 0 ? null : string.Join(", ", codes),
+                InsertedParts = codes.Count == 0 ? null : InsertedRuns(tokens),
                 List = lists[keptAt[p]]
             });
         }
         return (segments, applied, breakAtStart, breakAtEnd, lists[0], breakAtEnd ? lists[^1] : null);
+    }
+
+    /// <summary>Each run of words one "insert" put in, with its code.</summary>
+    private static List<InsertedPart> InsertedRuns(List<Token> tokens)
+    {
+        var runs = new List<InsertedPart>();
+        for (var k = 0; k < tokens.Count;)
+        {
+            if (tokens[k].Insert is not { } code) { k++; continue; }
+            var end = k;
+            while (end < tokens.Count && tokens[end].Insert == code) end++;
+            runs.Add(new InsertedPart(code, string.Join(' ', tokens.Skip(k).Take(end - k).Select(t => t.Text))));
+            k = end;
+        }
+        return runs;
     }
 
     // ---------- correcting by voice ----------

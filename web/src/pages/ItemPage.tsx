@@ -484,6 +484,7 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
   return (
     <>
       {anyLow && <p className="note"><span className="low-c-key">Shaded</span> text was hard to hear. Please check it.</p>}
+      {t.segments.some(s => s.savedText?.length) && <p className="note"><span className="saved-text">Text marked like this</span> was put in from <a href="#/saved-text">Saved text</a>; its code is shown where it starts.</p>}
       <article className="page" aria-label={docLabel(d.documentType)}>
         {type === 'letter' && <>
           <div className="page-date">{longDate(d.row.createdOn)}</div>
@@ -567,8 +568,17 @@ function Words({ s, words, from, to, activeWord, canSeek, onSeek, showChanges }:
       onClick={canSeek ? () => onSeek(w.startMs) : undefined}
       onKeyDown={canSeek ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(w.startMs); } } : undefined}>{w.text}</span>;
   };
+  // Saved text put in by "insert" is shaded, with its code shown where it starts.
+  const marks = s.savedText ?? [];
+  const markOf = (i: number | undefined) => i === undefined ? undefined : marks.find(m => i >= m.from && i < m.to);
+  const cls = (i: number | undefined) => markOf(i) ? 'saved-text' : undefined;
+  const tag = (i: number | undefined) => {
+    const m = markOf(i);
+    return m && m.from === i ? <span className="saved-tag" title="Saved text put in by &quot;insert&quot;">{m.code}</span> : null;
+  };
   const all = showChanges && s.originalText !== null ? diffWords(s.originalText, s.text) : null;
-  if (!all) return <>{words.slice(from, to).map((_, k) => <span key={k}>{word(from + k)}{from + k < to - 1 ? ' ' : ''}</span>)}</>;
+  if (!all) return <>{words.slice(from, to).map((_, k) => <span key={k}>{tag(from + k)}<span className={cls(from + k)}
+    title={markOf(from + k) ? `Saved text: ${markOf(from + k)!.code}` : undefined}>{word(from + k)}{from + k < to - 1 ? ' ' : ''}</span></span>)}</>;
   // Where each removed word is shown: with the next word that is still there (or at the very end).
   const ops = all.filter((o, i) => {
     if (o.cur !== undefined) return o.cur >= from && o.cur < to;
@@ -576,8 +586,8 @@ function Words({ s, words, from, to, activeWord, canSeek, onSeek, showChanges }:
     return next === undefined ? to === words.length : next >= from && next < to;
   });
   return <>{ops.map((o, i) => o.kind === 'del' ? <span key={i}><del>{o.text}</del>{' '}</span>
-    : o.kind === 'ins' ? <span key={i}><ins>{word(o.cur!)}</ins>{i < ops.length - 1 ? ' ' : ''}</span>
-    : <span key={i}>{word(o.cur!)}{i < ops.length - 1 ? ' ' : ''}</span>)}</>;
+    : o.kind === 'ins' ? <span key={i}>{tag(o.cur)}<span className={cls(o.cur)}><ins>{word(o.cur!)}</ins>{i < ops.length - 1 ? ' ' : ''}</span></span>
+    : <span key={i}>{tag(o.cur)}<span className={cls(o.cur)}>{word(o.cur!)}{i < ops.length - 1 ? ' ' : ''}</span></span>)}</>;
 }
 
 /** A dictation passage's edit box, grown to show all its text. */

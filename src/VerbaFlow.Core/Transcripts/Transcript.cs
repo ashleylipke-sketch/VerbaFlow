@@ -10,7 +10,10 @@ public sealed record WordTiming(string Text, int StartMs, int EndMs);
 
 public sealed record Segment(Guid Id, Guid SpeakerId, string Language, int StartMs, int EndMs, string Text,
     double Confidence, bool LowConfidence, IReadOnlyList<WordTiming>? Words = null, bool? NewParagraph = null,
-    string? Inserted = null, string? List = null, string? Baseline = null, bool? SplitPart = null);
+    string? Inserted = null, string? List = null, string? Baseline = null, bool? SplitPart = null,
+    IReadOnlyList<InsertedPart>? InsertedParts = null);
+/// <summary>Words a spoken "insert <code>" put into a passage, as they were inserted (so the page can mark them).</summary>
+public sealed record InsertedPart(string Code, string Text);
 // Baseline: the machine text this passage is compared with for tracked changes, set when a box was split (each part gets
 // its share of the original). SplitPart: true on the boxes a split added after the first, which have no passage of their
 // own in machine version 1; the others line up with version 1 passage by passage.

@@ -571,12 +571,17 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var current = t.Render(v.No);
         var baselines = t.Baselines(v.No);
         string? OriginalOf(int i) => baselines[i] is { } b && b != current[i].Segment.Text ? b : null;
+        // Saved text put in by "insert" is marked on the page. Older passages did not keep the inserted words, so the saved
+        // text's wording now is looked for instead.
+        var saved = current.Any(r => r.Segment.Inserted is not null && r.Segment.InsertedParts is null)
+            ? await stores.SavedText.ListAsync() : null;
+        IReadOnlyList<SavedTextMark>? MarksOf(Segment s) => SavedTextMarks.Find(s, saved) is { Count: > 0 } m ? m : null;
         return new TranscriptView(v.No,
             t.Versions.Select(x => new VersionView(x.No, x.Kind.ToString(), x.Capacity,
                 x.CreatedBy is { } u ? users.GetValueOrDefault(u) : null, x.CreatedAt, x.Note)).ToList(),
             current.Select((r, i) => new SegmentView(r.Segment.Id, r.SpeakerName, r.Segment.SpeakerId, r.Segment.Language,
                 r.Segment.StartMs, r.Segment.EndMs, r.Segment.Text, r.Segment.LowConfidence,
-                r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList(), OriginalOf(i), r.Segment.NewParagraph, r.Segment.List)).ToList(),
+                r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList(), OriginalOf(i), r.Segment.NewParagraph, r.Segment.List, MarksOf(r.Segment))).ToList(),
             t.Speakers.Select(s => new SpeakerView(s.Id, s.Label, v.SpeakerNames.GetValueOrDefault(s.Id, s.Label))).ToList(), t.Engine,
             versionNo is null && t.UndoStep() is { } step ? step.Change.Note ?? step.Change.Kind.ToString() : null,
             versionNo is null && t.RedoStep() is { } redo ? redo.Note ?? redo.Kind.ToString() : null);

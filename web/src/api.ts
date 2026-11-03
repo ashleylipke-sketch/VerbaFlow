@@ -29,7 +29,7 @@ export type CalendarOverview = { sources: { id: string; label: string }[];
   connected: { source: string; sourceLabel: string; shown: string | null; autoSend: boolean; spokenLanguages: string; connectedAt: string; lastReadAt: string | null; problem: string | null } | null;
   meetings: CalendarMeetingRow[]; otherMeetings: number; bookAheadMinutes: number };
 export type MeetOverview = { engine: string; real: boolean; noteTakerName: string; platforms: string[]; noteTakers: NoteTakerRow[] };
-export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null; newParagraph: boolean | null; list?: 'bullet' | 'number' | null };
+export type Segment = { id: string; speaker: string; speakerId: string; language: string; startMs: number; endMs: number; text: string; lowConfidence: boolean; words: { text: string; startMs: number; endMs: number }[] | null; originalText: string | null; newParagraph: boolean | null; list?: 'bullet' | 'number' | null; savedText?: { code: string; from: number; to: number }[] | null };
 export type Transcript = {
   versionNo: number; engine: string; segments: Segment[]; speakers: { id: string; label: string; name: string }[];
   versions: { no: number; kind: string; capacity: string; by: string | null; at: string; note: string | null }[];

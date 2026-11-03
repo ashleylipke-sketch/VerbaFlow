@@ -95,4 +95,35 @@ public class SpokenInsertTests
         var seg = DictationCommands.ApplyCounted([Seg("insert terms 1")], saved).Segments.Single();
         Assert.Null(RestartedSentences.Remove(seg));
     }
+
+    [Fact]
+    public void Inserted_words_are_marked_and_stay_marked_after_edits_around_them()
+    {
+        var seg = Run("Please note insert legal 1,1 comma kind regards").Single();
+        Assert.Equal([new InsertedPart("legal 1,1", "This letter is confidential,")], seg.InsertedParts);
+        var marks = SavedTextMarks.Find(seg);
+        Assert.Equal([new SavedTextMark("legal 1,1", 2, 6)], marks);
+
+        // An edit before the saved text moves the mark with it; changing the saved text itself takes the mark away.
+        Assert.Equal([new SavedTextMark("legal 1,1", 3, 7)], SavedTextMarks.Find(seg with { Text = "Please do note this letter is confidential, kind regards" }));
+        Assert.Empty(SavedTextMarks.Find(seg with { Text = "Please note this letter is private, kind regards" }));
+    }
+
+    [Fact]
+    public void A_saved_text_over_two_paragraphs_is_marked_in_both()
+    {
+        var segs = Run("Start insert disclaimer 2.0 end");
+        var marked = segs.Select(s => SavedTextMarks.Find(s)).Where(m => m.Count > 0).ToList();
+        Assert.Equal(2, marked.Count);
+        Assert.All(marked, m => Assert.Equal("disclaimer 2.0", m[0].Code));
+    }
+
+    [Fact]
+    public void Older_passages_without_the_inserted_words_are_marked_from_the_saved_text()
+    {
+        var seg = Run("Please note insert legal 1,1 kind regards").Single() with { InsertedParts = null };
+        var saved = new List<VerbaFlow.Core.Domain.SavedText> { new(Guid.NewGuid(), "Legal 1.1", "This letter is confidential.", Guid.NewGuid(), DateTimeOffset.UtcNow) };
+        Assert.Equal([new SavedTextMark("legal 1,1", 2, 6)], SavedTextMarks.Find(seg, saved));
+        Assert.Empty(SavedTextMarks.Find(seg));
+    }
 }

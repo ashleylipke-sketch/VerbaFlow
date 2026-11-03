@@ -181,6 +181,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         byte[] bytes;
         // Recorded in History so a plain letter can be explained: which letterhead was used, or why none.
         string? letterheadUsed = dictation ? "not a letter" : null;
+        string? signOffUsed = null;
         if (dictation && item.DocumentType == "letter")
         {
             // A dictated letter goes out as a letter, on the organisation's letterhead when one is set.
@@ -190,6 +191,13 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 string.IsNullOrWhiteSpace(item.ClientReference) ? null : item.ClientReference.Trim(),
                 marker switch { "Approved" => null, "Superseded" => "Superseded: a newer version of this letter exists.", _ => "Draft: not approved yet." },
                 doc.Transcript.Select(t => t.Text).ToList(), doc.Transcript.Select(t => t.Marker).ToList());
+            // The author's sign-off goes under the letter; their signature picture only once it is approved.
+            var signOffs = new SignOffService(stores, clock);
+            var authorSignOff = await signOffs.ForAsync(item.OwnerId);
+            var fitted = SignOffLayout.Fit(letter.Paragraphs, letter.Markers, authorSignOff,
+                authorSignOff is null ? null : await signOffs.PictureAsync(authorSignOff), marker == "Approved");
+            letter = letter with { Paragraphs = fitted.Paragraphs, Markers = fitted.Markers, SignOff = fitted.SignOff };
+            signOffUsed = fitted.Note;
             var letterheads = new Services.LetterheadService(stores, clock);
             var l = await letterheads.GetAsync();
             letterheadUsed = (format == ExportFormats.Word ? l.Word : l.Pdf) is null
@@ -224,6 +232,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         (string, object?)[] audit = [("format", format), ("marker", marker), ("purpose", purpose), ("parts", string.Join(",", parts)),
             ("transcriptVersion", transcript.Current.No), ("sha256", sha), ("bytes", bytes.LongLength)];
         if (letterheadUsed is not null) audit = [.. audit, ("letterhead", letterheadUsed)];
+        if (signOffUsed is not null) audit = [.. audit, ("signOff", signOffUsed)];
         if (signature is not null || signatureNote is not null) audit = [.. audit, ("signature", signature ?? signatureNote)];
         await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.exported", AuditChain.Details(audit));
 

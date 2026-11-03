@@ -38,6 +38,9 @@ public static class Endpoints
     public sealed record TermBody(string Text, string? Note);
     public sealed record SavedTextBody(string? Code, string? Text);
     public sealed record LetterSpaceBody(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm);
+    public sealed record SignOffBody(bool On, string? Closing, string? Name, string? Title);
+    private static object SignOffView(SignOff s) =>
+        new { s.On, s.Closing, s.Name, s.Title, hasPicture = s.PictureSha256 is not null, picture = s.PictureSha256?[..12] };
     public sealed record LinesBody(string Lines);
 
     /// <summary>The form of a save of an unfinished dictation: its audio file and fields.</summary>
@@ -90,10 +93,10 @@ public static class Endpoints
         api.MapDelete("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id) => { await t.RemoveAsync(h.Current(), id); return Results.NoContent(); });
         api.MapGet("/letterhead", (LetterheadService l) => l.GetAsync());
         // An administrator looks at the stored file to check it; it is the organisation's own letterhead, not customer content.
-        api.MapGet("/letterhead/sample", async (LetterheadService l, string? format, bool? preview) =>
+        api.MapGet("/letterhead/sample", async (HttpContext h, LetterheadService l, string? format, bool? preview) =>
         {
             var word = format == "docx";
-            var bytes = await l.SampleAsync(word ? LetterheadService.Word : LetterheadService.Pdf);
+            var bytes = await l.SampleAsync(word ? LetterheadService.Word : LetterheadService.Pdf, h.Current());
             return Results.File(bytes, word ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf",
                 preview == true ? null : word ? "sample letter.docx" : "sample letter.pdf");
         });
@@ -111,6 +114,22 @@ public static class Endpoints
             return Results.Ok(await l.UploadAsync(h.Current(), kind, s, file.FileName));
         }).DisableAntiforgery();
         api.MapDelete("/letterhead/{kind}", async (HttpContext h, LetterheadService l, string kind) => Results.Ok(await l.RemoveAsync(h.Current(), kind)));
+        // Each person's own letter sign-off; nobody else can see or change it.
+        api.MapGet("/signoff", async (HttpContext h, SignOffService s) => SignOffView(await s.GetAsync(h.Current())));
+        api.MapPut("/signoff", async (HttpContext h, SignOffService s, SignOffBody b) =>
+            SignOffView(await s.SaveAsync(h.Current(), b.On, b.Closing, b.Name, b.Title)));
+        api.MapPost("/signoff/picture", async (HttpContext h, SignOffService s, IFormFile file) =>
+        {
+            await using var stream = file.OpenReadStream();
+            return SignOffView(await s.SetPictureAsync(h.Current(), stream));
+        }).DisableAntiforgery();
+        api.MapDelete("/signoff/picture", async (HttpContext h, SignOffService s) => SignOffView(await s.RemovePictureAsync(h.Current())));
+        api.MapGet("/signoff/picture", async (HttpContext h, SignOffService s) =>
+        {
+            var mine = await s.GetAsync(h.Current());
+            var bytes = await s.PictureAsync(mine) ?? throw new NotFoundException("There is no signature picture.");
+            return Results.File(bytes, mine.PictureType == "png" ? "image/png" : "image/jpeg");
+        });
         api.MapPut("/letterhead/space", async (HttpContext h, LetterheadService l, LetterSpaceBody b) =>
             Results.Ok(await l.SetPdfSpaceAsync(h.Current(), b.TopFirstMm, b.TopNextMm, b.BottomMm, b.SideMm)));
 

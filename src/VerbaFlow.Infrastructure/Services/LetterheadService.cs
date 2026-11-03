@@ -82,8 +82,9 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
         return next;
     }
 
-    /// <summary>A sample letter on the current letterhead, so an administrator can see how letters will look and adjust the spaces.</summary>
-    public async Task<byte[]> SampleAsync(string format)
+    /// <summary>A sample letter on the current letterhead, so an administrator can see how letters will look and adjust the spaces.
+    /// It ends with the viewer's own sign-off (as on an approved letter) when they have one switched on.</summary>
+    public async Task<byte[]> SampleAsync(string format, User? viewer = null)
     {
         var l = await GetAsync();
         var letter = new Export.LetterDocument("Sample letter", clock.GetLocalNow().ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
@@ -94,6 +95,16 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
             .. Enumerable.Repeat("This paragraph is here to fill the page, so you can also see where the text continues on the second page and how much room the letterhead leaves there.", 14),
             "Yours sincerely,", "Ashley Example",
         ]);
+        if (viewer is not null)
+        {
+            var signOffs = new SignOffService(stores, clock);
+            var mine = await signOffs.ForAsync(viewer.Id);
+            if (mine is not null)
+            {
+                var fitted = Export.SignOffLayout.Fit(letter.Paragraphs, null, mine, await signOffs.PictureAsync(mine), approved: true);
+                letter = letter with { Paragraphs = fitted.Paragraphs, SignOff = fitted.SignOff };
+            }
+        }
         return format == Word ? Export.LetterWriter.Word(letter, await ReadAsync(Word))
             : Export.LetterWriter.Pdf(letter, await ReadAsync(Pdf), new Export.LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm));
     }

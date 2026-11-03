@@ -23,6 +23,10 @@ public sealed class Stores
     public DocTable<Letterhead> Letterhead { get; }
     /// <summary>Uploaded letterhead files, each kept under its fingerprint.</summary>
     public string LetterheadRoot { get; }
+    /// <summary>Each person's letter sign-off (closing, name, title, signature picture), by user id.</summary>
+    public DocTable<SignOff> SignOffs { get; }
+    /// <summary>Signature pictures, each kept under its fingerprint.</summary>
+    public string SignatureRoot { get; }
     public DocTable<SupportError> SupportErrors { get; }
     public DocTable<Export.ExportRecord> Exports { get; }
     /// <summary>Speech mode: the text heard live while the person spoke, kept with the item it was saved as.</summary>
@@ -64,6 +68,8 @@ public sealed class Stores
         SavedText = new(db, "doc_saved_text");
         Letterhead = new(db, "doc_letterhead");
         LetterheadRoot = Path.Combine(mediaRoot, "letterhead");
+        SignOffs = new(db, "doc_signoffs");
+        SignatureRoot = Path.Combine(mediaRoot, "signatures");
         SupportErrors = new(db, "doc_support_errors");
         Exports = new(db, "doc_exports");
         LiveText = new(db, "doc_live_text");

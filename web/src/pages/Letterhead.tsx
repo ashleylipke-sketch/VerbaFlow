@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, saveFile, type Letterhead, type LetterheadFile, type UserView } from '../api';
+import SignOffCard from '../SignOffCard';
 
 type Kind = 'word' | 'pdf';
 
@@ -59,6 +60,7 @@ export default function LetterheadPage() {
   );
 
   return (
+    <>
     <div className="card">
       <h2>Letterhead</h2>
       <p className="note">When a dictated letter is exported, it is put on your letterhead with the date and "Our ref" at the top. Letters that are not approved yet
@@ -90,6 +92,9 @@ export default function LetterheadPage() {
         <button className="primary" disabled={busy} onClick={preview}>Preview a sample letter (PDF)</button>
         <button disabled={busy} onClick={sampleWord}>Download a sample letter (Word)</button>
       </div>
+      <p className="note">The sample ends with your own sign-off (below) when it is switched on, as it would on an approved letter.</p>
     </div>
+    <SignOffCard />
+    </>
   );
 }

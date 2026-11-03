@@ -11,8 +11,9 @@ namespace VerbaFlow.Infrastructure.Export;
 /// <summary>A dictated letter, ready to lay out: the date and reference at the top, then the paragraphs. All plain text.</summary>
 /// <param name="Note">A line printed above the date when the letter is not approved ("Draft: not approved yet."), otherwise null.</param>
 /// <param name="Markers">"•" or "1." in front of each paragraph that is a list point (same order as Paragraphs), or null.</param>
+/// <param name="SignOff">The author's closing, signature picture, name and title, printed under the letter; null for none.</param>
 public sealed record LetterDocument(string Title, string Date, string? OurRef, string? Note, IReadOnlyList<string> Paragraphs,
-    IReadOnlyList<string?>? Markers = null);
+    IReadOnlyList<string?>? Markers = null, LetterSignOff? SignOff = null);
 
 /// <summary>The space a PDF letterhead leaves for the letter, in millimetres from the edges of the page.</summary>
 public sealed record LetterSpace(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm);
@@ -37,7 +38,7 @@ public static class LetterWriter
                 var main = doc.AddMainDocumentPart();
                 var body = new Body();
                 main.Document = new W.Document(body);
-                foreach (var p in Paragraphs(letter, plain: true)) body.Append(p);
+                foreach (var p in Paragraphs(letter, plain: true, main)) body.Append(p);
                 body.Append(new SectionProperties(
                     new W.PageSize { Width = 11906, Height = 16838 }, // A4
                     new PageMargin { Top = 1418, Bottom = 1418, Left = 1418, Right = 1418, Header = 709, Footer = 709 }));
@@ -55,7 +56,7 @@ public static class LetterWriter
             var spot = body.Descendants<W.Paragraph>().FirstOrDefault(p => p.InnerText.Contains(Placeholder, StringComparison.OrdinalIgnoreCase));
             if (spot is not null)
             {
-                foreach (var p in Paragraphs(letter, plain: false)) spot.InsertBeforeSelf(p);
+                foreach (var p in Paragraphs(letter, plain: false, doc.MainDocumentPart)) spot.InsertBeforeSelf(p);
                 spot.Remove();
             }
             else
@@ -71,7 +72,7 @@ public static class LetterWriter
                     foreach (var run in child.Descendants<W.Run>().Where(r => !HasGraphics(r) && r.Ancestors().All(a => !IsGraphic(a))).ToList()) run.Remove();
                 }
                 setup?.Remove();
-                foreach (var p in Paragraphs(letter, plain: false)) body.Append(p);
+                foreach (var p in Paragraphs(letter, plain: false, doc.MainDocumentPart)) body.Append(p);
                 if (setup is not null) body.Append(setup);
             }
             doc.MainDocumentPart.Document.Save();
@@ -85,7 +86,7 @@ public static class LetterWriter
     private static bool HasGraphics(OpenXmlElement e) => e.Descendants().Any(IsGraphic);
 
     /// <param name="plain">True without a letterhead: VerbaFlow then sets the text size itself; otherwise the letterhead's own style is used.</param>
-    private static IEnumerable<W.Paragraph> Paragraphs(LetterDocument d, bool plain)
+    private static IEnumerable<W.Paragraph> Paragraphs(LetterDocument d, bool plain, MainDocumentPart main)
     {
         if (d.Note is not null) yield return Para(d.Note, plain, right: false, after: 240, size: 18, color: "B3261E", bold: true);
         yield return Para(d.Date, plain, right: true, after: d.OurRef is null ? 360 : 0);
@@ -103,6 +104,69 @@ public static class LetterWriter
             }
             yield return para;
         }
+        if (d.SignOff is { } so)
+        {
+            // Kept together on one page: Word moves the closing down with the name rather than leaving it alone.
+            if (so.Closing is not null) yield return Keep(Para(so.Closing, plain, right: false, after: so.Picture is null ? 840 : 60));
+            if (so.Picture is not null) yield return Keep(PictureParagraph(main, so.Picture));
+            yield return Keep(Para(so.Name, plain, right: false, after: 0), next: so.Title is not null);
+            if (so.Title is not null) yield return Para(so.Title, plain, right: false, after: 0);
+        }
+    }
+
+    /// <summary>The height a signature picture is printed at; its width follows, up to <see cref="SignatureMaxWidthMm"/>.</summary>
+    public const double SignatureHeightMm = 18, SignatureMaxWidthMm = 70;
+
+    /// <summary>The printed size of a signature picture in millimetres.</summary>
+    public static (double W, double H) SignatureSize(byte[] picture)
+    {
+        using var img = XImage.FromStream(new MemoryStream(picture));
+        var ratio = img.PixelWidth / (double)Math.Max(1, img.PixelHeight);
+        var h = SignatureHeightMm;
+        var w = h * ratio;
+        if (w > SignatureMaxWidthMm) { w = SignatureMaxWidthMm; h = w / ratio; }
+        return (w, h);
+    }
+
+    private static W.Paragraph Keep(W.Paragraph p, bool next = true)
+    {
+        if (next) p.ParagraphProperties!.PrependChild(new KeepNext());
+        return p;
+    }
+
+    private static W.Paragraph PictureParagraph(MainDocumentPart main, byte[] picture)
+    {
+        var png = Services.SignOffService.PictureType(picture) == "png";
+        var part = main.AddImagePart(png ? ImagePartType.Png : ImagePartType.Jpeg);
+        using (var s = new MemoryStream(picture)) part.FeedData(s);
+        var rel = main.GetIdOfPart(part);
+        var (wmm, hmm) = SignatureSize(picture);
+        long cx = (long)(wmm * 36000), cy = (long)(hmm * 36000); // EMU per millimetre
+        var id = (uint)(main.Parts.Count() + 1000);
+        var drawing = new W.Drawing(
+            new DocumentFormat.OpenXml.Drawing.Wordprocessing.Inline(
+                new DocumentFormat.OpenXml.Drawing.Wordprocessing.Extent { Cx = cx, Cy = cy },
+                new DocumentFormat.OpenXml.Drawing.Wordprocessing.EffectExtent { LeftEdge = 0, TopEdge = 0, RightEdge = 0, BottomEdge = 0 },
+                new DocumentFormat.OpenXml.Drawing.Wordprocessing.DocProperties { Id = id, Name = "Signature" },
+                new DocumentFormat.OpenXml.Drawing.Wordprocessing.NonVisualGraphicFrameDrawingProperties(
+                    new DocumentFormat.OpenXml.Drawing.GraphicFrameLocks { NoChangeAspect = true }),
+                new DocumentFormat.OpenXml.Drawing.Graphic(new DocumentFormat.OpenXml.Drawing.GraphicData(
+                    new DocumentFormat.OpenXml.Drawing.Pictures.Picture(
+                        new DocumentFormat.OpenXml.Drawing.Pictures.NonVisualPictureProperties(
+                            new DocumentFormat.OpenXml.Drawing.Pictures.NonVisualDrawingProperties { Id = 0, Name = "signature" },
+                            new DocumentFormat.OpenXml.Drawing.Pictures.NonVisualPictureDrawingProperties()),
+                        new DocumentFormat.OpenXml.Drawing.Pictures.BlipFill(
+                            new DocumentFormat.OpenXml.Drawing.Blip { Embed = rel },
+                            new DocumentFormat.OpenXml.Drawing.Stretch(new DocumentFormat.OpenXml.Drawing.FillRectangle())),
+                        new DocumentFormat.OpenXml.Drawing.Pictures.ShapeProperties(
+                            new DocumentFormat.OpenXml.Drawing.Transform2D(
+                                new DocumentFormat.OpenXml.Drawing.Offset { X = 0, Y = 0 },
+                                new DocumentFormat.OpenXml.Drawing.Extents { Cx = cx, Cy = cy }),
+                            new DocumentFormat.OpenXml.Drawing.PresetGeometry(new DocumentFormat.OpenXml.Drawing.AdjustValueList())
+                            { Preset = DocumentFormat.OpenXml.Drawing.ShapeTypeValues.Rectangle })))
+                { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" }))
+            { DistanceFromTop = 0, DistanceFromBottom = 0, DistanceFromLeft = 0, DistanceFromRight = 0 });
+        return new W.Paragraph(new ParagraphProperties(new SpacingBetweenLines { After = "60" }), new W.Run(drawing));
     }
 
     private static W.Paragraph Para(string text, bool plain, bool right, int after, int? size = null, string? color = null, bool bold = false)
@@ -177,6 +241,29 @@ public static class LetterWriter
             var para = section.AddParagraph();
             if (letter.Markers is { } m && i < m.Count && m[i] is { } marker) PdfMinutesWriter.ListPoint(para, marker);
             para.AddText(PdfMinutesWriter.Clean(letter.Paragraphs[i]));
+        }
+        if (letter.SignOff is { } so)
+        {
+            if (so.Closing is not null)
+            {
+                var c = section.AddParagraph(PdfMinutesWriter.Clean(so.Closing));
+                c.Format.KeepWithNext = true;
+                c.Format.SpaceAfter = so.Picture is null ? Unit.FromPoint(42) : Unit.FromPoint(3);
+            }
+            if (so.Picture is not null)
+            {
+                var pic = section.AddParagraph();
+                pic.Format.KeepWithNext = true;
+                pic.Format.SpaceAfter = Unit.FromPoint(3);
+                var (wmm, hmm) = SignatureSize(so.Picture);
+                var image = pic.AddImage("base64:" + Convert.ToBase64String(so.Picture));
+                image.Width = Unit.FromMillimeter(wmm);
+                image.Height = Unit.FromMillimeter(hmm);
+            }
+            var name = section.AddParagraph(PdfMinutesWriter.Clean(so.Name));
+            name.Format.SpaceAfter = 0;
+            name.Format.KeepWithNext = so.Title is not null;
+            if (so.Title is not null) section.AddParagraph(PdfMinutesWriter.Clean(so.Title)).Format.SpaceAfter = 0;
         }
 
         var renderer = new PdfDocumentRenderer { Document = doc };

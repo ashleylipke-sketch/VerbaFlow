@@ -45,6 +45,7 @@ public sealed class SqliteDatabase : Database
             CREATE TABLE IF NOT EXISTS doc_vocabulary(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_saved_text(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_letterhead(id TEXT PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS doc_signoffs(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_support_errors(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_live_text(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_widget_sessions(id TEXT PRIMARY KEY, json TEXT NOT NULL);

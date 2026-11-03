@@ -127,17 +127,22 @@ export default function ItemPage({ id }: { id: string }) {
     pause: () => { const a = player.current; if (a && !a.paused) { a.pause(); pausedForEdit.current = true; } },
     resume: () => { if (!pausedForEdit.current) return; pausedForEdit.current = false; player.current?.play().catch(() => undefined); },
   }), []);
-  // Undo takes back the last change; Ctrl + Z does the same when the cursor is not in a text box (which has its own undo).
-  const canUndo = !!(t?.undo && d?.canEditTranscript && d.processingState !== 'Processing');
-  const undo = () => { setOffers([]); return run(() => api.post(`/items/${id}/undo`)); };
-  const undoKey = useRef<(() => void) | null>(null);
-  undoKey.current = canUndo ? undo : null;
+  // Undo takes back the last change and Redo brings it back; Ctrl + Z and Ctrl + Y (or Ctrl + Shift + Z) do the same
+  // when the cursor is not in a text box (which has its own undo).
+  const canStep = !!(d?.canEditTranscript && d.processingState !== 'Processing');
+  const canUndo = canStep && !!t?.undo;
+  const canRedo = canStep && !!t?.redo;
+  const step = (which: 'undo' | 'redo') => { setOffers([]); return run(() => api.post(`/items/${id}/${which}`)); };
+  const stepKey = useRef<{ undo: boolean; redo: boolean; step: typeof step }>({ undo: false, redo: false, step });
+  stepKey.current = { undo: canUndo, redo: canRedo, step };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z' || typingTarget(e.target)) return;
-      if (!undoKey.current) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || typingTarget(e.target)) return;
+      const k = e.key.toLowerCase();
+      const which = k === 'z' && !e.shiftKey ? 'undo' : (k === 'y' && !e.shiftKey) || (k === 'z' && e.shiftKey) ? 'redo' : null;
+      if (!which || !stepKey.current[which]) return;
       e.preventDefault();
-      undoKey.current();
+      stepKey.current.step(which);
     };
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);
@@ -259,7 +264,9 @@ export default function ItemPage({ id }: { id: string }) {
       <div className="split">
         <div className="card">
           <h2>{dictate ? docLabel(d.documentType) : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}
-            {canUndo && <button className="undo" title={`Takes back: ${undoLabel(t!.undo!)} (Ctrl + Z)`} onClick={undo}>↶ Undo</button>}</h2>
+            {(canUndo || canRedo) && <span className="undo">
+              <button disabled={!canUndo} title={canUndo ? `Takes back: ${undoLabel(t!.undo!)} (Ctrl + Z)` : 'Nothing to undo'} onClick={() => step('undo')}>↶ Undo</button>
+              <button disabled={!canRedo} title={canRedo ? `Brings back: ${undoLabel(t!.redo!)} (Ctrl + Y)` : 'Nothing to redo'} onClick={() => step('redo')}>↷ Redo</button></span>}</h2>
           {!t && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No transcript.'}</p>}
           {t && !dictate && <p className="note">Speakers: {t.speakers.map(s => (
             <span key={s.id} style={{ marginRight: 10 }}>{s.name}{d.canEditTranscript && <> <button onClick={() => { const n = prompt('Rename speaker', s.name); if (n?.trim()) run(() => api.put(`/items/${id}/speakers/${s.id}`, { name: n.trim() })); }}>Rename</button></>}</span>))}</p>}
@@ -333,7 +340,7 @@ export default function ItemPage({ id }: { id: string }) {
               }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>
-              <b>v{v.no}</b> {v.kind === 'AutoTidy' ? 'Restarted sentences crossed out' : v.kind === 'Undo' && v.note ? undoLabel(v.note) : v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}
+              <b>v{v.no}</b> {v.kind === 'AutoTidy' ? 'Restarted sentences crossed out' : (v.kind === 'Undo' || v.kind === 'Redo') && v.note ? undoLabel(v.note) : v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}
               {d.canEditTranscript && v.no !== t.versionNo && <> <button onClick={() => run(() => api.post(`/items/${id}/versions/${v.no}/restore`))}>Restore</button></>}</div>)}</div>}
           <div className="card"><h2>History</h2>
             <button onClick={() => setShowAudit(!showAudit)}>{showAudit ? 'Hide' : 'Show'} audit trail ({audit.length})</button>

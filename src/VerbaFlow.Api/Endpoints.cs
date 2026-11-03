@@ -276,6 +276,8 @@ public static class Endpoints
         { await s.RestoreVersionAsync(h.Current(), id, no); return Results.NoContent(); });
         api.MapPost("/items/{id:guid}/undo", async (HttpContext h, MeetingService s, Guid id) =>
         { await s.UndoAsync(h.Current(), id); return Results.NoContent(); });
+        api.MapPost("/items/{id:guid}/redo", async (HttpContext h, MeetingService s, Guid id) =>
+        { await s.RedoAsync(h.Current(), id); return Results.NoContent(); });
         api.MapGet("/items/{id:guid}/outputs", (HttpContext h, MeetingService s, Guid id) => s.GetOutputsAsync(h.Current(), id));
         api.MapPost("/items/{id:guid}/outputs/regenerate", async (HttpContext h, MeetingService s, Guid id, CancellationToken ct) =>
         { await s.RegenerateOutputsAsync(h.Current(), id, ct); return Results.NoContent(); });

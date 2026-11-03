@@ -98,6 +98,55 @@ public class TranscriptTests
     }
 
     [Fact]
+    public void Redo_brings_back_what_undo_took_away_in_order()
+    {
+        var (t, s1, _, seg1) = Make();
+        var user = Guid.NewGuid();
+        t.EditSegment(seg1.Id, "One", user, "author", T.Now);
+        t.RenameSpeaker(s1.Id, "Alice Smith", user, "author", T.Now);
+        t.EditSegment(t.Render()[0].Segment.Id, "Two", user, "author", T.Now);
+        Assert.Null(t.RedoStep());
+
+        t.Undo(user, "author", T.Now);
+        t.Undo(user, "author", T.Now);
+        t.Undo(user, "author", T.Now);
+        Assert.Equal("Hello everyone", t.Render()[0].Segment.Text);
+        Assert.StartsWith("Edited passage", t.RedoStep()!.Note);
+
+        var r = t.Redo(user, "author", T.Now);
+        Assert.Equal(VersionKind.Redo, r.Kind);
+        Assert.Equal("One", t.Render()[0].Segment.Text);
+        Assert.Equal("Speaker 1", t.Render()[0].SpeakerName);
+        t.Redo(user, "author", T.Now);
+        Assert.Equal("Alice Smith", t.Render()[0].SpeakerName);
+        // Undo after a redo steps back again, and redo then goes forward again.
+        t.Undo(user, "author", T.Now);
+        Assert.Equal("Speaker 1", t.Render()[0].SpeakerName);
+        t.Redo(user, "author", T.Now);
+        t.Redo(user, "author", T.Now);
+        Assert.Equal("Two", t.Render()[0].Segment.Text);
+        Assert.Equal("Alice Smith", t.Render()[0].SpeakerName);
+        Assert.Null(t.RedoStep());
+        Assert.Throws<DomainException>(() => t.Redo(user, "author", T.Now));
+        // And Undo still walks all the way back.
+        t.Undo(user, "author", T.Now); t.Undo(user, "author", T.Now); t.Undo(user, "author", T.Now);
+        Assert.Equal("Hello everyone", t.Render()[0].Segment.Text);
+        Assert.Null(t.UndoStep());
+    }
+
+    [Fact]
+    public void A_new_change_after_undo_leaves_nothing_to_redo()
+    {
+        var (t, _, _, seg1) = Make();
+        var user = Guid.NewGuid();
+        t.EditSegment(seg1.Id, "One", user, "author", T.Now);
+        t.Undo(user, "author", T.Now);
+        Assert.NotNull(t.RedoStep());
+        t.EditSegment(t.Render()[0].Segment.Id, "Other", user, "author", T.Now);
+        Assert.Null(t.RedoStep());
+    }
+
+    [Fact]
     public void Undo_does_not_go_past_a_reopened_copy()
     {
         var (t, _, _, seg1) = Make();

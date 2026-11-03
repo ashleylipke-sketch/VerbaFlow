@@ -35,6 +35,8 @@ export type Transcript = {
   versions: { no: number; kind: string; capacity: string; by: string | null; at: string; note: string | null }[];
   /** The last change Undo would take back, or null when there is nothing to undo. */
   undo?: string | null;
+  /** The change Redo would bring back, or null. */
+  redo?: string | null;
 };
 export type Outputs = { engine: string; language: string; summary: string; actionPoints: string[]; minutes: string; toneOfMeeting: string };
 export type LetterheadFile = { sha256: string; fileName: string; sizeBytes: number; uploadedBy: string; uploadedAt: string };

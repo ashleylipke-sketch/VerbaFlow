@@ -578,7 +578,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
                 r.Segment.StartMs, r.Segment.EndMs, r.Segment.Text, r.Segment.LowConfidence,
                 r.Segment.Words?.Select(w => new WordView(w.Text, w.StartMs, w.EndMs)).ToList(), OriginalOf(i), r.Segment.NewParagraph, r.Segment.List)).ToList(),
             t.Speakers.Select(s => new SpeakerView(s.Id, s.Label, v.SpeakerNames.GetValueOrDefault(s.Id, s.Label))).ToList(), t.Engine,
-            versionNo is null && t.UndoStep() is { } step ? step.Change.Note ?? step.Change.Kind.ToString() : null);
+            versionNo is null && t.UndoStep() is { } step ? step.Change.Note ?? step.Change.Kind.ToString() : null,
+            versionNo is null && t.RedoStep() is { } redo ? redo.Note ?? redo.Kind.ToString() : null);
     }
 
     public async Task EditSegmentAsync(User actor, Guid id, Guid segmentId, string text)
@@ -690,14 +691,19 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     /// Takes back the last change to the transcript. A speaker name is put back in the summary, action points, minutes
     /// and tone too, as renaming changed it there.
     /// </summary>
-    public async Task UndoAsync(User actor, Guid id)
+    public Task UndoAsync(User actor, Guid id) => StepAsync(actor, id, redo: false);
+
+    /// <summary>Brings back what the last Undo took away (a speaker name in the summary and minutes too).</summary>
+    public Task RedoAsync(User actor, Guid id) => StepAsync(actor, id, redo: true);
+
+    private async Task StepAsync(User actor, Guid id, bool redo)
     {
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, Capability.Write);
         if (item.Processing == ProcessingState.Running) throw new DomainException("Wait for transcription to finish first.");
         var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
         var before = t.Current.SpeakerNames;
-        var v = t.Undo(actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
+        var v = redo ? t.Redo(actor.Id, CapacityOf(actor, item), clock.GetUtcNow()) : t.Undo(actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
         await stores.Transcripts.UpsertAsync(id, t);
         var inOutputs = 0;
         foreach (var s in t.Speakers)
@@ -706,8 +712,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             var now = v.SpeakerNames.GetValueOrDefault(s.Id, s.Label);
             if (was != now) inOutputs += await ReplaceInOutputsAsync(id, was, now);
         }
-        await Audit(actor, v.Capacity, id, "transcript.undone", ("version", v.No), ("backTo", v.UndoneTo), ("undid", v.Note),
-            ("changedInSummaryAndMinutes", inOutputs));
+        await Audit(actor, v.Capacity, id, redo ? "transcript.redone" : "transcript.undone", ("version", v.No), (redo ? "forwardTo" : "backTo", v.UndoneTo),
+            (redo ? "redid" : "undid", v.Note), ("changedInSummaryAndMinutes", inOutputs));
     }
 
     /// <summary>

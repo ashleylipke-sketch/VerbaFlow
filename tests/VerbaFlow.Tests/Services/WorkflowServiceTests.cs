@@ -219,6 +219,15 @@ public class WorkflowServiceTests
         Assert.Null(after.Undo);
         var audit = await env.Stores.Audit.ListAsync(id);
         Assert.Equal(2, audit.Count(a => a.Type == "transcript.undone"));
+
+        Assert.StartsWith("Edited passage", after.Redo);
+        await env.Meeting.RedoAsync(env.Alice, id);
+        await env.Meeting.RedoAsync(env.Alice, id);
+        after = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        Assert.Equal("Brad Melfi", after.Speakers[0].Name);
+        Assert.Equal("Brad Melfi opened the meeting.", (await env.Meeting.GetOutputsAsync(env.Alice, id))!.Summary);
+        Assert.Null(after.Redo);
+        Assert.Equal(2, (await env.Stores.Audit.ListAsync(id)).Count(a => a.Type == "transcript.redone"));
     }
 
     [Fact]

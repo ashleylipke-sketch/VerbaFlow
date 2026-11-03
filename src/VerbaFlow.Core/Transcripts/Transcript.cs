@@ -20,7 +20,7 @@ public sealed record Segment(Guid Id, Guid SpeakerId, string Language, int Start
 // Inserted: in a dictation, the codes of saved text dropped into this passage by "insert <code>" (e.g. "legal 1.1").
 
 /// <summary>AutoTidy: the app crossed out restarted sentences in a dictation; shown as tracked changes against version 1.</summary>
-public enum VersionKind { MachineV1, HumanEdit, SpeakerCorrection, Restore, ReopenCopy, AutoTidy, Undo }
+public enum VersionKind { MachineV1, HumanEdit, SpeakerCorrection, Restore, ReopenCopy, AutoTidy, Undo, Redo }
 
 public sealed class TranscriptVersion
 {
@@ -33,7 +33,7 @@ public sealed class TranscriptVersion
     public List<Guid> SegmentIds { get; init; } = [];
     public Dictionary<Guid, string> SpeakerNames { get; init; } = [];
     public string? Note { get; init; }
-    /// <summary>For an Undo version: the version whose text and speaker names it brought back.</summary>
+    /// <summary>For an Undo or Redo version: the version whose text and speaker names it brought back.</summary>
     public int? UndoneTo { get; init; }
 }
 
@@ -400,8 +400,7 @@ public sealed class Transcript
     /// </summary>
     public (TranscriptVersion Change, TranscriptVersion Back)? UndoStep()
     {
-        var v = Current;
-        while (v.Kind == VersionKind.Undo && v.UndoneTo is { } to) v = Version(to);
+        var v = Resolve(Current);
         if (v.Kind is VersionKind.MachineV1 or VersionKind.AutoTidy or VersionKind.ReopenCopy || v.ParentNo is not { } parent) return null;
         return (v, Version(parent));
     }
@@ -416,6 +415,45 @@ public sealed class Transcript
             No = Current.No + 1, Kind = VersionKind.Undo, ParentNo = Current.No, CreatedBy = actor, Capacity = capacity,
             CreatedAt = now, SegmentIds = [.. back.SegmentIds], SpeakerNames = new(back.SpeakerNames),
             Note = $"Undid: {change.Note ?? change.Kind.ToString()}", UndoneTo = back.No
+        };
+        Versions.Add(v);
+        return v;
+    }
+
+    /// <summary>The version a step back or forward stands for (Undo and Redo versions copy another version).</summary>
+    private TranscriptVersion Resolve(TranscriptVersion v)
+    {
+        while (v.Kind is VersionKind.Undo or VersionKind.Redo && v.UndoneTo is { } to) v = Version(to);
+        return v;
+    }
+
+    /// <summary>
+    /// The change Redo would bring back, or null. Only Undo and Redo presses since the last real change count: making
+    /// any other change after an Undo means there is nothing to redo (as in Word).
+    /// </summary>
+    public TranscriptVersion? RedoStep()
+    {
+        var start = Versions.Count;
+        while (start > 0 && Versions[start - 1].Kind is VersionKind.Undo or VersionKind.Redo) start--;
+        var undone = new Stack<int>();
+        for (var i = start; i < Versions.Count; i++)
+        {
+            var v = Versions[i];
+            if (v.Kind == VersionKind.Undo) undone.Push(Resolve(Versions[i - 1]).No);
+            else if (undone.Count > 0) undone.Pop();
+        }
+        return undone.Count > 0 ? Version(undone.Peek()) : null;
+    }
+
+    /// <summary>Brings back the change the last Undo took away, as a new version. Nothing is deleted.</summary>
+    public TranscriptVersion Redo(Guid actor, string capacity, DateTimeOffset now)
+    {
+        var change = RedoStep() ?? throw new DomainException("There is nothing to redo.");
+        var v = new TranscriptVersion
+        {
+            No = Current.No + 1, Kind = VersionKind.Redo, ParentNo = Current.No, CreatedBy = actor, Capacity = capacity,
+            CreatedAt = now, SegmentIds = [.. change.SegmentIds], SpeakerNames = new(change.SpeakerNames),
+            Note = $"Redid: {change.Note ?? change.Kind.ToString()}", UndoneTo = change.No
         };
         Versions.Add(v);
         return v;

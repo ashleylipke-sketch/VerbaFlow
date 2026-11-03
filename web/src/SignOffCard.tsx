@@ -33,13 +33,13 @@ export default function SignOffCard({ onSaved }: { onSaved?: () => void }) {
   return (
     <div className="card" id="signoff">
       <h2>Your sign-off</h2>
-      <p className="note">Printed at the end of the letters you dictate when they are exported as Word or PDF. If you said a closing yourself
-        (for example "Yours faithfully"), yours is kept and your name and title go under it. Your signature picture is only added once the letter is approved.
+      <p className="note">Printed at the end of the letters and emails you dictate when they are exported as Word or PDF. If you said a closing yourself
+        (for example "Yours faithfully"), yours is kept and your name and title go under it. Your signature picture is only added once the letter or email is approved.
         Only you can see and change this.</p>
       {error && <div className="error">{error}</div>}
       {message && <div className="ok" role="status">{message}</div>}
       <label className="row"><input type="checkbox" checked={form.on} disabled={busy}
-        onChange={e => setForm({ ...form, on: e.target.checked })} /> Add my sign-off to my letters</label>
+        onChange={e => setForm({ ...form, on: e.target.checked })} /> Add my sign-off to my letters and emails</label>
       <div className="pair" style={{ flexWrap: 'wrap', marginTop: 8 }}>
         <label className="field">Closing
           <input value={form.closing} maxLength={100} placeholder="Yours sincerely," disabled={busy}

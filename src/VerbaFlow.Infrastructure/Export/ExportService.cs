@@ -180,24 +180,33 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
 
         byte[] bytes;
         // Recorded in History so a plain letter can be explained: which letterhead was used, or why none.
-        string? letterheadUsed = dictation ? "not a letter" : null;
+        string? letterheadUsed = dictation ? "none (not marked as a letter, Word document or email)" : null;
         string? signOffUsed = null;
-        if (dictation && item.DocumentType == "letter")
+        if (dictation && item.DocumentType is "letter" or "document" or "email")
         {
-            // A dictated letter goes out as a letter, on the organisation's letterhead when one is set.
+            // A dictated letter, Word document or email goes out on the organisation's letterhead when one is set.
+            var kind = item.DocumentType;
             var letterDate = item.ApprovedAt ?? item.CreatedAt;
+            var reference = string.IsNullOrWhiteSpace(item.ClientReference) ? null : item.ClientReference.Trim();
+            var what = kind switch { "letter" => "letter", "email" => "email", _ => "document" };
             var letter = new LetterDocument(item.Name,
-                TimeZoneInfo.ConvertTime(letterDate, TimeZoneInfo.Local).ToString("d MMMM yyyy", CultureInfo.InvariantCulture),
-                string.IsNullOrWhiteSpace(item.ClientReference) ? null : item.ClientReference.Trim(),
-                marker switch { "Approved" => null, "Superseded" => "Superseded: a newer version of this letter exists.", _ => "Draft: not approved yet." },
-                doc.Transcript.Select(t => t.Text).ToList(), doc.Transcript.Select(t => t.Marker).ToList());
-            // The author's sign-off goes under the letter; their signature picture only once it is approved.
-            var signOffs = new SignOffService(stores, clock);
-            var authorSignOff = await signOffs.ForAsync(item.OwnerId);
-            var fitted = SignOffLayout.Fit(letter.Paragraphs, letter.Markers, authorSignOff,
-                authorSignOff is null ? null : await signOffs.PictureAsync(authorSignOff), marker == "Approved");
-            letter = letter with { Paragraphs = fitted.Paragraphs, Markers = fitted.Markers, SignOff = fitted.SignOff };
-            signOffUsed = fitted.Note;
+                kind == "letter" ? TimeZoneInfo.ConvertTime(letterDate, TimeZoneInfo.Local).ToString("d MMMM yyyy", CultureInfo.InvariantCulture) : null,
+                reference,
+                marker switch { "Approved" => null, "Superseded" => $"Superseded: a newer version of this {what} exists.", _ => "Draft: not approved yet." },
+                doc.Transcript.Select(t => t.Text).ToList(), doc.Transcript.Select(t => t.Marker).ToList(),
+                Heading: kind switch { "document" => item.Name, "email" => "Subject: " + item.Name, _ => null },
+                RefLabel: kind == "letter" ? "Our ref:" : "Reference:",
+                LargeHeading: kind == "document");
+            if (kind is "letter" or "email")
+            {
+                // The author's sign-off goes under the letter or email; their signature picture only once it is approved.
+                var signOffs = new SignOffService(stores, clock);
+                var authorSignOff = await signOffs.ForAsync(item.OwnerId);
+                var fitted = SignOffLayout.Fit(letter.Paragraphs, letter.Markers, authorSignOff,
+                    authorSignOff is null ? null : await signOffs.PictureAsync(authorSignOff), marker == "Approved");
+                letter = letter with { Paragraphs = fitted.Paragraphs, Markers = fitted.Markers, SignOff = fitted.SignOff };
+                signOffUsed = fitted.Note;
+            }
             var letterheads = new Services.LetterheadService(stores, clock);
             var l = await letterheads.GetAsync();
             letterheadUsed = (format == ExportFormats.Word ? l.Word : l.Pdf) is null

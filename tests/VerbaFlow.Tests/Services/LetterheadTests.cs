@@ -136,6 +136,40 @@ public class LetterheadTests
         Assert.NotNull(xobjects); // the letterhead page, drawn as a form
     }
 
+    [Fact]
+    public async Task Word_documents_and_emails_also_go_on_the_letterhead_with_their_title_or_subject()
+    {
+        using var env = new Env();
+        var letterheads = new LetterheadService(env.Stores, env.Clock);
+        await letterheads.UploadAsync(env.Carol, "word", new MemoryStream(WordLetterhead()), "acme.docx");
+        await new SignOffService(env.Stores, env.Clock).SaveAsync(env.Alice, true, "Kind regards,", "Alice Author", null);
+        env.Speech.Heard = "Hello team full stop";
+        var docId = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation("Office move plan") with { DocumentType = "document", ClientReference = "OM-1" });
+        await env.Processing.ProcessAsync(docId);
+        var mailId = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation("Friday's meeting") with { DocumentType = "email" });
+        await env.Processing.ProcessAsync(mailId);
+        var exports = new ExportService(env.Stores, env.Clock);
+
+        string Text(byte[] docx, out string header)
+        {
+            using var d = WordprocessingDocument.Open(new MemoryStream(docx), false);
+            header = string.Concat(d.MainDocumentPart!.HeaderParts.Select(h => h.Header!.InnerText));
+            return d.MainDocumentPart.Document!.Body!.InnerText;
+        }
+        var doc = Text((await exports.ExportAsync(env.Alice, docId, "docx")).Content, out var h1);
+        Assert.Contains("ACME Attorneys", h1);
+        Assert.Contains("Office move plan", doc);
+        Assert.Contains("Reference: OM-1", doc);
+        Assert.DoesNotContain("Kind regards", doc); // no sign-off on a Word document
+        var mail = Text((await exports.ExportAsync(env.Alice, mailId, "docx")).Content, out var h2);
+        Assert.Contains("ACME Attorneys", h2);
+        Assert.Contains("Subject: Friday's meeting", mail);
+        Assert.Contains("Kind regards,", mail);
+        Assert.Contains("Word letterhead", (await env.Stores.Audit.ListAsync(mailId)).Last(e => e.Type == "item.exported").Details);
+        var pdf = await exports.ExportAsync(env.Alice, docId, "pdf");
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(pdf.Content, 0, 4));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

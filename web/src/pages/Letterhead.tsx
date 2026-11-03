@@ -63,8 +63,8 @@ export default function LetterheadPage() {
     <>
     <div className="card">
       <h2>Letterhead</h2>
-      <p className="note">When a dictated letter is exported, it is put on your letterhead with the date and "Our ref" at the top. Letters that are not approved yet
-        say so in red above the date. Word documents and emails are not affected.</p>
+      <p className="note">Dictated letters, Word documents and emails are exported on your letterhead. A letter has the date and "Our ref" at the top; a Word document
+        its title; an email its subject. Anything not approved yet says so in red at the top.</p>
       {error && <div className="error">{error}</div>}
       {message && <div className="ok" role="status">{message}</div>}
       {me && !admin && <p className="note">Only administrators can change the letterhead.</p>}

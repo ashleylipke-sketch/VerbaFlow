@@ -8,12 +8,17 @@ using W = DocumentFormat.OpenXml.Wordprocessing;
 
 namespace VerbaFlow.Infrastructure.Export;
 
-/// <summary>A dictated letter, ready to lay out: the date and reference at the top, then the paragraphs. All plain text.</summary>
+/// <summary>A dictated letter, Word document or email, ready to lay out on the letterhead: the date (letters only) and
+/// reference at the top, a heading (a document's title, an email's subject), then the paragraphs. All plain text.</summary>
 /// <param name="Note">A line printed above the date when the letter is not approved ("Draft: not approved yet."), otherwise null.</param>
 /// <param name="Markers">"•" or "1." in front of each paragraph that is a list point (same order as Paragraphs), or null.</param>
 /// <param name="SignOff">The author's closing, signature picture, name and title, printed under the letter; null for none.</param>
-public sealed record LetterDocument(string Title, string Date, string? OurRef, string? Note, IReadOnlyList<string> Paragraphs,
-    IReadOnlyList<string?>? Markers = null, LetterSignOff? SignOff = null);
+/// <param name="Date">Right-aligned at the top; null for none (documents and emails).</param>
+/// <param name="Heading">A bold line above the text (a document's title, "Subject: ..." for an email); null for letters.</param>
+/// <param name="RefLabel">What goes in front of the reference: "Our ref:" on letters, "Reference:" otherwise.</param>
+public sealed record LetterDocument(string Title, string? Date, string? OurRef, string? Note, IReadOnlyList<string> Paragraphs,
+    IReadOnlyList<string?>? Markers = null, LetterSignOff? SignOff = null, string? Heading = null, string RefLabel = "Our ref:",
+    bool LargeHeading = false);
 
 /// <summary>The space a PDF letterhead leaves for the letter, in millimetres from the edges of the page.</summary>
 /// <param name="RepeatFirstPage">With a one-page PDF letterhead: true prints it behind every page, false behind the first page only.</param>
@@ -91,8 +96,9 @@ public static class LetterWriter
     private static IEnumerable<W.Paragraph> Paragraphs(LetterDocument d, bool plain, MainDocumentPart main)
     {
         if (d.Note is not null) yield return Para(d.Note, plain, right: false, after: 240, size: 18, color: "B3261E", bold: true);
-        yield return Para(d.Date, plain, right: true, after: d.OurRef is null ? 360 : 0);
-        if (d.OurRef is not null) yield return Para("Our ref: " + d.OurRef, plain, right: true, after: 360);
+        if (d.Date is not null) yield return Para(d.Date, plain, right: true, after: d.OurRef is null ? 360 : 0);
+        if (d.OurRef is not null) yield return Para(d.RefLabel + " " + d.OurRef, plain, right: true, after: 360);
+        if (d.Heading is not null) yield return Para(d.Heading, plain, right: false, after: 240, size: d.LargeHeading ? 32 : null, bold: true);
         for (var i = 0; i < d.Paragraphs.Count; i++)
         {
             var marker = d.Markers is { } m && i < m.Count ? m[i] : null;
@@ -232,14 +238,24 @@ public static class LetterWriter
             t.Font.Size = 9; t.Font.Color = new MigraDoc.DocumentObjectModel.Color(179, 38, 30);
             n.Format.SpaceAfter = Unit.FromPoint(12);
         }
-        var date = section.AddParagraph(PdfMinutesWriter.Clean(letter.Date));
-        date.Format.Alignment = ParagraphAlignment.Right;
-        date.Format.SpaceAfter = letter.OurRef is null ? Unit.FromPoint(18) : 0;
+        if (letter.Date is not null)
+        {
+            var date = section.AddParagraph(PdfMinutesWriter.Clean(letter.Date));
+            date.Format.Alignment = ParagraphAlignment.Right;
+            date.Format.SpaceAfter = letter.OurRef is null ? Unit.FromPoint(18) : 0;
+        }
         if (letter.OurRef is not null)
         {
-            var r = section.AddParagraph("Our ref: " + PdfMinutesWriter.Clean(letter.OurRef));
+            var r = section.AddParagraph(letter.RefLabel + " " + PdfMinutesWriter.Clean(letter.OurRef));
             r.Format.Alignment = ParagraphAlignment.Right;
             r.Format.SpaceAfter = Unit.FromPoint(18);
+        }
+        if (letter.Heading is not null)
+        {
+            var h = section.AddParagraph();
+            var ht = h.AddFormattedText(PdfMinutesWriter.Clean(letter.Heading), TextFormat.Bold);
+            if (letter.LargeHeading) ht.Font.Size = 16;
+            h.Format.SpaceAfter = Unit.FromPoint(12);
         }
         for (var i = 0; i < letter.Paragraphs.Count; i++)
         {

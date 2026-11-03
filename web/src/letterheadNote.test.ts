@@ -7,8 +7,9 @@ const lh = (word: boolean, pdf: boolean): Letterhead =>
   ({ word: word ? file : null, pdf: pdf ? file : null, pdfTopFirstMm: 55, pdfTopNextMm: 25, pdfBottomMm: 30, pdfSideMm: 25, pdfRepeatFirstPage: false });
 
 describe('letterheadNote', () => {
-  it('says why a dictation that is not a letter is plain', () => {
-    expect(letterheadNote('document', lh(true, true))).toContain('a Word document');
+  it('puts letters, Word documents and emails on the letterhead; older dictations are plain', () => {
+    expect(letterheadNote('document', lh(true, true))).toBe('Goes on the letterhead, in Word and in PDF.');
+    expect(letterheadNote('email', lh(false, true))).toContain('No Word letterhead');
     expect(letterheadNote(null, lh(true, true))).toContain('not marked as a letter');
   });
   it('says which formats go on the letterhead', () => {

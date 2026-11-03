@@ -16,13 +16,15 @@ public sealed record LetterDocument(string Title, string Date, string? OurRef, s
     IReadOnlyList<string?>? Markers = null, LetterSignOff? SignOff = null);
 
 /// <summary>The space a PDF letterhead leaves for the letter, in millimetres from the edges of the page.</summary>
-public sealed record LetterSpace(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm);
+/// <param name="RepeatFirstPage">With a one-page PDF letterhead: true prints it behind every page, false behind the first page only.</param>
+public sealed record LetterSpace(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm, bool RepeatFirstPage = false);
 
 /// <summary>
 /// Lays a letter out on the organisation's letterhead, or on a plain A4 page when there is none.
 /// Word: the letterhead's headers, footers, page size, margins and fonts are kept and the letter goes into its body. Text
 /// typed in the letterhead's body is replaced (pictures, shapes and text boxes there are kept), unless it contains {{letter}}: then the letter goes exactly there and the rest stays.
-/// PDF: page 1 of the letterhead is drawn behind the first page of the letter, page 2 (if it has one) behind the pages after.
+/// PDF: page 1 of the letterhead is drawn behind the first page of the letter, page 2 (if it has one) behind the pages after;
+/// a one-page letterhead leaves later pages plain unless it is set to repeat.
 /// </summary>
 public static class LetterWriter
 {
@@ -273,6 +275,8 @@ public static class LetterWriter
             for (var i = 0; i < pdf.PageCount; i++)
             {
                 var page = pdf.Pages[i];
+                // Later pages: the letterhead's page 2 if it has one; otherwise page 1 again only when asked, else plain.
+                if (i > 0 && form.PageCount < 2 && !space.RepeatFirstPage) continue;
                 form.PageNumber = i == 0 || form.PageCount < 2 ? 1 : 2;
                 using var g = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Prepend); // behind the letter's text
                 g.DrawImage(form, 0, 0, page.Width.Point, page.Height.Point);

@@ -9,13 +9,13 @@ export default function LetterheadPage() {
   const [l, setL] = useState<Letterhead | null>(null);
   const [me, setMe] = useState<UserView | null>(null);
   const [users, setUsers] = useState<UserView[]>([]);
-  const [space, setSpace] = useState({ topFirstMm: 55, topNextMm: 25, bottomMm: 30, sideMm: 25 });
+  const [space, setSpace] = useState({ topFirstMm: 55, topNextMm: 25, bottomMm: 30, sideMm: 25, repeatFirstPage: false });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState<Kind | null>(null);
 
-  const show = (x: Letterhead) => { setL(x); setSpace({ topFirstMm: x.pdfTopFirstMm, topNextMm: x.pdfTopNextMm, bottomMm: x.pdfBottomMm, sideMm: x.pdfSideMm }); };
+  const show = (x: Letterhead) => { setL(x); setSpace({ topFirstMm: x.pdfTopFirstMm, topNextMm: x.pdfTopNextMm, bottomMm: x.pdfBottomMm, sideMm: x.pdfSideMm, repeatFirstPage: x.pdfRepeatFirstPage }); };
   useEffect(() => {
     api.letterhead().then(show).catch(e => setError(e.message));
     api.me().then(setMe);
@@ -53,7 +53,7 @@ export default function LetterheadPage() {
     </>
   );
 
-  const mm = (key: keyof typeof space, label: string) => (
+  const mm = (key: 'topFirstMm' | 'topNextMm' | 'bottomMm' | 'sideMm', label: string) => (
     <label className="field">{label}
       <span className="row"><input type="number" min={5} max={120} value={space[key]} disabled={!admin}
         onChange={e => setSpace({ ...space, [key]: Number(e.target.value) })} style={{ width: 90 }} /> mm</span></label>
@@ -77,6 +77,7 @@ export default function LetterheadPage() {
 
       <h3>For PDF</h3>
       <p className="note">A PDF of your letterhead. Page 1 is printed behind the first page of a letter; page 2, if it has one, behind the pages after.
+        With a one-page letterhead, later pages are plain unless you tick the box below.
         The spaces below keep the letter's text clear of what is printed on it.</p>
       {l && fileRow('pdf', l.pdf)}
       <div className="pair" style={{ flexWrap: 'wrap', marginTop: 8 }}>
@@ -85,7 +86,9 @@ export default function LetterheadPage() {
         {mm('bottomMm', 'Space at the bottom')}
         {mm('sideMm', 'Space at each side')}
       </div>
-      {admin && <div className="actions"><button disabled={busy} onClick={() => run(() => api.letterheadSpace(space), 'Spaces saved.')}>Save spaces</button></div>}
+      <label className="row"><input type="checkbox" checked={space.repeatFirstPage} disabled={!admin}
+        onChange={e => setSpace({ ...space, repeatFirstPage: e.target.checked })} /> Repeat page 1 of the letterhead on every page (when it has only one page)</label>
+      {admin && <div className="actions"><button disabled={busy} onClick={() => run(() => api.letterheadSpace(space), 'Saved.')}>Save</button></div>}
 
       <h3>Check how it looks</h3>
       <div className="actions">

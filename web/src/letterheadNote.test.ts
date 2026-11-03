@@ -4,7 +4,7 @@ import type { Letterhead } from './api';
 
 const file = { sha256: 'a', fileName: 'x', sizeBytes: 1, uploadedBy: 'Carol', uploadedAt: '' };
 const lh = (word: boolean, pdf: boolean): Letterhead =>
-  ({ word: word ? file : null, pdf: pdf ? file : null, pdfTopFirstMm: 55, pdfTopNextMm: 25, pdfBottomMm: 30, pdfSideMm: 25 });
+  ({ word: word ? file : null, pdf: pdf ? file : null, pdfTopFirstMm: 55, pdfTopNextMm: 25, pdfBottomMm: 30, pdfSideMm: 25, pdfRepeatFirstPage: false });
 
 describe('letterheadNote', () => {
   it('says why a dictation that is not a letter is plain', () => {

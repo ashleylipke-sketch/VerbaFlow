@@ -11,7 +11,7 @@ public sealed record LetterheadFile(string Sha256, string FileName, long SizeByt
 /// </summary>
 public sealed record Letterhead(Guid Id, LetterheadFile? Word, LetterheadFile? Pdf,
     int PdfTopFirstMm = Letterhead.DefaultTopFirstMm, int PdfTopNextMm = Letterhead.DefaultTopNextMm,
-    int PdfBottomMm = Letterhead.DefaultBottomMm, int PdfSideMm = Letterhead.DefaultSideMm)
+    int PdfBottomMm = Letterhead.DefaultBottomMm, int PdfSideMm = Letterhead.DefaultSideMm, bool PdfRepeatFirstPage = false)
 {
     public static readonly Guid SingleId = new("00000000-0000-0000-0000-00000000a001");
     public const int DefaultTopFirstMm = 55, DefaultTopNextMm = 25, DefaultBottomMm = 30, DefaultSideMm = 25;

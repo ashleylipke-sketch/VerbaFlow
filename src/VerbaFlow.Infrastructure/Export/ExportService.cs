@@ -206,7 +206,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             bytes = format == ExportFormats.Word
                 ? LetterWriter.Word(letter, await letterheads.ReadAsync(Services.LetterheadService.Word))
                 : LetterWriter.Pdf(letter, await letterheads.ReadAsync(Services.LetterheadService.Pdf),
-                    new LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm));
+                    new LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm, l.PdfRepeatFirstPage));
         }
         else bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
         // Recorded in History: who signed the PDF, or why it went out unsigned.

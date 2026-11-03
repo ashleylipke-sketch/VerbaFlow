@@ -136,6 +136,25 @@ public class LetterheadTests
         Assert.NotNull(xobjects); // the letterhead page, drawn as a form
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_one_page_pdf_letterhead_is_on_the_first_page_only_unless_set_to_repeat(bool repeat)
+    {
+        var onePage = new PdfDocument();
+        var lp = onePage.AddPage();
+        using (var g = XGraphics.FromPdfPage(lp)) g.DrawRectangle(XBrushes.SteelBlue, 0, 0, 200, 80);
+        var ms = new MemoryStream();
+        onePage.Save(ms, false);
+        var letter = new LetterDocument("Long", "1 November 2026", null, null,
+            Enumerable.Repeat("A long paragraph that fills the page so the letter runs onto a second page and shows what happens there.", 60).ToList());
+        var pdf = LetterWriter.Pdf(letter, ms.ToArray(), new LetterSpace(55, 25, 30, 25, repeat));
+        using var read = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
+        Assert.True(read.PageCount >= 2);
+        Assert.NotNull(read.Pages[0].Resources.Elements.GetDictionary("/XObject"));
+        Assert.Equal(repeat, read.Pages[1].Resources.Elements.GetDictionary("/XObject") is not null);
+    }
+
     [Fact]
     public async Task Only_administrators_change_the_letterhead_and_bad_files_are_refused_in_plain_words()
     {

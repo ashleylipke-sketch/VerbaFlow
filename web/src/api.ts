@@ -37,7 +37,7 @@ export type Transcript = {
 export type Outputs = { engine: string; language: string; summary: string; actionPoints: string[]; minutes: string; toneOfMeeting: string };
 export type LetterheadFile = { sha256: string; fileName: string; sizeBytes: number; uploadedBy: string; uploadedAt: string };
 export type SignOff = { on: boolean; closing: string; name: string; title: string | null; hasPicture: boolean; picture: string | null };
-export type Letterhead = { word: LetterheadFile | null; pdf: LetterheadFile | null; pdfTopFirstMm: number; pdfTopNextMm: number; pdfBottomMm: number; pdfSideMm: number };
+export type Letterhead = { word: LetterheadFile | null; pdf: LetterheadFile | null; pdfTopFirstMm: number; pdfTopNextMm: number; pdfBottomMm: number; pdfSideMm: number; pdfRepeatFirstPage: boolean };
 export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean };
 export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
 export type AuditEvent = { seq: number; at: string; actorId: string | null; capacity: string; type: string; details: string; hash: string };
@@ -143,7 +143,7 @@ export const api = {
     if (!res.ok) throw new Error('The signature picture could not be loaded.');
     return res.blob();
   },
-  letterheadSpace: (s: { topFirstMm: number; topNextMm: number; bottomMm: number; sideMm: number }) => call<Letterhead>('PUT', '/letterhead/space', s),
+  letterheadSpace: (s: { topFirstMm: number; topNextMm: number; bottomMm: number; sideMm: number; repeatFirstPage: boolean }) => call<Letterhead>('PUT', '/letterhead/space', s),
   /** A file from the letterhead area (the stored letterhead, or a sample letter on it). */
   async letterheadFile(path: string): Promise<Blob> {
     const res = await fetch(`/api/letterhead/${path}`, { headers: await authHeaders() });

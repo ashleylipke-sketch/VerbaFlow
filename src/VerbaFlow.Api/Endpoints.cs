@@ -37,7 +37,7 @@ public static class Endpoints
     public sealed record NameBody(string Name);
     public sealed record TermBody(string Text, string? Note);
     public sealed record SavedTextBody(string? Code, string? Text);
-    public sealed record LetterSpaceBody(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm);
+    public sealed record LetterSpaceBody(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm, bool? RepeatFirstPage = null);
     public sealed record SignOffBody(bool On, string? Closing, string? Name, string? Title);
     private static object SignOffView(SignOff s) =>
         new { s.On, s.Closing, s.Name, s.Title, hasPicture = s.PictureSha256 is not null, picture = s.PictureSha256?[..12] };
@@ -131,7 +131,7 @@ public static class Endpoints
             return Results.File(bytes, mine.PictureType == "png" ? "image/png" : "image/jpeg");
         });
         api.MapPut("/letterhead/space", async (HttpContext h, LetterheadService l, LetterSpaceBody b) =>
-            Results.Ok(await l.SetPdfSpaceAsync(h.Current(), b.TopFirstMm, b.TopNextMm, b.BottomMm, b.SideMm)));
+            Results.Ok(await l.SetPdfSpaceAsync(h.Current(), b.TopFirstMm, b.TopNextMm, b.BottomMm, b.SideMm, b.RepeatFirstPage)));
 
         api.MapGet("/items", (HttpContext h, MeetingService s, string? statuses, bool? selfAssigned, string? search, string? mode) =>
         {

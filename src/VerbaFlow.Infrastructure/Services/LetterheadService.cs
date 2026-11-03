@@ -69,16 +69,18 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
     }
 
     /// <summary>How far the letter's text keeps from the edges of a PDF letterhead page, in millimetres.</summary>
-    public async Task<Letterhead> SetPdfSpaceAsync(User actor, int topFirst, int topNext, int bottom, int sides)
+    public async Task<Letterhead> SetPdfSpaceAsync(User actor, int topFirst, int topNext, int bottom, int sides, bool? repeatFirstPage = null)
     {
         RequireAdmin(actor);
         foreach (var (v, what) in new[] { (topFirst, "top of the first page"), (topNext, "top of the pages after"), (bottom, "bottom"), (sides, "sides") })
             if (v < MinSpaceMm || v > MaxSpaceMm) throw new DomainException($"The space at the {what} must be between {MinSpaceMm} and {MaxSpaceMm} mm.");
         if (sides * 2 > 150) throw new DomainException("The spaces at the sides leave no room for the text. Make them smaller.");
         var current = await GetAsync();
-        var next = current with { PdfTopFirstMm = topFirst, PdfTopNextMm = topNext, PdfBottomMm = bottom, PdfSideMm = sides };
+        var next = current with { PdfTopFirstMm = topFirst, PdfTopNextMm = topNext, PdfBottomMm = bottom, PdfSideMm = sides,
+            PdfRepeatFirstPage = repeatFirstPage ?? current.PdfRepeatFirstPage };
         await stores.Letterhead.UpsertAsync(next.Id, next);
-        await Audit(actor, "letterhead.spacing-changed", ("topFirstMm", topFirst), ("topNextMm", topNext), ("bottomMm", bottom), ("sidesMm", sides));
+        await Audit(actor, "letterhead.spacing-changed", ("topFirstMm", topFirst), ("topNextMm", topNext), ("bottomMm", bottom), ("sidesMm", sides),
+            ("repeatFirstPage", next.PdfRepeatFirstPage));
         return next;
     }
 
@@ -106,7 +108,7 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
             }
         }
         return format == Word ? Export.LetterWriter.Word(letter, await ReadAsync(Word))
-            : Export.LetterWriter.Pdf(letter, await ReadAsync(Pdf), new Export.LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm));
+            : Export.LetterWriter.Pdf(letter, await ReadAsync(Pdf), new Export.LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm, l.PdfRepeatFirstPage));
     }
 
     private string PathFor(string sha, string kind) => Path.Combine(stores.LetterheadRoot, sha + (kind == Word ? ".docx" : ".pdf"));

@@ -1,0 +1,62 @@
+# Builds the VerbaFlow iPhone app and keyboard on a Mac at GitHub, and runs the shared code's tests.
+# With "Send to TestFlight" ticked (Actions, iPhone app, Run workflow) and the Apple secrets set (docs/widget-iphone.md),
+# it also signs the app and sends it to TestFlight, so it can be installed on an iPhone.
+name: iPhone app
+on:
+  push:
+    paths: ['widget/iphone/**', '.github/workflows/iphone.yml']
+  workflow_dispatch:
+    inputs:
+      testflight:
+        description: Send to TestFlight
+        type: boolean
+        default: false
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: widget/iphone
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests of the shared code
+        run: swift test --package-path Shared
+      - name: Make the Xcode project
+        run: brew install xcodegen && xcodegen generate
+      - name: Build for the simulator (no signing)
+        run: |
+          xcodebuild -project VerbaFlow.xcodeproj -scheme VerbaFlow -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build | tail -n 60; exit ${PIPESTATUS[0]}
+      - name: Sign and send to TestFlight
+        if: ${{ inputs.testflight }}
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.APP_STORE_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_ISSUER_ID }}
+          KEY_P8: ${{ secrets.APP_STORE_KEY_P8 }}
+        run: |
+          if [ -z "$TEAM_ID" ] || [ -z "$KEY_ID" ] || [ -z "$ISSUER_ID" ] || [ -z "$KEY_P8" ]; then
+            echo "::error::The Apple secrets are not set yet. See docs/widget-iphone.md, step 3."; exit 1
+          fi
+          KEY_PATH="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
+          printf '%s' "$KEY_P8" > "$KEY_PATH"
+          AUTH="-allowProvisioningUpdates -authenticationKeyPath $KEY_PATH -authenticationKeyID $KEY_ID -authenticationKeyIssuerID $ISSUER_ID"
+          xcodebuild -project VerbaFlow.xcodeproj -scheme VerbaFlow -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/VerbaFlow.xcarchive" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="${{ github.run_number }}" $AUTH archive | tail -n 60
+          test ${PIPESTATUS[0]} -eq 0
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/VerbaFlow.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/export.plist" \
+            -exportPath "$RUNNER_TEMP/export" $AUTH
+          rm -f "$KEY_PATH"

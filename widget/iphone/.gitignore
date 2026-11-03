@@ -1,0 +1,8 @@
+VerbaFlow.xcodeproj/
+App/Info.plist
+Keyboard/Info.plist
+App/VerbaFlow.entitlements
+Keyboard/Keyboard.entitlements
+build/
+.build/
+*.xcarchive

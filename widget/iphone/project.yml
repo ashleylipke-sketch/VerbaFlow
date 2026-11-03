@@ -1,0 +1,85 @@
+# The VerbaFlow iPhone and iPad app and its keyboard. XcodeGen turns this into VerbaFlow.xcodeproj
+# (GitHub does that on a Mac: see .github/workflows/iphone.yml). The bundle ID and App Group are set here only.
+name: VerbaFlow
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Automatic
+packages:
+  VerbaFlowShared:
+    path: Shared
+targets:
+  VerbaFlow:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - package: VerbaFlowShared
+      - target: Keyboard
+        embed: true
+        codeSign: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.verbaflow.speak
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleDisplayName: VerbaFlow
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: VerbaFlow
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
+        NSMicrophoneUsageDescription: VerbaFlow listens while you dictate with the VerbaFlow keyboard, and sends the sound to your organisation's VerbaFlow to be turned into text.
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        CFBundleURLTypes:
+          - CFBundleURLName: VerbaFlow
+            CFBundleURLSchemes: [verbaflow, msauth.net.verbaflow.speak]
+        VFAppGroup: group.net.verbaflow.speak
+    entitlements:
+      path: App/VerbaFlow.entitlements
+      properties:
+        com.apple.security.application-groups: [group.net.verbaflow.speak]
+  Keyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Keyboard
+    dependencies:
+      - package: VerbaFlowShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.verbaflow.speak.keyboard
+        PRODUCT_NAME: VerbaFlowKeyboard
+        TARGETED_DEVICE_FAMILY: "1,2"
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: Keyboard/Info.plist
+      properties:
+        CFBundleDisplayName: VerbaFlow
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        VFAppGroup: group.net.verbaflow.speak
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: en-GB
+            RequestsOpenAccess: true
+    entitlements:
+      path: Keyboard/Keyboard.entitlements
+      properties:
+        com.apple.security.application-groups: [group.net.verbaflow.speak]

@@ -153,6 +153,12 @@ public class LetterheadTests
         Assert.True(read.PageCount >= 2);
         Assert.NotNull(read.Pages[0].Resources.Elements.GetDictionary("/XObject"));
         Assert.Equal(repeat, read.Pages[1].Resources.Elements.GetDictionary("/XObject") is not null);
+        if (repeat) // later pages keep the first page's space, so the text stays clear of the repeated letterhead
+        {
+            var plain = LetterWriter.Pdf(letter, ms.ToArray(), new LetterSpace(55, 25, 30, 25, false));
+            using var r2 = PdfReader.Open(new MemoryStream(plain), PdfDocumentOpenMode.Import);
+            Assert.True(read.PageCount >= r2.PageCount); // more room kept at the top of each page
+        }
     }
 
     [Fact]

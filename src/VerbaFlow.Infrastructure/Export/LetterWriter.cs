@@ -208,11 +208,14 @@ public static class LetterWriter
             form.PageNumber = 1;
             section.PageSetup.PageWidth = Unit.FromPoint(form.PointWidth);
             section.PageSetup.PageHeight = Unit.FromPoint(form.PointHeight);
-            section.PageSetup.TopMargin = Unit.FromMillimeter(space.TopNextMm);
+            // A one-page letterhead repeated on every page needs the first page's space at the top of every page.
+            var sameOnEveryPage = space.RepeatFirstPage && form.PageCount < 2;
+            var topNext = sameOnEveryPage ? Math.Max(space.TopFirstMm, space.TopNextMm) : space.TopNextMm;
+            section.PageSetup.TopMargin = Unit.FromMillimeter(topNext);
             section.PageSetup.BottomMargin = Unit.FromMillimeter(space.BottomMm);
             section.PageSetup.LeftMargin = section.PageSetup.RightMargin = Unit.FromMillimeter(space.SideMm);
             // The first page usually has more printed at the top (the logo and address): start the letter lower there.
-            var extra = space.TopFirstMm - space.TopNextMm;
+            var extra = space.TopFirstMm - topNext;
             if (extra > 0)
             {
                 var spacer = section.AddParagraph();

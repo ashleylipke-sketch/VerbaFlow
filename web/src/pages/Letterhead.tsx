@@ -87,7 +87,7 @@ export default function LetterheadPage() {
         {mm('sideMm', 'Space at each side')}
       </div>
       <label className="row"><input type="checkbox" checked={space.repeatFirstPage} disabled={!admin}
-        onChange={e => setSpace({ ...space, repeatFirstPage: e.target.checked })} /> Repeat page 1 of the letterhead on every page (when it has only one page)</label>
+        onChange={e => setSpace({ ...space, repeatFirstPage: e.target.checked })} /> Repeat page 1 of the letterhead on every page (when it has only one page; every page then keeps the space at the top of page 1)</label>
       {admin && <div className="actions"><button disabled={busy} onClick={() => run(() => api.letterheadSpace(space), 'Saved.')}>Save</button></div>}
 
       <h3>Check how it looks</h3>

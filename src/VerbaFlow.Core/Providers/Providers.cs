@@ -77,6 +77,15 @@ public interface ISpeakerDiarizer
     Task<IReadOnlyList<SpeakerTurn>> DiarizeAsync(Stream audio, int? numSpeakers, string? method, CancellationToken ct);
 }
 
+/// <summary>
+/// Voice fingerprints for chosen stretches of a recording, to compare a stretch with a known person's voice sample.
+/// One result per stretch, in order; null where the stretch was too short or unclear to fingerprint.
+/// </summary>
+public interface IVoicePrints
+{
+    Task<IReadOnlyList<float[]?>> PrintsAsync(Stream audio, IReadOnlyList<(int StartMs, int EndMs)> stretches, CancellationToken ct);
+}
+
 public sealed record EmailAttachment(string FileName, string ContentType, byte[] Content);
 
 /// <param name="To">Recipient addresses, already checked.</param>

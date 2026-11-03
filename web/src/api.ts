@@ -18,6 +18,8 @@ export type Detail = {
   video: boolean; attendees: string[] | null;
   /** Set when the retention rules removed the sound or video (the text is kept): a plain sentence saying when. */
   recordingRemoved: string | null;
+  /** In-room meetings: the people who said their name at the start, in order. */
+  introduced: string[] | null;
 };
 export type NoteTakerRow = { id: string; name: string; platform: string; joinAt: string; state: string; stateLabel: string; failureReason: string | null;
   itemId: string | null; bookedBy: string; alsoFor: string[]; youBookedFirst: boolean; youAsked: boolean; canCancel: boolean; createdAt: string;

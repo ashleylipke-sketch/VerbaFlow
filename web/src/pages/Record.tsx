@@ -5,6 +5,8 @@ import LanguagePicker from '../LanguagePicker';
 import DocumentTypePicker, { type DocType } from '../DocumentType';
 import { summaryLanguage } from '../languages';
 
+/** One person saying their name at the start of a meeting, on the recording's clock (pauses left out). */
+type Intro = { name: string; startMs: number; endMs: number | null };
 type Marker = { type: 'Objection' | 'Pause' | 'Resume'; offsetMs: number; note: string | null };
 
 export default function Record({ mode }: { mode: Mode }) {
@@ -25,6 +27,9 @@ export default function Record({ mode }: { mode: Mode }) {
   const [speakers, setSpeakers] = useState('');
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [withIntros, setWithIntros] = useState(false);
+  const [intros, setIntros] = useState<Intro[]>([]);
+  const [introsDone, setIntrosDone] = useState(false);
   const rec = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const blob = useRef<Blob | null>(null);
@@ -71,7 +76,7 @@ export default function Record({ mode }: { mode: Mode }) {
       const r = new MediaRecorder(s); rec.current = r; chunks.current = [];
       r.ondataavailable = e => e.data.size && chunks.current.push(e.data);
       r.onstop = () => { blob.current = new Blob(chunks.current, { type: r.mimeType || 'audio/webm' }); };
-      r.start(1000); activeMs.current = 0; setElapsed(0); setMarkers([]); setState('recording');
+      r.start(1000); activeMs.current = 0; setElapsed(0); setMarkers([]); setIntros([]); setIntrosDone(false); setState('recording');
     } catch (e: any) { setError(e?.name === 'NotAllowedError' ? 'VerbaFlow does not have permission to use the microphone. Allow it in your browser, then try again.' : 'The microphone could not be started. Check that one is connected and not in use by another app, then try again.'); }
   };
 
@@ -85,7 +90,13 @@ export default function Record({ mode }: { mode: Mode }) {
   // A dictation pauses freely: there is no one else in the room, so no reason is asked for or recorded.
   const pauseDictation = () => { rec.current?.pause(); paused.current = true; setState('paused'); };
   const resume = () => { if (!dictate) setMarkers(m => [...m, { type: 'Resume', offsetMs: at(), note: null }]); rec.current?.resume(); paused.current = false; setState('recording'); };
+  // Introductions: the recorder presses Next person just before each one speaks; the previous person's sample ends there.
+  const closeIntro = (list: Intro[], ms: number) => list.map((x, i) => i === list.length - 1 && x.endMs === null ? { ...x, endMs: ms } : x);
+  const nextPerson = () => { const ms = at(); setIntros(l => [...closeIntro(l, ms), { name: '', startMs: ms, endMs: null }]); };
+  const finishIntros = () => { const ms = at(); setIntros(l => closeIntro(l, ms)); setIntrosDone(true); };
+  const nameIntro = (i: number, name: string) => setIntros(l => l.map((x, j) => j === i ? { ...x, name } : x));
   const stop = () => {
+    if (withIntros && !introsDone) finishIntros();
     rec.current?.stop(); stream.current?.getTracks().forEach(t => t.stop()); cancelAnimationFrame(raf.current); setQuiet(false); setState('stopped');
   };
 
@@ -102,10 +113,13 @@ export default function Record({ mode }: { mode: Mode }) {
   /** Throws the recording away without uploading anything, and returns to the start. */
   const discard = () => {
     blob.current = null; chunks.current = []; activeMs.current = 0;
-    setPreviewUrl(''); setMarkers([]); setElapsed(0); setConfirmDiscard(false); setError(''); setState('idle');
+    setPreviewUrl(''); setMarkers([]); setIntros([]); setIntrosDone(false); setElapsed(0); setConfirmDiscard(false); setError(''); setState('idle');
   };
 
+  const introsToSend = withIntros ? intros.filter(x => x.endMs !== null && x.endMs > x.startMs) : [];
+  const unnamed = introsToSend.some(x => !x.name.trim());
   const save = async () => {
+    if (unnamed) { setError('Type the name of every person who introduced themselves, then save.'); return; }
     setBusy(true); setError('');
     try {
       await new Promise(r => setTimeout(r, 100));
@@ -114,7 +128,8 @@ export default function Record({ mode }: { mode: Mode }) {
       f.append('name', name || `${dictate ? 'Dictation' : 'Meeting'} ${new Date().toLocaleString('en-GB')}`);
       f.append('mode', mode); if (dictate) f.append('documentType', docType); if (clientRef.trim()) f.append('clientReference', clientRef.trim());
       f.append('lengthMs', String(Math.max(1, Math.round(activeMs.current))));
-      f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken); if (speakers) f.append('numSpeakers', speakers); f.append('consentNoticeGiven', String(consent)); f.append('markers', JSON.stringify(markers));
+      f.append('language', summaryLanguage(spoken)); f.append('spokenLanguages', spoken); if (speakers && !withIntros) f.append('numSpeakers', speakers);
+      if (introsToSend.length > 0) f.append('introductions', JSON.stringify(introsToSend.map(x => ({ name: x.name.trim(), startMs: Math.round(x.startMs), endMs: Math.round(x.endMs!) })))); f.append('consentNoticeGiven', String(consent)); f.append('markers', JSON.stringify(markers));
       const { id } = await api.form('/items/recordings', f);
       location.hash = `#/items/${id}`;
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
@@ -140,10 +155,12 @@ export default function Record({ mode }: { mode: Mode }) {
         <div className="pair"><div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Board meeting" /></label></div>
           <div className="field"><label>Client reference (optional)<br /><input value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="e.g. ACME-042" /></label></div></div>
         <LanguagePicker value={spoken} onChange={setSpoken} />
-        <div className="field"><label>Number of speakers (optional)<br />
+        <label className="row"><input type="checkbox" checked={withIntros} onChange={e => setWithIntros(e.target.checked)} />
+          <span><strong>Start with introductions.</strong> Each person says their name, one at a time, at the start. Their voices are then used to put the right words with the right person, and to name them.</span></label>
+        {!withIntros && <div className="field"><label>Number of speakers (optional)<br />
           <select value={speakers} onChange={e => setSpeakers(e.target.value)}>
             <option value="">Not sure</option>{[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
-          <div className="note">If you know how many people will speak, say so. It helps the app tell them apart.</div></div>
+          <div className="note">If you know how many people will speak, say so. It helps the app tell them apart.</div></div>}
       </>}
       {state === 'idle' && <button className="primary" disabled={dictate ? !!dictateNeeds : !consent} onClick={start}>{dictate ? 'Start dictating' : 'Start recording'}</button>}
       {state === 'idle' && dictate && dictateNeeds && <p className="need">{dictateNeeds}</p>}
@@ -159,6 +176,19 @@ export default function Record({ mode }: { mode: Mode }) {
             : <><button onClick={() => setPausing(true)} disabled={pausing}>Pause</button><button onClick={objection}>Log objection</button><button className="danger" onClick={stop}>Stop</button></>)}
           {state === 'paused' && <><button className="primary" onClick={resume}>Resume</button><button className="danger" onClick={stop}>Stop</button></>}
         </div>
+        {withIntros && state !== 'stopped' && !introsDone && <div className="intro-panel" role="group" aria-label="Introductions">
+          <strong>Introductions</strong>
+          <p className="note">Ask each person, one at a time, to say their name and their role (a few seconds each, with nobody else talking). Press <b>{intros.length ? 'Next person' : 'First person'}</b> just before each one starts, then type their name. Everyone who will speak should take a turn.</p>
+          {intros.length > 0 && <ol>{intros.map((x, i) => <li key={i}><span className="note">{fmtLen(x.startMs)}</span>{' '}
+            <input aria-label={`Name of person ${i + 1}`} value={x.name} autoFocus={i === intros.length - 1} placeholder="Name" maxLength={80}
+              onChange={e => nameIntro(i, e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} /></li>)}</ol>}
+          <div className="actions"><button className="primary" disabled={state !== 'recording'} onClick={nextPerson}>{intros.length ? 'Next person' : 'First person'}</button>
+            <button disabled={intros.length < 2} onClick={finishIntros}>Introductions finished</button></div>
+          {intros.length === 1 && <div className="note">At least two people need to introduce themselves.</div>}
+        </div>}
+        {withIntros && introsDone && introsToSend.length > 0 && <div className="note">
+          Introduced: {introsToSend.map((x, i) => <span key={i}>{i > 0 && ', '}<input className="inline-name" aria-label={`Name of person ${i + 1}`} value={x.name} placeholder="Name" maxLength={80} onChange={e => nameIntro(intros.indexOf(x), e.target.value)} /></span>)}
+        </div>}
         {pausing && <div className="field"><label>Why are you pausing? (required, kept in the record)<br />
           <input autoFocus value={reason} onChange={e => setReason(e.target.value)} onKeyDown={e => e.key === 'Enter' && confirmPause()} /></label>
           <div className="actions"><button className="primary" disabled={!reason.trim()} onClick={confirmPause}>Pause recording</button><button onClick={() => setPausing(false)}>Cancel</button></div></div>}

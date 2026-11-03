@@ -19,7 +19,7 @@ public sealed record DiarizationOptions(string ModelFolder, string? FfmpegPath, 
 /// Finds who spoke when, locally, with no cloud service. Uses two small open models (Pyannote segmentation 3.0 and
 /// NeMo TitaNet-small) run through sherpa-onnx. The models are downloaded once, checked against fixed checksums, and cached.
 /// </summary>
-public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient http) : ISpeakerDiarizer, IDisposable
+public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient http) : ISpeakerDiarizer, IVoicePrints, IDisposable
 {
     public string Name => "sherpa-onnx:pyannote-3.0+" + options.EmbeddingModel;
 
@@ -117,6 +117,35 @@ public sealed class SherpaSpeakerDiarizer(DiarizationOptions options, HttpClient
                 var turns = (IReadOnlyList<SpeakerTurn>)engine.Process(samples)
                     .Select(s => new SpeakerTurn((int)(s.Start * 1000), (int)(s.End * 1000), s.Speaker)).ToList();
                 return windowed ? GroupByWindows(samples, turns, numSpeakers) : turns;
+            }
+            finally { gate.Release(); }
+        }, ct);
+    }
+
+    /// <summary>Fingerprints each stretch of the recording on its own (used to compare sentences with the introductions).</summary>
+    public async Task<IReadOnlyList<float[]?>> PrintsAsync(Stream audio, IReadOnlyList<(int StartMs, int EndMs)> stretches, CancellationToken ct)
+    {
+        await EnsureModelsAsync(ct);
+        var samples = await DecodeAsync(audio, ct);
+        return await Task.Run(async () =>
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                var cfg = new SpeakerEmbeddingExtractorConfig { Model = Path.Combine(options.ModelFolder, Embedding(options.EmbeddingModel).File), NumThreads = 2 };
+                using var extractor = new SpeakerEmbeddingExtractor(cfg);
+                var prints = new List<float[]?>(stretches.Count);
+                foreach (var (start, end) in stretches)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var from = Math.Clamp((int)((long)start * 16), 0, samples.Length); var to = Math.Clamp((int)((long)end * 16), from, samples.Length);
+                    if (to - from < 8000) { prints.Add(null); continue; } // under half a second says too little about a voice
+                    using var stream = extractor.CreateStream();
+                    stream.AcceptWaveform(16000, samples[from..to]);
+                    stream.InputFinished();
+                    prints.Add(extractor.IsReady(stream) ? extractor.Compute(stream) : null);
+                }
+                return (IReadOnlyList<float[]?>)prints;
             }
             finally { gate.Release(); }
         }, ct);

@@ -8,7 +8,8 @@ public sealed record MarkerInput(MarkerType Type, int OffsetMs, string? Note);
 
 public sealed record RecordingUpload(Stream Audio, string FileName, string ContentType, string Name, int LengthMs,
     string OutputLanguage, bool ConsentNoticeGiven, IReadOnlyList<MarkerInput> Markers, string? SpokenLanguages = null, int? NumSpeakers = null,
-    ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null, LiveUpload? Live = null);
+    ItemMode Mode = ItemMode.Meeting, string? ClientReference = null, string? DocumentType = null, LiveUpload? Live = null,
+    IReadOnlyList<Introduction>? Introductions = null);
 
 /// <summary>
 /// Speech mode: the text heard live (null when the live session had already ended, for example after a restart) and how
@@ -55,7 +56,7 @@ public sealed record ItemDetail(
     string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en",
     DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null, bool CanExport = false,
     string Mode = "Meeting", string? DocumentType = null, string? ClientReference = null, bool Video = false, IReadOnlyList<string>? Attendees = null,
-    string? RecordingRemoved = null);
+    string? RecordingRemoved = null, IReadOnlyList<string>? Introduced = null);
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 

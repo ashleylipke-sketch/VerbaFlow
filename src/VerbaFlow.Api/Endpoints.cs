@@ -160,7 +160,8 @@ public static class Endpoints
                 f["name"].ToString(), int.TryParse(f["lengthMs"], out var l) ? l : 0,
                 string.IsNullOrEmpty(f["language"]) ? "en" : f["language"].ToString(),
                 f["consentNoticeGiven"] == "true", markers, f["spokenLanguages"].ToString(), int.TryParse(f["numSpeakers"], out var ns1) ? ns1 : null,
-                ModeOf(f["mode"]), f["clientReference"].ToString(), f["documentType"].ToString(), heard), ct);
+                ModeOf(f["mode"]), f["clientReference"].ToString(), f["documentType"].ToString(), heard,
+                string.IsNullOrWhiteSpace(f["introductions"]) ? null : JsonSerializer.Deserialize<List<Introduction>>(f["introductions"].ToString(), Web)), ct);
             return Results.Ok(new { id });
         }).DisableAntiforgery();
 

@@ -2,6 +2,9 @@ using System.Text.Json.Serialization;
 
 namespace VerbaFlow.Core.Domain;
 
+/// <summary>One person saying their name at the start of a meeting, on the recording's clock.</summary>
+public sealed record Introduction(string Name, int StartMs, int EndMs);
+
 public sealed class TimelineMarker
 {
     public MarkerType Type { get; init; }
@@ -92,6 +95,24 @@ public sealed class Item
     [JsonInclude] public List<TimelineMarker> Markers { get; private set; } = [];
     /// <summary>Online meetings: colleagues who also asked the note-taker to record this meeting. One note-taker joined for all of them.</summary>
     [JsonInclude] public List<Guid> Attendees { get; private set; } = [];
+    /// <summary>
+    /// In-room meetings: each person said their name at the start, one at a time, and the recorder marked when. Those
+    /// stretches are voice samples: they name the speakers and help put each part of the meeting with the right person.
+    /// </summary>
+    [JsonInclude] public List<Introduction> Introductions { get; private set; } = [];
+    /// <summary>The people introduced, by name, in the order they first spoke (the same name twice is one person).</summary>
+    [JsonIgnore] public IReadOnlyList<string> IntroducedPeople =>
+        Introductions.Select(i => i.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    public void SetIntroductions(IEnumerable<Introduction> intros)
+    {
+        var list = intros.Select(i => i with { Name = (i.Name ?? "").Trim() }).OrderBy(i => i.StartMs).ToList();
+        if (list.Count == 0) { Introductions = []; return; }
+        if (list.Any(i => i.Name.Length == 0)) throw new DomainException("Give every person who introduced themselves a name.");
+        if (list.Any(i => i.Name.Length > 80)) throw new DomainException("A name can be at most 80 characters.");
+        if (list.Count > 40) throw new DomainException("There can be at most 40 introductions.");
+        if (list.Any(i => i.StartMs < 0 || i.EndMs <= i.StartMs)) throw new DomainException("An introduction has no length. Record the introductions again.");
+        Introductions = list;
+    }
 
     /// <summary>The status where the author/importer reviews and approves.</summary>
     /// <remarks>An imported dictation (from a dictaphone, say) is still the author's own: it goes to With Author.</remarks>
@@ -317,6 +338,7 @@ public sealed class Item
         next.DueDate = DueDate;
         next.Markers = [.. Markers];
         next.Attendees = [.. Attendees];
+        next.Introductions = [.. Introductions];
         next.ObjectionFlag = ObjectionFlag;
         next.Processing = ProcessingState.Idle;
         return next;

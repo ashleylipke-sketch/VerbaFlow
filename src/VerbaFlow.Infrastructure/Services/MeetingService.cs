@@ -39,7 +39,10 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
         if (!dictation)
         {
-            ApplySpeakerCount(item, up.NumSpeakers);
+            item.SetIntroductions(up.Introductions ?? []);
+            // Introductions say how many people there are, unless the recorder gave a count as well.
+            var people = item.IntroducedPeople.Count;
+            ApplySpeakerCount(item, up.NumSpeakers ?? (people >= 2 ? Math.Min(people, 20) : null));
             item.AddMarker(new TimelineMarker { Type = MarkerType.ConsentNotice, OffsetMs = 0, Note = "Notice given before recording", ActorId = actor.Id, At = now });
             foreach (var m in up.Markers.OrderBy(m => m.OffsetMs))
                 item.AddMarker(new TimelineMarker { Type = m.Type, OffsetMs = m.OffsetMs, Note = m.Note, ActorId = actor.Id, At = now });
@@ -51,7 +54,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (live is not null) await stores.LiveText.UpsertAsync(id, live);
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, "author", id, "item.created", ("source", "Recorded in app"), ("sha256", asset.Sha256),
-            ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs), ("mode", up.Mode.ToString()), ("consentNoticeConfirmed", dictation ? null : true));
+            ("sizeBytes", asset.SizeBytes), ("lengthMs", up.LengthMs), ("mode", up.Mode.ToString()), ("consentNoticeConfirmed", dictation ? null : true),
+            ("introductions", item.Introductions.Count == 0 ? null : item.Introductions.Count));
         if (up.Mode == ItemMode.Speech) await AuditLiveAsync(actor, id, live, up.Live, up.LengthMs);
         foreach (var m in item.Markers.Where(m => m.Type is MarkerType.Objection or MarkerType.Pause))
             await Audit(actor, "author", id, m.Type == MarkerType.Objection ? "recording.objection_logged" : "recording.paused",
@@ -844,7 +848,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             item.DeletedAt, item.DeletedBy is { } db ? (db == RetentionActor ? "the retention rules" : users.GetValueOrDefault(db)?.Name) : null, item.DeleteReason,
             item.Status != ItemStatus.Purged && PermissionEvaluator.Evaluate(actor, item, Capability.Export).Allowed,
             item.Mode.ToString(), item.DocumentType, item.ClientReference, asset?.ContentType.StartsWith("video/") == true,
-            item.Attendees.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), removed);
+            item.Attendees.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), removed,
+            item.IntroducedPeople.Count == 0 ? null : item.IntroducedPeople);
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)

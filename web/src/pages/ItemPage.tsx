@@ -204,6 +204,7 @@ export default function ItemPage({ id }: { id: string }) {
           <span className="pill">{r.status}</span> · {fmtLen(r.lengthMs)} · Owner {d.owner} · You are: {d.role} · Created {fmtDate(r.createdOn)}
           {r.assignedTo && <> · Assigned to {r.assignedTo}</>}
           {d.attendees && d.attendees.length > 0 && <> · Also for {d.attendees.join(', ')}</>}
+          {d.introduced && <> · Introduced at the start: {d.introduced.join(', ')}</>}
           {d.approvedAt && <> · Approved by {d.approvedBy} on {fmtDate(d.approvedAt)}</>}
         </div>
         {d.deletedAt && <div className="banner">This recording was deleted by {d.deletedBy} on {fmtDate(d.deletedAt)}. Reason: {d.deleteReason}. Its audio, transcript and summary have been removed; the history below is kept.</div>}

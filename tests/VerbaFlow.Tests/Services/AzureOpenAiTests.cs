@@ -178,6 +178,25 @@ public class AzureOpenAiTests
     }
 
     [Fact]
+    public async Task Renaming_a_speaker_changes_the_name_in_the_summary_action_points_and_minutes()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        var old = t.Speakers[0].Name;
+        await env.Stores.Outputs.UpsertAsync(id, new VerbaFlow.Infrastructure.Services.StoredOutputs(id, new VerbaFlow.Core.Providers.AiOutputs("ai", "en",
+            $"{old} opened. Not {old}2.", [$"{old.ToUpperInvariant()}: Resend the invite", "Someone else: share it"],
+            $"{old}'s update was brief.", $"{old} was upbeat.")));
+        await env.Meeting.RenameSpeakerAsync(env.Alice, id, t.Speakers[0].Id, "Brad Melfi");
+        var o = (await env.Meeting.GetOutputsAsync(env.Alice, id))!;
+        Assert.Equal($"Brad Melfi opened. Not {old}2.", o.Summary);
+        Assert.Equal(["Brad Melfi: Resend the invite", "Someone else: share it"], o.ActionPoints);
+        Assert.Equal("Brad Melfi's update was brief.", o.Minutes);
+        Assert.Equal("Brad Melfi was upbeat.", o.ToneOfMeeting);
+        Assert.Contains("\"changedInSummaryAndMinutes\":4", (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "transcript.speaker_renamed").Details);
+    }
+
+    [Fact]
     public async Task Regenerating_can_rescue_an_item_whose_first_summary_failed()
     {
         using var env = new Env();

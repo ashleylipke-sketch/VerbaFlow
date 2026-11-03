@@ -634,9 +634,10 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var r = t.ReplaceEverywhere(from ?? "", to ?? "", actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
         if (r is null) return (0, 0);
         await stores.Transcripts.UpsertAsync(id, t);
+        var inOutputs = await ReplaceInOutputsAsync(id, from ?? "", (to ?? "").Trim());
         await Audit(actor, r.Value.Version.Capacity, id, "transcript.replaced_everywhere", ("version", r.Value.Version.No),
             ("from", string.Join(' ', (from ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))), ("to", (to ?? "").Trim()),
-            ("passages", r.Value.Passages), ("changes", r.Value.Changes));
+            ("passages", r.Value.Passages), ("changes", r.Value.Changes), ("changedInSummaryAndMinutes", inOutputs));
         return (r.Value.Passages, r.Value.Changes);
     }
 
@@ -645,9 +646,33 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, Capability.Write);
         var t = await stores.Transcripts.GetAsync(id) ?? throw new NotFoundException("The transcript is not ready yet.");
+        var before = t.Current.SpeakerNames.GetValueOrDefault(speakerId) ?? t.Speakers.FirstOrDefault(sp => sp.Id == speakerId)?.Label;
         var v = t.RenameSpeaker(speakerId, name, actor.Id, CapacityOf(actor, item), clock.GetUtcNow());
         await stores.Transcripts.UpsertAsync(id, t);
-        await Audit(actor, v.Capacity, id, "transcript.speaker_renamed", ("version", v.No), ("speakerId", speakerId), ("name", name.Trim()));
+        // The summary, action points, minutes and tone were written with the old name: it changes there too.
+        var inOutputs = before is null ? 0 : await ReplaceInOutputsAsync(id, before, name.Trim());
+        await Audit(actor, v.Capacity, id, "transcript.speaker_renamed", ("version", v.No), ("speakerId", speakerId), ("name", name.Trim()),
+            ("changedInSummaryAndMinutes", inOutputs));
+    }
+
+    /// <summary>
+    /// Changes whole-word mentions of <paramref name="from"/> to <paramref name="to"/> in the summary, action points,
+    /// minutes and tone (any capitals). Returns how many were changed.
+    /// </summary>
+    private async Task<int> ReplaceInOutputsAsync(Guid id, string from, string to)
+    {
+        var words = from.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0 || from.Trim() == to) return 0;
+        var stored = await stores.Outputs.GetAsync(id);
+        if (stored is null) return 0;
+        var pattern = new System.Text.RegularExpressions.Regex(@"(?<![\w])" + string.Join(@"\s+", words.Select(System.Text.RegularExpressions.Regex.Escape)) + @"(?![\w])",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        var count = 0;
+        string Swap(string text) => pattern.Replace(text ?? "", _ => { count++; return to; });
+        var o = stored.Outputs;
+        var changed = o with { Summary = Swap(o.Summary), ActionPoints = o.ActionPoints.Select(Swap).ToList(), Minutes = Swap(o.Minutes), ToneOfMeeting = Swap(o.ToneOfMeeting) };
+        if (count > 0) await stores.Outputs.UpsertAsync(id, stored with { Outputs = changed });
+        return count;
     }
 
     public async Task RestoreVersionAsync(User actor, Guid id, int versionNo)

@@ -1,0 +1,49 @@
+name: Android app
+
+on:
+  push:
+    paths:
+      - "widget/android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: widget/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      # The same signing key each time, so a new build installs over the old one instead of needing it removed first.
+      - name: Keep the signing key between builds
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: verbaflow-android-debug-key
+      - name: Test and build
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+      - name: Name the app file
+        run: cp app/build/outputs/apk/debug/app-debug.apk VerbaFlow-keyboard.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VerbaFlow-keyboard
+          path: widget/android/VerbaFlow-keyboard.apk
+      # The newest build from main as a download link: GitHub, VerbaFlow, Releases, "VerbaFlow keyboard for Android".
+      - name: Put it on the Releases page
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --yes --cleanup-tag || true
+          gh release create android-latest VerbaFlow-keyboard.apk --prerelease --target "$GITHUB_SHA" \
+            --title "VerbaFlow keyboard for Android (newest)" \
+            --notes "Build ${GITHUB_RUN_NUMBER}. Open this page on your Android phone and tap VerbaFlow-keyboard.apk. Setup steps: docs/widget-android.md"

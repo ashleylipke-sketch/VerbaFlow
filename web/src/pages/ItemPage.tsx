@@ -135,6 +135,10 @@ export default function ItemPage({ id }: { id: string }) {
   const step = (which: 'undo' | 'redo') => { setOffers([]); return run(() => api.post(`/items/${id}/${which}`)); };
   const stepKey = useRef<{ undo: boolean; redo: boolean; step: typeof step }>({ undo: false, redo: false, step });
   stepKey.current = { undo: canUndo, redo: canRedo, step };
+  // Shown in the pinned player bar, so they stay on screen while scrolling (in the heading when there is no player).
+  const undoButtons = canStep && t ? <span className="undo">
+    <button disabled={!canUndo} title={canUndo ? `Takes back: ${undoLabel(t.undo!)} (Ctrl + Z)` : 'Nothing to undo'} onClick={() => step('undo')}>↶ Undo</button>
+    <button disabled={!canRedo} title={canRedo ? `Brings back: ${undoLabel(t.redo!)} (Ctrl + Y)` : 'Nothing to redo'} onClick={() => step('redo')}>↷ Redo</button></span> : null;
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || typingTarget(e.target)) return;
@@ -260,13 +264,11 @@ export default function ItemPage({ id }: { id: string }) {
       {audioUrl && <div ref={playerBox} className={d.video ? 'player video' : 'player'}>{d.video
         ? <video ref={player as RefObject<HTMLVideoElement>} controls playsInline preload="metadata" src={audioUrl} />
         : <audio ref={player as RefObject<HTMLAudioElement>} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} />}
-        <PlayerBar player={player} playing={playing} /></div>}
+        <PlayerBar player={player} playing={playing}>{undoButtons}</PlayerBar></div>}
       <div className="split">
         <div className="card">
           <h2>{dictate ? docLabel(d.documentType) : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}
-            {(canUndo || canRedo) && <span className="undo">
-              <button disabled={!canUndo} title={canUndo ? `Takes back: ${undoLabel(t!.undo!)} (Ctrl + Z)` : 'Nothing to undo'} onClick={() => step('undo')}>↶ Undo</button>
-              <button disabled={!canRedo} title={canRedo ? `Brings back: ${undoLabel(t!.redo!)} (Ctrl + Y)` : 'Nothing to redo'} onClick={() => step('redo')}>↷ Redo</button></span>}</h2>
+            {!audioUrl && undoButtons}</h2>
           {!t && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No transcript.'}</p>}
           {t && !dictate && <p className="note">Speakers: {t.speakers.map(s => (
             <span key={s.id} style={{ marginRight: 10 }}>{s.name}{d.canEditTranscript && <> <button onClick={() => { const n = prompt('Rename speaker', s.name); if (n?.trim()) run(() => api.put(`/items/${id}/speakers/${s.id}`, { name: n.trim() })); }}>Rename</button></>}</span>))}</p>}

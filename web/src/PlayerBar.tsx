@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 
 const SPEEDS = [0.5, 0.75, 0.9, 1, 1.25, 1.5];
 const KEY = 'verbaflow.playbackSpeed';
@@ -9,7 +9,7 @@ const fmt = (s: number) => { const t = Math.max(0, Math.floor(s)); return `${Mat
  * Buttons under the pinned player that never hide (a video's own controls fade out while it plays): play or pause,
  * back and forward 5 seconds, and a slower or faster speed, remembered on this computer. Speech keeps its pitch.
  */
-export default function PlayerBar({ player, playing }: { player: RefObject<HTMLMediaElement | null>; playing: boolean }) {
+export default function PlayerBar({ player, playing, children }: { player: RefObject<HTMLMediaElement | null>; playing: boolean; children?: ReactNode }) {
   const [speed, setSpeed] = useState(savedSpeed);
   const [at, setAt] = useState(0);
   useEffect(() => {
@@ -36,6 +36,7 @@ export default function PlayerBar({ player, playing }: { player: RefObject<HTMLM
           {SPEEDS.map(n => <option key={n} value={n}>{n === 1 ? 'Normal' : `${n}×`}</option>)}
         </select></label>
       <span className="note hint">Ctrl + Space plays or pauses, even while editing</span>
+      {children}
     </div>
   );
 }

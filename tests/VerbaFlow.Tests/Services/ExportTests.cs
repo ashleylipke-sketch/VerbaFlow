@@ -257,3 +257,14 @@ public class ExportTests
         await Assert.ThrowsAsync<ForbiddenException>(() => exports.DraftAsync(env.Bob, id, "pdf"));
     }
 }
+
+public class ExportFileNameTests
+{
+    [Theory]
+    [InlineData("<Brad><Rich>+<Ash>", "_Brad__Rich_+_Ash_")]
+    [InlineData("Board: Q3 / Q4?", "Board_ Q3 _ Q4_")]
+    [InlineData("Notes...", "Notes")]
+    [InlineData("  ", "export")]
+    public void Export_file_names_are_accepted_by_every_computer(string name, string expected) =>
+        Assert.Equal(expected, VerbaFlow.Infrastructure.Export.ExportService.SafeFileName(name));
+}

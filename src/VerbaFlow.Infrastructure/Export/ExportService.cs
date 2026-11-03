@@ -208,7 +208,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         if (letterheadUsed is not null) audit = [.. audit, ("letterhead", letterheadUsed)];
         await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.exported", AuditChain.Details(audit));
 
-        var safeName = new string(item.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c is '"' ? '_' : c).ToArray()).Trim();
+        var safeName = SafeFileName(item.Name);
         if (safeName.Length == 0) safeName = "meeting";
         if (safeName.Length > 80) safeName = safeName[..80];
         return (new ExportFile(bytes, ExportFormats.ContentType(format), $"{safeName} ({marker.ToLowerInvariant()}).{format}"), record, item);
@@ -261,4 +261,14 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
 
     private static string Languages(string codes) => codes == "auto" ? "Detected automatically"
         : string.Join(", ", codes.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => SpokenLanguageCatalogue.NameOf(c.Trim())));
+
+    /// <summary>
+    /// A file name every computer accepts, whatever the server runs on: the characters Windows refuses (&lt; &gt; : " / \ | ? *
+    /// and control characters) become _, and trailing dots and spaces go. A meeting called "&lt;Brad&gt;&lt;Rich&gt;" stays readable.
+    /// </summary>
+    public static string SafeFileName(string name)
+    {
+        var s = new string((name ?? "").Select(c => c < ' ' || "<>:\"/\\|?*".Contains(c) ? '_' : c).ToArray()).Trim().TrimEnd('.', ' ');
+        return s.Length == 0 ? "export" : s.Length > 120 ? s[..120].TrimEnd('.', ' ') : s;
+    }
 }

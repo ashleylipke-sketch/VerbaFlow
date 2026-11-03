@@ -189,4 +189,47 @@ public class WorkflowServiceTests
         Assert.All(after.Segments.Where(s => s.SpeakerId == first.Id), s => Assert.Equal("Alice Smith", s.Speaker));
         Assert.Equal("SpeakerCorrection", after.Versions[^1].Kind);
     }
+
+    [Fact]
+    public async Task Undo_takes_back_the_last_change_and_a_rename_in_the_summary_too()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var t = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        Assert.Null(t.Undo);
+        var seg = t.Segments[0];
+        await env.Meeting.EditSegmentAsync(env.Alice, id, seg.Id, "Corrected words");
+        var first = t.Speakers[0];
+        var summaryBefore = $"{first.Name} opened the meeting.";
+        await env.Stores.Outputs.UpsertAsync(id, new VerbaFlow.Infrastructure.Services.StoredOutputs(id,
+            new VerbaFlow.Core.Providers.AiOutputs("ai", "en", summaryBefore, [], "", "")));
+        await env.Meeting.RenameSpeakerAsync(env.Alice, id, first.Id, "Brad Melfi");
+        Assert.Equal("Brad Melfi opened the meeting.", (await env.Meeting.GetOutputsAsync(env.Alice, id))!.Summary);
+        Assert.StartsWith("Renamed speaker", (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Undo);
+
+        await env.Meeting.UndoAsync(env.Alice, id);
+        var after = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        Assert.Equal(first.Label, after.Speakers[0].Name);
+        Assert.Equal(summaryBefore, (await env.Meeting.GetOutputsAsync(env.Alice, id))!.Summary);
+        Assert.Equal("Corrected words", after.Segments[0].Text);
+
+        await env.Meeting.UndoAsync(env.Alice, id);
+        after = await env.Meeting.GetTranscriptAsync(env.Alice, id);
+        Assert.Equal(seg.Text, after.Segments[0].Text);
+        Assert.Null(after.Undo);
+        var audit = await env.Stores.Audit.ListAsync(id);
+        Assert.Equal(2, audit.Count(a => a.Type == "transcript.undone"));
+    }
+
+    [Fact]
+    public async Task Undo_is_refused_once_approved()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        var seg = (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Segments[0];
+        await env.Meeting.EditSegmentAsync(env.Alice, id, seg.Id, "Corrected words");
+        await env.Meeting.ApproveAsync(env.Alice, id);
+        await Assert.ThrowsAnyAsync<Exception>(() => env.Meeting.UndoAsync(env.Alice, id));
+        Assert.Equal("Corrected words", (await env.Meeting.GetTranscriptAsync(env.Alice, id)).Segments[0].Text);
+    }
 }

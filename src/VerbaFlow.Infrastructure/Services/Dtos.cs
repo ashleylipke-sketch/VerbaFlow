@@ -67,7 +67,7 @@ public sealed record SegmentView(Guid Id, string Speaker, Guid SpeakerId, string
 public sealed record VersionView(int No, string Kind, string Capacity, string? By, DateTimeOffset At, string? Note);
 
 public sealed record TranscriptView(int VersionNo, IReadOnlyList<VersionView> Versions, IReadOnlyList<SegmentView> Segments,
-    IReadOnlyList<SpeakerView> Speakers, string Engine);
+    IReadOnlyList<SpeakerView> Speakers, string Engine, string? Undo = null);
 
 public sealed record SpeakerView(Guid Id, string Label, string Name);
 

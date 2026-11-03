@@ -54,6 +54,59 @@ public class TranscriptTests
     }
 
     [Fact]
+    public void Undo_steps_back_one_change_at_a_time_and_stops_at_the_machine_text()
+    {
+        var (t, s1, _, seg1) = Make();
+        var user = Guid.NewGuid();
+        Assert.Null(t.UndoStep());
+        t.EditSegment(seg1.Id, "First change", user, "author", T.Now);
+        t.RenameSpeaker(s1.Id, "Alice Smith", user, "author", T.Now);
+        t.EditSegment(t.Render()[0].Segment.Id, "Second change", user, "author", T.Now);
+
+        var u1 = t.Undo(user, "author", T.Now);
+        Assert.Equal(VersionKind.Undo, u1.Kind);
+        Assert.Equal(3, u1.UndoneTo);
+        Assert.Equal("First change", t.Render()[0].Segment.Text);
+        Assert.Equal("Alice Smith", t.Render()[0].SpeakerName);
+
+        t.Undo(user, "author", T.Now);
+        Assert.Equal("Speaker 1", t.Render()[0].SpeakerName);
+        Assert.Equal("First change", t.Render()[0].Segment.Text);
+
+        t.Undo(user, "author", T.Now);
+        Assert.Equal("Hello everyone", t.Render()[0].Segment.Text);
+        Assert.Null(t.UndoStep());
+        Assert.Throws<DomainException>(() => t.Undo(user, "author", T.Now));
+        // Nothing was deleted: every step is a version of its own.
+        Assert.Equal(7, t.Versions.Count);
+        Assert.Equal("Second change", t.Render(4)[0].Segment.Text);
+    }
+
+    [Fact]
+    public void A_change_made_after_an_undo_is_undone_back_to_the_undone_state()
+    {
+        var (t, _, _, seg1) = Make();
+        var user = Guid.NewGuid();
+        t.EditSegment(seg1.Id, "One", user, "author", T.Now);
+        t.EditSegment(t.Render()[0].Segment.Id, "Two", user, "author", T.Now);
+        t.Undo(user, "author", T.Now);
+        t.EditSegment(t.Render()[0].Segment.Id, "Three", user, "author", T.Now);
+        t.Undo(user, "author", T.Now);
+        Assert.Equal("One", t.Render()[0].Segment.Text);
+        t.Undo(user, "author", T.Now);
+        Assert.Equal("Hello everyone", t.Render()[0].Segment.Text);
+    }
+
+    [Fact]
+    public void Undo_does_not_go_past_a_reopened_copy()
+    {
+        var (t, _, _, seg1) = Make();
+        t.EditSegment(seg1.Id, "Approved text", Guid.NewGuid(), "author", T.Now);
+        var copy = t.ForkFor(Guid.NewGuid(), Guid.NewGuid(), T.Now);
+        Assert.Null(copy.UndoStep());
+    }
+
+    [Fact]
     public void Restoring_an_old_version_creates_a_new_one()
     {
         var (t, _, _, seg1) = Make();

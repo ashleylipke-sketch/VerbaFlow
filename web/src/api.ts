@@ -33,6 +33,8 @@ export type Segment = { id: string; speaker: string; speakerId: string; language
 export type Transcript = {
   versionNo: number; engine: string; segments: Segment[]; speakers: { id: string; label: string; name: string }[];
   versions: { no: number; kind: string; capacity: string; by: string | null; at: string; note: string | null }[];
+  /** The last change Undo would take back, or null when there is nothing to undo. */
+  undo?: string | null;
 };
 export type Outputs = { engine: string; language: string; summary: string; actionPoints: string[]; minutes: string; toneOfMeeting: string };
 export type LetterheadFile = { sha256: string; fileName: string; sizeBytes: number; uploadedBy: string; uploadedAt: string };

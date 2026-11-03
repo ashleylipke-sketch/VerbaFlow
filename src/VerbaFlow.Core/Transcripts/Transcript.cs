@@ -20,7 +20,7 @@ public sealed record Segment(Guid Id, Guid SpeakerId, string Language, int Start
 // Inserted: in a dictation, the codes of saved text dropped into this passage by "insert <code>" (e.g. "legal 1.1").
 
 /// <summary>AutoTidy: the app crossed out restarted sentences in a dictation; shown as tracked changes against version 1.</summary>
-public enum VersionKind { MachineV1, HumanEdit, SpeakerCorrection, Restore, ReopenCopy, AutoTidy }
+public enum VersionKind { MachineV1, HumanEdit, SpeakerCorrection, Restore, ReopenCopy, AutoTidy, Undo }
 
 public sealed class TranscriptVersion
 {
@@ -33,6 +33,8 @@ public sealed class TranscriptVersion
     public List<Guid> SegmentIds { get; init; } = [];
     public Dictionary<Guid, string> SpeakerNames { get; init; } = [];
     public string? Note { get; init; }
+    /// <summary>For an Undo version: the version whose text and speaker names it brought back.</summary>
+    public int? UndoneTo { get; init; }
 }
 
 public sealed record RenderedSegment(Segment Segment, string SpeakerName);
@@ -391,6 +393,34 @@ public sealed class Transcript
         return Append(VersionKind.Restore, actor, capacity, now, v.SegmentIds, v.SpeakerNames, $"Restored version {versionNo}");
     }
 
+    /// <summary>
+    /// The person's change that Undo would take back and the version that goes back to, or null when there is nothing a
+    /// person did to undo (only the machine's own versions, or the working copy made on reopening). Pressing Undo again
+    /// keeps stepping back: an Undo version stands for the version it brought back.
+    /// </summary>
+    public (TranscriptVersion Change, TranscriptVersion Back)? UndoStep()
+    {
+        var v = Current;
+        while (v.Kind == VersionKind.Undo && v.UndoneTo is { } to) v = Version(to);
+        if (v.Kind is VersionKind.MachineV1 or VersionKind.AutoTidy or VersionKind.ReopenCopy || v.ParentNo is not { } parent) return null;
+        return (v, Version(parent));
+    }
+
+    /// <summary>Takes back the last change a person made (an edit, a join, a speaker rename or change, a restore, an
+    /// earlier step back) by adding a version equal to the one before it. Nothing is deleted.</summary>
+    public TranscriptVersion Undo(Guid actor, string capacity, DateTimeOffset now)
+    {
+        var (change, back) = UndoStep() ?? throw new DomainException("There is nothing to undo.");
+        var v = new TranscriptVersion
+        {
+            No = Current.No + 1, Kind = VersionKind.Undo, ParentNo = Current.No, CreatedBy = actor, Capacity = capacity,
+            CreatedAt = now, SegmentIds = [.. back.SegmentIds], SpeakerNames = new(back.SpeakerNames),
+            Note = $"Undid: {change.Note ?? change.Kind.ToString()}", UndoneTo = back.No
+        };
+        Versions.Add(v);
+        return v;
+    }
+
     /// <summary>A copy for a reopened item. History, including machine version 1, is preserved.</summary>
     public Transcript ForkFor(Guid newItemId, Guid actor, DateTimeOffset now)
     {
@@ -401,7 +431,7 @@ public sealed class Transcript
             copy.Versions.Add(new TranscriptVersion
             {
                 No = v.No, Kind = v.Kind, ParentNo = v.ParentNo, CreatedBy = v.CreatedBy, Capacity = v.Capacity,
-                CreatedAt = v.CreatedAt, SegmentIds = [.. v.SegmentIds], SpeakerNames = new(v.SpeakerNames), Note = v.Note
+                CreatedAt = v.CreatedAt, SegmentIds = [.. v.SegmentIds], SpeakerNames = new(v.SpeakerNames), Note = v.Note, UndoneTo = v.UndoneTo
             });
         copy.Append(VersionKind.ReopenCopy, actor, "system", now, Current.SegmentIds, Current.SpeakerNames,
             "Working copy created when the item was reopened");

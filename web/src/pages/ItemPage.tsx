@@ -13,6 +13,7 @@ import { activeSegmentIndex, activeWordIndex, wordsFor } from '../words';
 import { diffWords } from '../diff';
 import PlayerBar from '../PlayerBar';
 import { countIn, swapsIn } from '../replace';
+import { typingTarget, undoLabel } from '../undo';
 
 /** A textarea grows to show all its text, so nobody has to scroll inside it. */
 function useFit(text: string) {
@@ -126,6 +127,21 @@ export default function ItemPage({ id }: { id: string }) {
     pause: () => { const a = player.current; if (a && !a.paused) { a.pause(); pausedForEdit.current = true; } },
     resume: () => { if (!pausedForEdit.current) return; pausedForEdit.current = false; player.current?.play().catch(() => undefined); },
   }), []);
+  // Undo takes back the last change; Ctrl + Z does the same when the cursor is not in a text box (which has its own undo).
+  const canUndo = !!(t?.undo && d?.canEditTranscript && d.processingState !== 'Processing');
+  const undo = () => { setOffers([]); return run(() => api.post(`/items/${id}/undo`)); };
+  const undoKey = useRef<(() => void) | null>(null);
+  undoKey.current = canUndo ? undo : null;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z' || typingTarget(e.target)) return;
+      if (!undoKey.current) return;
+      e.preventDefault();
+      undoKey.current();
+    };
+    addEventListener('keydown', key);
+    return () => removeEventListener('keydown', key);
+  }, []);
   // Ctrl + Space plays or pauses from anywhere on the page, including while typing a correction.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -242,7 +258,8 @@ export default function ItemPage({ id }: { id: string }) {
         <PlayerBar player={player} playing={playing} /></div>}
       <div className="split">
         <div className="card">
-          <h2>{dictate ? docLabel(d.documentType) : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}</h2>
+          <h2>{dictate ? docLabel(d.documentType) : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}
+            {canUndo && <button className="undo" title={`Takes back: ${undoLabel(t!.undo!)} (Ctrl + Z)`} onClick={undo}>↶ Undo</button>}</h2>
           {!t && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No transcript.'}</p>}
           {t && !dictate && <p className="note">Speakers: {t.speakers.map(s => (
             <span key={s.id} style={{ marginRight: 10 }}>{s.name}{d.canEditTranscript && <> <button onClick={() => { const n = prompt('Rename speaker', s.name); if (n?.trim()) run(() => api.put(`/items/${id}/speakers/${s.id}`, { name: n.trim() })); }}>Rename</button></>}</span>))}</p>}
@@ -316,7 +333,7 @@ export default function ItemPage({ id }: { id: string }) {
               }}>Run again</button></div></div>}
           {t && <div className="card"><h2>Versions</h2>
             {[...t.versions].reverse().map(v => <div key={v.no} className="note" style={{ marginBottom: 6 }}>
-              <b>v{v.no}</b> {v.kind === 'AutoTidy' ? 'Restarted sentences crossed out' : v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}
+              <b>v{v.no}</b> {v.kind === 'AutoTidy' ? 'Restarted sentences crossed out' : v.kind === 'Undo' && v.note ? undoLabel(v.note) : v.kind} · {v.by ?? 'system'} · {new Date(v.at).toLocaleString('en-GB')}
               {d.canEditTranscript && v.no !== t.versionNo && <> <button onClick={() => run(() => api.post(`/items/${id}/versions/${v.no}/restore`))}>Restore</button></>}</div>)}</div>}
           <div className="card"><h2>History</h2>
             <button onClick={() => setShowAudit(!showAudit)}>{showAudit ? 'Hide' : 'Show'} audit trail ({audit.length})</button>

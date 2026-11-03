@@ -155,3 +155,4 @@ html { scroll-padding-top:calc(var(--header-h, 0px) + var(--player-h, 0px) + 8px
 .attachments .att-head h2 { margin:0; font-size:1rem; }
 .attachments .attachment { padding:4px 0; }
 p.back { margin:0 0 8px; }
+h2 button.undo { float:right; font-size:14px; font-weight:normal; }

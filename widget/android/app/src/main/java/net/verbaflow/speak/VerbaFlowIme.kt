@@ -326,9 +326,9 @@ class VerbaFlowIme : InputMethodService() {
 
     // ---- ordinary keys ----
 
+    @Suppress("DEPRECATION")
     private fun nextKeyboard() {
         val switched = if (Build.VERSION.SDK_INT >= 28) switchToNextInputMethod(false) else {
-            @Suppress("DEPRECATION")
             val token = window?.window?.attributes?.token
             token != null && (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).switchToNextInputMethod(token, false)
         }

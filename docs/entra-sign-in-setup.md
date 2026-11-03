@@ -108,6 +108,11 @@ The Widget for Windows signs in through your normal browser, and Microsoft must 
 
 Then install the Widget for Windows (`widget-windows.md`) and click **Sign in with Microsoft** in its settings.
 
+## 10. The phone keyboards (Android and iPhone)
+
+- **Android**: under **Mobile and desktop applications**, add `net.verbaflow.speak://auth` (exactly). See `widget-android.md`.
+- **iPhone**: **Add a platform**, **iOS / macOS**, bundle ID `net.verbaflow.speak`. See `widget-iphone.md`.
+
 ## How it works (for whoever looks after VerbaFlow)
 
 - The web app uses Microsoft's sign-in library (MSAL.js, `@azure/msal-browser`) and sends an access token for `api://<client id>/access_as_user` with every call. The Widget does the same through the browser's sign-in window (`chrome.identity.launchWebAuthFlow`, authorisation code with PKCE); its tokens are kept in browser-session memory only.

@@ -45,7 +45,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             var (phrases, saved) = dictation ? await DictationContext.LoadAsync(stores)
                 : ((await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList(), (IReadOnlyList<SavedText>)[]);
             var request = new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
-                azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases);
+                azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases, Enhanced: !dictation && item.SpeechModel == "enhanced");
+            string? speechModel = request.Enhanced ? "newer (LLM Speech)" : null;
             // A dictation in one language goes word for word, so spoken commands reach VerbaFlow; the fast service is the fallback.
             string? dictationService = null, liveText = null;
             TranscriptionResult? result = null;
@@ -92,6 +93,19 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 {
                     var rep = await reporter.ReportAsync("person-audio", itemId, ex);
                     notices.Add($"each person's own audio could not be used, so the meeting's mixed sound was ({rep.Reference})");
+                    if (copy.CanSeek) copy.Position = 0;
+                }
+            }
+            // The newer model may not be offered in every region yet: if it fails, the standard one is used and the history says so.
+            if (result is null && request.Enhanced)
+            {
+                try { result = await speech.TranscribeAsync(copy, request, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException and not MixedLanguagesException)
+                {
+                    var rep = await reporter.ReportAsync("speech-model", itemId, ex);
+                    notices.Add($"the newer speech model could not be used, so the standard one was ({rep.Reference})");
+                    speechModel = "standard (the newer one could not be used)";
+                    request = request with { Enhanced = false };
                     if (copy.CanSeek) copy.Position = 0;
                 }
             }
@@ -245,7 +259,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames), ("personAudio", personAudio), ("introductions", introductions),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : item.NoiseChoice switch { NoiseReduction.Light => "prepared, background noise reduced a little", NoiseReduction.Strong => "prepared, background noise reduced a lot", _ => "prepared" }), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
-                    ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
+                    ("vocabularyTerms", phrases.Count), ("speechModel", speechModel), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

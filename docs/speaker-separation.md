@@ -65,3 +65,7 @@ Speed: roughly one minute of processing for every ten minutes of audio on a norm
 ## Splitting mixed boxes (tried and removed)
 
 A re-run choice that kept Azure's speakers and used the local voice model only to split boxes where someone cut in was tried on 2026-10-11. On the owner's Parliament clip the local model heard only 2 of 3 voices and the result was worse (boxes merged), so it was removed. Stay with "Speech service only" and fix the odd mixed box with Edit.
+
+## Newer speech model
+
+If the speech service misses a voice or the start of a recording, open the meeting, go to **Speakers look wrong?**, choose **Speech model: Newer AI model** and press Run again. This uses Azure's newer AI speech model (LLM Speech) on the same recording. It may not be available in every Azure region; if Azure refuses it, VerbaFlow uses the standard model instead and History says "standard (the newer one could not be used)" with a VF- reference. Not yet tried on real Azure.

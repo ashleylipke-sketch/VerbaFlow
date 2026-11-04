@@ -265,6 +265,23 @@ public class AzureSpeechTests
     }
 
     [Fact]
+    public void The_newer_model_is_asked_for_in_the_definition_and_its_zero_confidence_is_not_taken_as_hard_to_hear()
+    {
+        var o = new TranscribeOptions(["en-ZA"], 4, true, ["Ashley"], Enhanced: true);
+        var def = JsonDocument.Parse(AzureSpeechService.BuildDefinition(o)).RootElement;
+        Assert.True(def.GetProperty("enhancedMode").GetProperty("enabled").GetBoolean());
+        Assert.Equal("transcribe", def.GetProperty("enhancedMode").GetProperty("task").GetString());
+        Assert.Equal(4, def.GetProperty("diarization").GetProperty("maxSpeakers").GetInt32());
+        Assert.True(def.TryGetProperty("phraseList", out _));
+        Assert.False(JsonDocument.Parse(AzureSpeechService.BuildDefinition(o with { Enhanced = false })).RootElement.TryGetProperty("enhancedMode", out _));
+
+        var r = AzureSpeechService.Parse(Phrases((1, 0, 1000, "Hello there.", "en-ZA", 0)), o);
+        Assert.False(r.Segments[0].LowConfidence);
+        Assert.EndsWith("+llm-speech", r.Engine);
+        Assert.True(AzureSpeechService.Parse(Phrases((1, 0, 1000, "Hello there.", "en-ZA", 0)), o with { Enhanced = false }).Segments[0].LowConfidence);
+    }
+
+    [Fact]
     public void With_no_candidate_languages_no_locales_are_sent_so_azure_detects_the_language()
     {
         var def = JsonDocument.Parse(AzureSpeechService.BuildDefinition(new TranscribeOptions([], 8, true))).RootElement;

@@ -3,7 +3,8 @@ using VerbaFlow.Core.Transcripts;
 namespace VerbaFlow.Core.Providers;
 
 /// <param name="Phrases">Names and terms the speech service should expect (the company's custom vocabulary).</param>
-public sealed record TranscribeOptions(string[] CandidateLanguages, int MaxSpeakers, bool Diarize, IReadOnlyList<string>? Phrases = null);
+/// <param name="Enhanced">Use the speech service's newer AI model (Azure "LLM Speech", enhanced mode) instead of the standard one.</param>
+public sealed record TranscribeOptions(string[] CandidateLanguages, int MaxSpeakers, bool Diarize, IReadOnlyList<string>? Phrases = null, bool Enhanced = false);
 
 /// <param name="Warning">Set when the service worked but had to skip something, for example it could not use the vocabulary.</param>
 /// <param name="Detail">Plain facts for the history, for example how much of each language was kept when a recording was transcribed once per language.</param>

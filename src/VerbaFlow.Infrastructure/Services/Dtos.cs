@@ -35,7 +35,7 @@ public sealed record OnlineMeetingUpload(Stream Video, string FileName, string C
 public sealed record PersonAudioUpload(VerbaFlow.Core.Providers.PersonAudioDownload Part, Func<CancellationToken, Task<Stream>> Open);
 
 public sealed record RetryRequest(string? SpokenLanguages);
-public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null, string? Audio = null, string? DictationService = null);
+public sealed record RerunRequest(int? NumSpeakers, string? SpokenLanguages = null, bool DiscardEdits = false, string? Method = null, string? Audio = null, string? DictationService = null, string? SpeechModel = null);
 
 public sealed record DetailsUpdate(string? Name, string? ClientReference, string? Description, Priority? Priority,
     DateOnly? DueDate, bool ClearDueDate);

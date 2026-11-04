@@ -97,6 +97,8 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
         if (o.Phrases is { Count: > 0 })
             def["phraseList"] = new JsonObject { ["phrases"] = new JsonArray(o.Phrases.Distinct(StringComparer.OrdinalIgnoreCase).Take(2000).Select(x => (JsonNode)x).ToArray()) };
         def["profanityFilterMode"] = "None"; // a transcript must record what was said
+        // Azure's newer model on the same endpoint ("LLM Speech"); it keeps speakers and word timings, but gives no confidence.
+        if (o.Enhanced) def["enhancedMode"] = new JsonObject { ["enabled"] = true, ["task"] = "transcribe" };
         return def.ToJsonString();
     }
 
@@ -110,7 +112,7 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
     public static TranscriptionResult Parse(string json, TranscribeOptions o)
     {
         var (speakers, phrases) = ParsePhrases(json, o, []);
-        return new TranscriptionResult(EngineName, speakers, MergeTurns(phrases));
+        return new TranscriptionResult(o.Enhanced ? EngineName + "+llm-speech" : EngineName, speakers, MergeTurns(phrases));
     }
 
     /// <summary>
@@ -149,7 +151,8 @@ public sealed class AzureSpeechService(HttpClient http, AzureSpeechOptions optio
                 var start = p.TryGetProperty("offsetMilliseconds", out var off) ? off.GetInt32() : 0;
                 var len = p.TryGetProperty("durationMilliseconds", out var dur) ? dur.GetInt32() : 0;
                 var locale = p.TryGetProperty("locale", out var loc) ? loc.GetString() : null;
-                var conf = p.TryGetProperty("confidence", out var c) && c.TryGetDouble(out var cd) ? cd : 1.0;
+                // The newer model always reports confidence 0, which says nothing, so it is not taken as "hard to hear".
+                var conf = !o.Enhanced && p.TryGetProperty("confidence", out var c) && c.TryGetDouble(out var cd) ? cd : 1.0;
                 var words = p.TryGetProperty("words", out var w) && w.ValueKind == JsonValueKind.Array
                     ? w.EnumerateArray().Select(x => new WordTiming(x.GetProperty("text").GetString() ?? "",
                         x.GetProperty("offsetMilliseconds").GetInt32(),

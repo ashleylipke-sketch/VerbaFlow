@@ -98,6 +98,43 @@ public class RerunTests
         Assert.Contains("languagesHeard", done.Details);
     }
 
+    [Fact]
+    public async Task Running_a_meeting_again_with_the_newer_speech_model_asks_for_it_and_records_it()
+    {
+        var (env, _, processing, id) = await Start();
+        using var _e = env;
+        Assert.False(env.Speech.LastOptions!.Enhanced);
+        await env.Meeting.RerunAsync(env.Alice, id, 4, method: "azure", speechModel: "enhanced");
+        await processing.ProcessAsync(id);
+        Assert.True(env.Speech.LastOptions!.Enhanced);
+        Assert.Equal("enhanced", (await env.Item(id)).SpeechModel);
+        var events = await env.Stores.Audit.ListAsync(id);
+        Assert.Contains("\"speechModel\":\"enhanced\"", events.Last(a => a.Type == "processing.rerun_requested").Details);
+        Assert.Contains("\"speechModel\":\"newer (LLM Speech)\"", events.Last(a => a.Type == "processing.completed").Details);
+        // Back to the standard model when not chosen.
+        await env.Meeting.RerunAsync(env.Alice, id, 4, method: "azure");
+        await processing.ProcessAsync(id);
+        Assert.False(env.Speech.LastOptions!.Enhanced);
+    }
+
+    [Fact]
+    public async Task When_the_newer_model_is_refused_the_standard_one_is_used_and_the_history_says_so()
+    {
+        var (env, _, processing, id) = await Start();
+        using var _e = env;
+        env.Speech.FailWhenEnhanced = true;
+        await env.Meeting.RerunAsync(env.Alice, id, null, speechModel: "enhanced");
+        await processing.ProcessAsync(id);
+        var item = await env.Item(id);
+        Assert.Equal(ProcessingState.Idle, item.Processing);
+        Assert.NotNull(await env.Stores.Transcripts.GetAsync(id));
+        Assert.False(env.Speech.LastOptions!.Enhanced);
+        var done = (await env.Stores.Audit.ListAsync(id)).Last(a => a.Type == "processing.completed");
+        Assert.Contains("standard (the newer one could not be used)", done.Details);
+        Assert.Contains("the newer speech model could not be used", done.Details);
+        Assert.DoesNotContain("not supported yet", done.Details); // the technical reason goes to support only
+    }
+
     private static async Task<(Env env, SpyDiarizer spy, ProcessingService processing, Guid id)> Start()
     {
         var env = new Env();

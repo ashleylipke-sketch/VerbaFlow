@@ -92,6 +92,10 @@ public sealed class Item
         "much-less-noise" => NoiseReduction.Strong,
         _ => NoiseReduction.None,
     };
+    /// <summary>Which speech model a meeting is converted with: "enhanced" (the speech service's newer AI model) or null for the standard one.</summary>
+    [JsonInclude] public string? SpeechModel { get; private set; }
+    public void SetSpeechModel(string? value) =>
+        SpeechModel = value?.ToLowerInvariant() == "enhanced" ? "enhanced" : null;
     [JsonInclude] public bool ObjectionFlag { get; private set; }
     [JsonInclude] public DateTimeOffset? ApprovedAt { get; private set; }
     [JsonInclude] public Guid? ApprovedBy { get; private set; }

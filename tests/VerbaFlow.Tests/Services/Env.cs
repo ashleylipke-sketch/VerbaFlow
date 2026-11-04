@@ -31,6 +31,8 @@ public sealed class FakeAi : IAiOutputService
 public sealed class ThrowingSpeech : ISpeechService
 {
     public bool Fail { get; set; } = true;
+    /// <summary>Refuses the newer model, as a region without it would.</summary>
+    public bool FailWhenEnhanced { get; set; }
     public TranscribeOptions? LastOptions { get; private set; }
     /// <summary>When set, the speech service "hears" exactly this text as one passage from one speaker.</summary>
     public string? Heard { get; set; }
@@ -38,6 +40,7 @@ public sealed class ThrowingSpeech : ISpeechService
     {
         if ((LastOptions = options) is null) throw new InvalidOperationException();
         if (Fail) throw new InvalidOperationException("speech service unavailable");
+        if (FailWhenEnhanced && options.Enhanced) throw new InvalidOperationException("Enhanced mode is currently not supported yet");
         if (Heard is null) return new StandInSpeechService().TranscribeAsync(audio, options, ct);
         var speaker = new VerbaFlow.Core.Transcripts.Speaker(Guid.NewGuid(), "Speaker 1");
         var words = Heard.Split(' ', StringSplitOptions.RemoveEmptyEntries);

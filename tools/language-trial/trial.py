@@ -5,7 +5,7 @@ typed by native speakers. Nobody needs to read the languages: the score is the s
 
 Usage: python trial.py <lang> <out.json>    lang = xho sot tsn nso tso ssw ven nbl
 ENGINE=meta (default: Meta Omnilingual on this computer) or ENGINE=google (Google Speech-to-Text v2, EU, with a
-service account key in GOOGLE_SPEECH_KEY).
+service account key in GOOGLE_SPEECH_KEY, or keyless sign-in from GitHub).
 """
 import csv, io, json, os, random, re, sys, tarfile, time, unicodedata, urllib.request, xml.etree.ElementTree as ET, zipfile
 from pathlib import Path
@@ -144,10 +144,16 @@ class Google:
     def __init__(self):
         from google.oauth2 import service_account
         import google.auth.transport.requests as gr
-        info = json.loads(os.environ["GOOGLE_SPEECH_KEY"])
-        self.project = info["project_id"]
-        self.creds = service_account.Credentials.from_service_account_info(
-            info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        import google.auth
+        scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+        if os.environ.get("GOOGLE_SPEECH_KEY"):
+            info = json.loads(os.environ["GOOGLE_SPEECH_KEY"])
+            self.project = info["project_id"]
+            self.creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
+        else:
+            # keyless: GitHub's own sign-in, exchanged by google-github-actions/auth
+            self.creds, found = google.auth.default(scopes=scopes)
+            self.project = os.environ.get("GOOGLE_PROJECT") or found
         self.session = gr.AuthorizedSession(self.creds)
 
     def transcribe(self, paths, code, model):

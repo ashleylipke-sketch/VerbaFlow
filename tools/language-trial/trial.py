@@ -138,6 +138,15 @@ def normalise(s):
     return " ".join(s.replace("'", "").split())
 
 
+def pcm16(path):
+    """The clip as a plain 16-bit WAV (some sets use float samples, which Google refuses)."""
+    import soundfile as sf
+    data, rate = sf.read(str(path))
+    buf = io.BytesIO()
+    sf.write(buf, data, rate, format="WAV", subtype="PCM_16")
+    return buf.getvalue()
+
+
 class Google:
     """Google Speech-to-Text v2, one short (synchronous) request per clip, EU servers."""
 
@@ -162,7 +171,7 @@ class Google:
         out = []
         for p in paths:
             body = {"config": {"autoDecodingConfig": {}, "languageCodes": [code], "model": model},
-                    "content": base64.b64encode(Path(p).read_bytes()).decode()}
+                    "content": base64.b64encode(pcm16(p)).decode()}
             for attempt in range(4):
                 r = self.session.post(url, json=body, timeout=120)
                 if r.status_code not in (429, 500, 503):

@@ -76,7 +76,8 @@ export default function Dashboard({ mode }: { mode: Mode }) {
         <div className="actions">
           {speech ? <a className="btn primary" href="#/speech/live">Start speaking</a> : <>
           <a className="btn primary" href={dictate ? '#/dictate/record' : '#/record'}>{dictate ? 'New dictation' : 'Record a meeting'}</a>
-          <a className="btn" href={dictate ? '#/dictate/import' : '#/import'}>{dictate ? 'Import a dictation' : 'Import a recording'}</a></>}
+          <a className="btn" href={dictate ? '#/dictate/import' : '#/import'}>{dictate ? 'Import a dictation' : 'Import a recording'}</a>
+          {!dictate && <a className="btn" href="#/meet" title="A visible note-taker joins a Teams, Zoom, Google Meet or Webex call and records it">Online meeting</a>}</>}
         </div>
       </div>
       <div className="toggles" role="group" aria-label="Views">

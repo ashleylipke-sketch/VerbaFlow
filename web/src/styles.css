@@ -181,3 +181,16 @@ p.back { margin:0 0 8px; }
 mark { background:#fde68a; color:inherit; border-radius:2px; padding:0 1px; }
 @media (prefers-color-scheme: dark) { mark { background:#7a5b0c; } }
 .found { outline:3px solid #f59e0b; outline-offset:2px; transition:outline-color 1s; }
+/* Logo and the Settings / More list in the header */
+header.top h1.brand a { display:flex; align-items:center; gap:8px; padding:0; color:var(--ink); font-weight:700; letter-spacing:-.01em; }
+header.top h1.brand img { display:block; border-radius:7px; }
+header.top h1.brand b { color:var(--brand); font-weight:700; }
+header.top .more { position:relative; }
+header.top .more > button { font:inherit; background:none; border:0; color:var(--ink); padding:4px 8px; border-radius:6px; cursor:pointer; }
+header.top .more > button.on { background:var(--brand); color:var(--brand-ink); }
+header.top .more-list { position:absolute; left:0; top:calc(100% + 6px); z-index:30; min-width:240px; display:flex; flex-direction:column; gap:2px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px; box-shadow:0 8px 24px rgba(0,0,0,.15); }
+header.top .more-list a { padding:8px 10px; }
+@media (max-width: 700px) {
+  header.top .more > button { width:100%; text-align:left; padding:10px 8px; }
+  header.top .more-list { position:static; box-shadow:none; border:0; padding:0 0 0 12px; min-width:0; }
+}

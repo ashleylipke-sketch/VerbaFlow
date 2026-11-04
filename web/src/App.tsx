@@ -17,6 +17,7 @@ import SearchPage from './pages/Search';
 import WidgetPage from './pages/Widget';
 import Meet from './pages/Meet';
 import Support from './pages/Support';
+import SignOffCard from './SignOffCard';
 
 function useHash() {
   const [h, setH] = useState(location.hash || '#/');
@@ -64,22 +65,15 @@ export default function App() {
   return (
     <>
       <header className="top" ref={header}>
-        <h1>VerbaFlow · Speak</h1>
+        <h1 className="brand"><a href="#/dictate" aria-label="VerbaFlow"><img src="/logo.svg" alt="" width="30" height="30" /><span>Verba<b>Flow</b></span></a></h1>
         <button className="menu-button" aria-expanded={menu} aria-controls="pages" onClick={() => setMenu(m => !m)}>{menu ? 'Close' : 'Menu'}</button>
         <nav id="pages" className={menu ? 'open' : ''}>
           <a href="#/dictate" className={path.startsWith('/dictate') ? 'on' : ''}>Dictate</a>
           <a href="#/speech" className={path.startsWith('/speech') ? 'on' : ''}>Speech</a>
-          <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>
-          <a href="#/meet" className={path === '/meet' ? 'on' : ''}>Meet</a>
-          <a href="#/search" className={path.startsWith('/search') ? 'on' : ''}>Search</a>
-          <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
-          <a href="#/saved-text" className={path === '/saved-text' ? 'on' : ''}>Saved text</a>
-          <a href="#/letterhead" className={path === '/letterhead' ? 'on' : ''}>Letterhead</a>
+          <a href="#/" className={path === '/' || path === '/record' || path === '/import' || path === '/meet' ? 'on' : ''}>Meeting</a>
           <a href="#/widget" className={path === '/widget' ? 'on' : ''}>Widget</a>
-          <a href="#/retention" className={path === '/retention' ? 'on' : ''}>Retention</a>
-          <a href="#/departments" className={path === '/departments' ? 'on' : ''}>Departments</a>
-          {support && <a href="#/support" className={path === '/support' ? 'on' : ''}>Support: errors</a>}
-          {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen and delete requests</a>}
+          <a href="#/search" className={path.startsWith('/search') ? 'on' : ''}>Search</a>
+          {me && <MoreMenu path={path} admin={!!admin} support={!!support} />}
         </nav>
         <span className="note signin">
           {way === 'microsoft'
@@ -121,6 +115,7 @@ export default function App() {
           : path === '/vocabulary' ? <Vocabulary />
           : path === '/saved-text' ? <SavedTextPage />
           : path === '/letterhead' ? <LetterheadPage />
+          : path === '/sign-off' ? <SignOffCard />
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />
           : path === '/departments' ? <DepartmentsPage />
@@ -130,5 +125,37 @@ export default function App() {
           : <Dashboard key="meeting" mode="meeting" />}
       </main>
     </>
+  );
+}
+
+/** Settings and admin pages, folded into one list so the header shows only the five main pages.
+ *  Each person sees only what they may change: everyone their own sign-off, admins the rest. */
+function MoreMenu({ path, admin, support }: { path: string; admin: boolean; support: boolean }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => setOpen(false), [path]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    addEventListener('mousedown', away); addEventListener('keydown', esc);
+    return () => { removeEventListener('mousedown', away); removeEventListener('keydown', esc); };
+  }, [open]);
+  const pages: [string, string][] = [
+    ...(admin ? [] : [['/sign-off', 'Your sign-off'] as [string, string]]),
+    ...(admin ? [
+      ['/vocabulary', 'Vocabulary'], ['/saved-text', 'Saved text'], ['/letterhead', 'Letterhead and your sign-off'],
+      ['/retention', 'Retention'], ['/departments', 'Departments'], ['/reopen', 'Reopen and delete requests'],
+    ] as [string, string][] : []),
+    ...(support ? [['/support', 'Support: errors'] as [string, string]] : []),
+  ];
+  const here = pages.some(([p]) => p === path);
+  return (
+    <div className="more" ref={box}>
+      <button type="button" className={here ? 'on' : ''} aria-expanded={open} aria-haspopup="true" onClick={() => setOpen(o => !o)}>{admin ? 'Settings' : 'More'} ▾</button>
+      {open && <div className="more-list" role="menu">
+        {pages.map(([p, label]) => <a key={p} role="menuitem" href={`#${p}`} className={path === p ? 'on' : ''}>{label}</a>)}
+      </div>}
+    </div>
   );
 }

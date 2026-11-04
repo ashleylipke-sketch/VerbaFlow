@@ -57,7 +57,8 @@ export default function Meet() {
   return (
     <>
       <div className="card">
-        <h2>Meet: record an online meeting</h2>
+        <p className="note"><a href="#/">← Meetings</a></p>
+        <h2>Record an online meeting</h2>
         <p className="note">Paste the join link of a Zoom, Google Meet, Microsoft Teams or Webex meeting. A participant
           called <strong>{o?.noteTakerName ?? 'VerbaFlow Notetaker'}</strong> joins, records the sound and the video, and posts a note in the
           meeting chat saying it is recording. Nobody has to press record, and it works for meetings set up by other organisations:

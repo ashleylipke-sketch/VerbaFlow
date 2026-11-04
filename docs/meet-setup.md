@@ -1,7 +1,7 @@
 # Meet: the note-taker for online meetings
 
 Meet records online meetings on **Zoom, Google Meet, Microsoft Teams and Webex**. You paste the meeting's join link
-on the **Meet** page (now, or booked for when the meeting starts). A participant called **VerbaFlow Notetaker** joins,
+on the **Online meeting** page (Meeting, then the **Online meeting** button; now, or booked for when the meeting starts). A participant called **VerbaFlow Notetaker** joins,
 records the sound and the video, and posts a message in the meeting chat saying it is recording. When the meeting
 ends, the video comes back into VerbaFlow as a Meeting item: transcript, speakers, summary, minutes, approval and
 export work as for any meeting, and the video plays on the item page in step with the transcript.
@@ -70,7 +70,7 @@ Optional: `Meet:NoteTakerName` changes the name the note-taker shows in meetings
 
 ## Booking from your calendar
 
-On the **Meet** page, **Your calendar** connects a calendar. VerbaFlow then reads it every 5 minutes and books the
+On the **Online meeting** page (Meeting, then **Online meeting**), **Your calendar** connects a calendar. VerbaFlow then reads it every 5 minutes and books the
 note-taker for each meeting with a Zoom, Google Meet, Teams or Webex link, **60 minutes before it starts**.
 
 - **Send the note-taker to all my online meetings** (ticked by default). Untick it to choose meeting by meeting instead.
@@ -119,7 +119,7 @@ This only works when the organisation's mailboxes are in Microsoft 365 (Exchange
    `Meet calendars: Microsoft 365 calendars read through Microsoft Graph, and calendar addresses`.
 
 Calendars.Read lets VerbaFlow read every calendar in the organisation (it only reads those of people who connected
-theirs on the Meet page). To limit it to some people, an Exchange administrator can add an application access policy
+theirs on the Online meeting page). To limit it to some people, an Exchange administrator can add an application access policy
 for the VerbaFlow app. The client secret runs out after 24 months: make a new one and set it again before then.
 
 ## Settings

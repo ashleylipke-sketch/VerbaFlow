@@ -3,7 +3,7 @@ export type Row = {
   id: string; name: string; priority: string; status: string; statusCode: string; lengthMs: number;
   clientReference: string | null; description: string | null; assignedTo: string | null; author: string | null; createdOn: string;
   dueDate: string | null; overdue: boolean; tags: string[]; actions: string[]; versionNo: number;
-  failureReason?: string | null; outstanding?: boolean; attachments?: number;
+  failureReason?: string | null; outstanding?: boolean; attachments?: number; fromDepartment?: boolean;
 };
 export type Detail = {
   row: Row; owner: string; ownerRole: string; processingState: string | null; failureReason: string | null;
@@ -107,6 +107,8 @@ export const api = {
   outputs: (id: string) => call<Outputs | null>('GET', `/items/${id}/outputs`),
   audit: (id: string) => call<AuditEvent[]>('GET', `/items/${id}/audit`),
   verify: () => call<{ ok: boolean; count: number; problem: string | null }>('GET', '/audit/verify'),
+  get: <T,>(path: string) => call<T>('GET', path),
+  del: (path: string) => call<void>('DELETE', path),
   post: (path: string, body?: unknown) => call<any>('POST', path, body ?? {}),
   put: (path: string, body: unknown) => call<void>('PUT', path, body),
   form: (path: string, f: FormData) => call<{ id: string }>('POST', path, f),

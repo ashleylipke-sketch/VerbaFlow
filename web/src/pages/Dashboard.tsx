@@ -20,14 +20,14 @@ const VIEWS: Record<Mode, [string, string][]> = {
 const DEFAULT_ON = ['Draft', 'WithAuthor', 'WithImporter', 'AwaitingAssignee', 'WithAssignee', 'ConversionFailed'];
 
 // The views someone picked are remembered on this computer, per mode. Storage may be unavailable; then the defaults apply.
-type Saved = { on: string[]; selfOnly: boolean; outstanding: boolean };
+type Saved = { on: string[]; selfOnly: boolean; outstanding: boolean; department: boolean };
 const KEY = (mode: Mode) => `verbaflow.views.${mode}`;
 function remembered(mode: Mode): Saved {
   try {
     const v = JSON.parse(localStorage.getItem(KEY(mode)) ?? 'null');
-    if (v && Array.isArray(v.on)) return { on: v.on, selfOnly: !!v.selfOnly, outstanding: !!v.outstanding };
+    if (v && Array.isArray(v.on)) return { on: v.on, selfOnly: !!v.selfOnly, outstanding: !!v.outstanding, department: v.department !== false };
   } catch { /* use the defaults */ }
-  return { on: DEFAULT_ON, selfOnly: false, outstanding: false };
+  return { on: DEFAULT_ON, selfOnly: false, outstanding: false, department: true };
 }
 function remember(mode: Mode, v: Saved) { try { localStorage.setItem(KEY(mode), JSON.stringify(v)); } catch { /* not kept */ } }
 
@@ -44,7 +44,9 @@ export default function Dashboard({ mode }: { mode: Mode }) {
   const [selfOnly, setSelfOnly] = useState(() => remembered(mode).selfOnly);
   // Outstanding Tasks is not a status: it shows everything that needs this person now, whatever its status.
   const [outstanding, setOutstanding] = useState(() => remembered(mode).outstanding);
-  useEffect(() => remember(mode, { on: [...on], selfOnly, outstanding }), [mode, on, selfOnly, outstanding]);
+  // Recordings by people in the same department (they can be opened, not changed). Shown unless switched off.
+  const [department, setDepartment] = useState(() => remembered(mode).department);
+  useEffect(() => remember(mode, { on: [...on], selfOnly, outstanding, department }), [mode, on, selfOnly, outstanding, department]);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
 
@@ -52,7 +54,8 @@ export default function Dashboard({ mode }: { mode: Mode }) {
   useEffect(() => { load(); const t = setInterval(load, 4000); return () => clearInterval(t); }, []);
 
   const toggle = (k: string) => setOn(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
-  const shown = (rows ?? []).filter(r => (outstanding ? !!r.outstanding : on.has(r.statusCode)) && (!selfOnly || r.tags.includes('Self-assigned')) &&
+  const anyDepartment = (rows ?? []).some(r => r.fromDepartment);
+  const shown = (rows ?? []).filter(r => (department || !r.fromDepartment) && (outstanding ? !!r.outstanding : on.has(r.statusCode)) && (!selfOnly || r.tags.includes('Self-assigned')) &&
     (!search || `${r.name} ${r.clientReference ?? ''} ${r.description ?? ''}`.toLowerCase().includes(search.toLowerCase())));
   const count = (k: string) => (rows ?? []).filter(r => r.statusCode === k).length;
 
@@ -83,6 +86,8 @@ export default function Dashboard({ mode }: { mode: Mode }) {
         {speech && <button className={outstanding ? 'on' : ''} aria-pressed={outstanding} title="Everything that needs you now, whatever its status (not Completed)"
           onClick={() => setOutstanding(!outstanding)}>Outstanding Tasks ({(rows ?? []).filter(r => r.outstanding).length})</button>}
         <button className={selfOnly ? 'on' : ''} aria-pressed={selfOnly} onClick={() => setSelfOnly(!selfOnly)}>Self-assigned only</button>
+        {anyDepartment && <button className={department ? 'on' : ''} aria-pressed={department} title="Recordings by people in your department. You can open them but not change them."
+          onClick={() => setDepartment(!department)}>My department's ({(rows ?? []).filter(r => r.fromDepartment).length})</button>}
         <input placeholder="Search name, reference, description" value={search} onChange={e => setSearch(e.target.value)} />
       </div>
       {error && <div className="error">{error}</div>}

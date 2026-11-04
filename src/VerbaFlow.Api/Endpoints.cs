@@ -37,6 +37,8 @@ public static class Endpoints
     public sealed record NameBody(string Name);
     public sealed record TermBody(string Text, string? Note);
     public sealed record SavedTextBody(string? Code, string? Text);
+    public sealed record DepartmentBody(string? Name, string? GroupId);
+    public sealed record DepartmentMemberBody(Guid UserId, bool Member);
     public sealed record LetterSpaceBody(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm, bool? RepeatFirstPage = null);
     public sealed record SignOffBody(bool On, string? Closing, string? Name, string? Title);
     private static object SignOffView(SignOff s) =>
@@ -87,6 +89,12 @@ public static class Endpoints
         api.MapPut("/widget/policy", (HttpContext h, WidgetService w, WidgetPolicyBody b) => w.SetBlockedSitesAsync(h.Current(), b.BlockedSites));
         api.MapGet("/widget/sessions", (HttpContext h, WidgetService w) => w.ListAsync(h.Current()));
 
+        api.MapGet("/departments", (HttpContext h, DepartmentService d) => d.OverviewAsync(h.Current()));
+        api.MapPost("/departments", async (HttpContext h, DepartmentService d, DepartmentBody b) => Results.Ok(await d.CreateAsync(h.Current(), b.Name, b.GroupId)));
+        api.MapPut("/departments/{id:guid}", async (HttpContext h, DepartmentService d, Guid id, DepartmentBody b) => Results.Ok(await d.ChangeAsync(h.Current(), id, b.Name, b.GroupId)));
+        api.MapDelete("/departments/{id:guid}", async (HttpContext h, DepartmentService d, Guid id) => { await d.RemoveAsync(h.Current(), id); return Results.NoContent(); });
+        api.MapPost("/departments/{id:guid}/members", async (HttpContext h, DepartmentService d, Guid id, DepartmentMemberBody b) =>
+            Results.Ok(await d.SetHandMemberAsync(h.Current(), id, b.UserId, b.Member)));
         api.MapGet("/saved-text", (SavedTextService t) => t.ListAsync());
         api.MapPost("/saved-text", async (HttpContext h, SavedTextService t, SavedTextBody b) => Results.Ok(await t.AddAsync(h.Current(), b.Code, b.Text)));
         api.MapPut("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id, SavedTextBody b) => Results.Ok(await t.ChangeAsync(h.Current(), id, b.Code, b.Text)));

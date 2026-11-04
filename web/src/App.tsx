@@ -12,6 +12,7 @@ import Vocabulary from './pages/Vocabulary';
 import SavedTextPage from './pages/SavedText';
 import LetterheadPage from './pages/Letterhead';
 import RetentionPage from './pages/Retention';
+import DepartmentsPage from './pages/Departments';
 import WidgetPage from './pages/Widget';
 import Meet from './pages/Meet';
 import Support from './pages/Support';
@@ -73,6 +74,7 @@ export default function App() {
           <a href="#/letterhead" className={path === '/letterhead' ? 'on' : ''}>Letterhead</a>
           <a href="#/widget" className={path === '/widget' ? 'on' : ''}>Widget</a>
           <a href="#/retention" className={path === '/retention' ? 'on' : ''}>Retention</a>
+          <a href="#/departments" className={path === '/departments' ? 'on' : ''}>Departments</a>
           {support && <a href="#/support" className={path === '/support' ? 'on' : ''}>Support: errors</a>}
           {admin && <a href="#/reopen" className={path === '/reopen' ? 'on' : ''}>Reopen and delete requests</a>}
         </nav>
@@ -118,6 +120,7 @@ export default function App() {
           : path === '/letterhead' ? <LetterheadPage />
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />
+          : path === '/departments' ? <DepartmentsPage />
           : path === '/meet' ? <Meet />
           : path === '/support' ? <Support />
           : <Dashboard key="meeting" mode="meeting" />}

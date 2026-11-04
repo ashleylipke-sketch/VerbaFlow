@@ -890,7 +890,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             i.ClientReference, i.Description, i.AssignedUserId is { } a ? users.GetValueOrDefault(a)?.Name : null,
             users.GetValueOrDefault(i.OwnerId)?.Name, i.CreatedAt,
             i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo, i.FailureReason, IsOutstanding(actor, i, superseded),
-            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId));
+            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId), PermissionEvaluator.RoleOn(actor, i) == ItemRole.Colleague);
     }
 
     /// <summary>
@@ -961,6 +961,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         ItemRole.Owner => item.Source == SourceKind.Imported ? "importer" : "author",
         ItemRole.Assignee => "assignee",
         ItemRole.Attendee => "attendee",
+        ItemRole.Colleague => "colleague",
         _ => actor.IsAdmin ? "admin" : "user"
     };
 

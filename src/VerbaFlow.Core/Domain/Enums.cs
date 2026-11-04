@@ -25,7 +25,8 @@ public enum Priority { Low, Normal, High, Urgent }
 public enum MarkerType { ConsentNotice, Objection, Pause, Resume }
 
 /// <summary>Attendee: a colleague who also asked Meet's note-taker to record the same online meeting. They can read it, and export it once approved.</summary>
-public enum ItemRole { None, Owner, Assignee, Attendee }
+/// <summary>Colleague: in the same department as the item's owner.</summary>
+public enum ItemRole { None, Owner, Assignee, Attendee, Colleague }
 
 [Flags]
 public enum Capability

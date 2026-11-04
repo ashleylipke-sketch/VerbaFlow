@@ -280,6 +280,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         ItemRole.Owner => item.Source == SourceKind.Imported ? "importer" : "author",
         ItemRole.Assignee => "assignee",
         ItemRole.Attendee => "attendee",
+        ItemRole.Colleague => "colleague",
         _ => actor.IsAdmin ? "admin" : "user"
     };
 

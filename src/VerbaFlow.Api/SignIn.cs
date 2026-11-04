@@ -74,7 +74,7 @@ public static class SignIn
             user = key.Length == 0 ? null : DevUsers.Seed.FirstOrDefault(u => u.Email.StartsWith(key + "@", StringComparison.OrdinalIgnoreCase));
         }
         if (user is null) return Results.Json(new { error = options.Microsoft ? "Sign in with your Microsoft work account." : "Choose a user to sign in as." }, statusCode: 401);
-        http.Items["user"] = user;
+        http.Items["user"] = await http.RequestServices.GetRequiredService<DepartmentService>().WithColleaguesAsync(user);
         return await next(ctx);
     }
 
@@ -87,7 +87,20 @@ public static class SignIn
         var oid = Get("oid");
         if (string.IsNullOrWhiteSpace(oid)) return null;
         var admin = p.FindAll("roles").Any(r => r.Value == SignInOptions.AdminRole);
-        return new EntraIdentity(oid, Get("name"), Get("preferred_username") ?? Get("upn") ?? Get("email") ?? Get("unique_name"), admin);
+        return new EntraIdentity(oid, Get("name"), Get("preferred_username") ?? Get("upn") ?? Get("email") ?? Get("unique_name"), admin, Groups(p));
+    }
+
+    /// <summary>
+    /// The Microsoft groups the token lists (when the app registration's token configuration adds the groups claim), used for
+    /// departments. Someone in too many groups gets a pointer instead of the list ("overage"), recorded as TooManyGroups.
+    /// </summary>
+    public static string Groups(ClaimsPrincipal p)
+    {
+        if (p.FindFirst("hasgroups") is not null || (p.FindFirst("_claim_names")?.Value ?? "").Contains("\"groups\"", StringComparison.Ordinal))
+            return EntraUsers.TooManyGroups;
+        var ids = p.FindAll("groups").Select(c => Guid.TryParse(c.Value, out var g) ? g.ToString("D") : null).Where(g => g is not null)
+            .Distinct().Order(StringComparer.Ordinal).Take(500);
+        return string.Join(",", ids);
     }
 
     public static User Current(this HttpContext http) => (User)http.Items["user"]!;

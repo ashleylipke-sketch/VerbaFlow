@@ -11,7 +11,7 @@ public readonly record struct Decision(bool Allowed, string Reason)
 /// <summary>
 /// Effective permissions, evaluated in a fixed order:
 /// 1. Lock: an approved item can only be read or exported, whatever anyone has been granted.
-/// 2. Role on this item: the owner (author/importer) and the assignee.
+/// 2. Role on this item: the owner (author/importer), the assignee, a meeting attendee, and a colleague in the owner's department.
 /// 3. Administrator and per-capability grants.
 /// 4. Otherwise deny.
 /// Audio is never writable in Meeting mode, so there is no capability for it.
@@ -25,6 +25,8 @@ public static class PermissionEvaluator
         if (item.OwnerId == user.Id) return ItemRole.Owner;
         if (item.AssignedUserId == user.Id) return ItemRole.Assignee;
         if (item.Attendees.Contains(user.Id)) return ItemRole.Attendee;
+        // Someone in the same department as the owner; an unfinished dictation stays the author's own until they finish it.
+        if (user.Colleagues.Contains(item.OwnerId) && item.Status != ItemStatus.Draft) return ItemRole.Colleague;
         return ItemRole.None;
     }
 
@@ -46,7 +48,7 @@ public static class PermissionEvaluator
                 return Decision.Allow("role:Owner");
             case Capability.Export when role == ItemRole.Owner: // the author or importer can take their own meeting's minutes out
                 return Decision.Allow("role:Owner");
-            case Capability.Export when role is ItemRole.Assignee or ItemRole.Attendee && item.Status == ItemStatus.Completed: // once approved, the typist (or a colleague who was in the meeting) can take it out too
+            case Capability.Export when role is ItemRole.Assignee or ItemRole.Attendee or ItemRole.Colleague && item.Status == ItemStatus.Completed: // once approved, the typist (or someone who was in the meeting, or in the owner's department) can take it out too
                 return Decision.Allow($"role:{role}");
         }
 

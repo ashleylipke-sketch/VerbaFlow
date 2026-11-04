@@ -5,7 +5,12 @@ using VerbaFlow.Core.Domain;
 namespace VerbaFlow.Infrastructure.Services;
 
 /// <summary>Who a Microsoft sign-in says the person is: their directory id, name, email and whether they hold the Admin role.</summary>
-public sealed record EntraIdentity(string ObjectId, string? Name, string? Email, bool IsAdmin);
+/// <param name="Groups">The Microsoft groups the sign-in lists (object ids, sorted, comma separated), <see cref="EntraUsers.TooManyGroups"/>
+/// when the person is in too many for the sign-in to list, or empty.</param>
+public sealed record EntraIdentity(string ObjectId, string? Name, string? Email, bool IsAdmin, string Groups = "")
+{
+    public IReadOnlyList<string> GroupList => Groups.Length == 0 ? [] : Groups.Split(',');
+}
 
 /// <summary>
 /// Turns a Microsoft Entra ID sign-in into a VerbaFlow user. The first sign-in creates the user; later sign-ins keep the
@@ -15,6 +20,8 @@ public sealed record EntraIdentity(string ObjectId, string? Name, string? Email,
 public sealed class EntraUsers(Stores stores, TimeProvider clock)
 {
     private const string Product = "platform";
+    /// <summary>Kept in <see cref="User.GroupIds"/> when Microsoft said the person is in too many groups to list in the sign-in.</summary>
+    public const string TooManyGroups = "too-many";
     /// <summary>How long a looked-up user is trusted before the directory details are compared again.</summary>
     public static readonly TimeSpan Remember = TimeSpan.FromMinutes(5);
     private readonly ConcurrentDictionary<string, (User User, EntraIdentity Seen, DateTimeOffset At)> _known = new(StringComparer.Ordinal);
@@ -34,17 +41,19 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
             User user;
             if (existing is null)
             {
-                user = new User(Guid.NewGuid(), name, email, who.IsAdmin, Capability.None, EntraObjectId: who.ObjectId);
+                user = new User(Guid.NewGuid(), name, email, who.IsAdmin, Capability.None, EntraObjectId: who.ObjectId, GroupIds: who.GroupList);
                 await stores.Users.UpsertAsync(user.Id, user);
                 await Audit(user, "user.first_sign_in", ("isAdmin", user.IsAdmin));
             }
             else
             {
-                user = existing with { Name = name, Email = email, IsAdmin = who.IsAdmin, IsSupport = false };
+                user = existing with { Name = name, Email = email, IsAdmin = who.IsAdmin, IsSupport = false, GroupIds = who.GroupList };
                 if (user != existing)
                 {
                     await stores.Users.UpsertAsync(user.Id, user);
                     if (user.IsAdmin != existing.IsAdmin) await Audit(user, "user.admin_changed", ("isAdmin", user.IsAdmin));
+                    if (!(existing.GroupIds ?? []).SequenceEqual(user.GroupIds ?? []))
+                        await Audit(user, "user.groups_changed", ("microsoftGroups", who.Groups == TooManyGroups ? "too many to list" : user.GroupIds!.Count.ToString()));
                 }
             }
             _known[who.ObjectId] = (user, who, now);

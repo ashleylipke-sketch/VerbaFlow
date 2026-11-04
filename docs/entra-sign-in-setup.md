@@ -113,6 +113,21 @@ Then install the Widget for Windows (`widget-windows.md`) and click **Sign in wi
 - **Android**: under **Mobile and desktop applications**, add `net.verbaflow.speak://auth` (exactly). See `widget-android.md`.
 - **iPhone**: **Add a platform**, **iOS / macOS**, bundle ID `net.verbaflow.speak`. See `widget-iphone.md`.
 
+## 11. Departments (who can see whose recordings)
+
+People in the same department can open each other's recordings (read, listen, and export once approved), but not change them. VerbaFlow reads who is in which department from Microsoft groups. Do this once:
+
+1. In the Entra admin center, open **App registrations** › **VerbaFlow** › **Token configuration**.
+2. Click **+ Add groups claim**, tick **Security groups**, and click **Add**. (If your departments are Microsoft 365 groups, for example a Teams team, tick **All groups** instead.)
+3. For each department, make sure there is a group with the right people in it: **Groups** › **All groups** › **+ New group**, Group type **Security**, a name such as "VerbaFlow Legal", then add the members.
+4. Open the group and copy its **Object ID** from the Overview page.
+5. In VerbaFlow, as an administrator, open **Departments** › **Add a department**, type the name and paste the Object ID. (Or wait until people have signed in: the page then lists the groups it has seen, with names of people in each, and a **Make a department** button.)
+6. People are in the department from their next sign-in (Sign out, then Sign in with Microsoft). When someone is taken out of the group in Microsoft, they leave the department at their next sign-in.
+
+Someone in more than about 200 groups gets no list from Microsoft; the Departments page says how many people this affects. The fix is step 2 with **Groups assigned to the application**, which needs Microsoft Entra ID P1, and then assigning the department groups under **Enterprise apps** › **VerbaFlow** › **Users and groups**.
+
+The test users (Alice, Bob…) do not sign in with Microsoft, so on your computer an administrator can add them to a department by hand on the same page.
+
 ## How it works (for whoever looks after VerbaFlow)
 
 - The web app uses Microsoft's sign-in library (MSAL.js, `@azure/msal-browser`) and sends an access token for `api://<client id>/access_as_user` with every call. The Widget does the same through the browser's sign-in window (`chrome.identity.launchWebAuthFlow`, authorisation code with PKCE); its tokens are kept in browser-session memory only.
@@ -123,7 +138,6 @@ Then install the Widget for Windows (`widget-windows.md`) and click **Sign in wi
 
 ## Not done yet
 
-- Departments from Microsoft 365 groups (decision 02).
 - Items made under the test users stay with those test users; a Microsoft account is a new user.
 - Email drafts through Microsoft Graph (Outlook) instead of a downloaded .eml file.
 - When VerbaFlow goes online, its web address must be added as another **Single-page application** redirect URI (step 4).

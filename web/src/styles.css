@@ -165,3 +165,8 @@ p.back { margin:0 0 8px; }
 /* Saved text put in by a spoken "insert": shaded, with its code at the start. */
 .saved-text { background:var(--saved); box-shadow:0 2px 0 var(--saved-line); }
 .saved-tag { display:inline-block; font-size:11px; line-height:1.4; padding:0 5px; margin-right:4px; border-radius:4px; background:var(--saved-tag); color:var(--saved-ink); vertical-align:1px; white-space:nowrap; }
+/* Departments page */
+.dept { border-top:1px solid var(--line); padding-top:8px; margin-top:12px; }
+.dept h3 { margin:0; }
+.dept h3 .tag, .dept code { margin-left:6px; }
+.card code { overflow-wrap:anywhere; }

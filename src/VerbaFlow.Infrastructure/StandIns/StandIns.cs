@@ -87,7 +87,7 @@ public sealed class StandInMalwareScanner : IMalwareScanner
 public sealed class StandInAudioEnhancer : IAudioEnhancer
 {
     public string Name => "stand-in:none";
-    public Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct) => Task.FromResult(new EnhancedAudio(original, "none"));
+    public Task<EnhancedAudio> EnhanceAsync(Stream original, NoiseReduction noise, CancellationToken ct) => Task.FromResult(new EnhancedAudio(original, "none"));
 }
 
 /// <summary>

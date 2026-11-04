@@ -57,8 +57,13 @@ public interface IMalwareScanner
 public interface IAudioEnhancer
 {
     string Name { get; }
-    Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct);
+    Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct) => EnhanceAsync(original, NoiseReduction.None, ct);
+    /// <summary>As above, also taking away background noise (hum, fans, traffic, chatter) when asked.</summary>
+    Task<EnhancedAudio> EnhanceAsync(Stream original, NoiseReduction noise, CancellationToken ct);
 }
+
+/// <summary>How much background noise the processing copy has taken away. Over-filtering can cost quiet words, so it is a choice.</summary>
+public enum NoiseReduction { None, Light, Strong }
 
 /// <summary>The processing copy. <paramref name="Applied"/> says what was done to it; <paramref name="Warning"/> is set when clean-up was skipped.</summary>
 public sealed record EnhancedAudio(Stream Audio, string Applied, string? Warning = null);

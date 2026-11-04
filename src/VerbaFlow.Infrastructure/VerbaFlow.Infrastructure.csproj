@@ -19,6 +19,11 @@
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- RNNoise model "somnolent-hogwash" (speech in recording noise, 2018-09-01) from GregorR/rnnoise-models; not subject to copyright per that repository. -->
+    <EmbeddedResource Include="Audio\rnnoise-speech.rnnn" LogicalName="rnnoise-speech.rnnn" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

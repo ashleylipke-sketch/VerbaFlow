@@ -334,7 +334,11 @@ export default function ItemPage({ id }: { id: string }) {
               <label className="note">Audio to use{' '}
                 <select value={rerunAudio} onChange={e => setRerunAudio(e.target.value)}>
                   <option value="">Cleaned up (normal)</option>
+                  <option value="less-noise">Cleaned up, less background noise</option>
+                  <option value="much-less-noise">Cleaned up, much less background noise</option>
                   <option value="original">Original recording, no clean-up (to compare)</option></select></label>
+              {rerunAudio === 'less-noise' && <p className="note">Takes away hum, fans and chatter, keeping a little of the original sound so quiet words are not lost.</p>}
+              {rerunAudio === 'much-less-noise' && <p className="note">Takes away as much background noise as it can. Very quiet or distant voices may be lost too.</p>}
               <button disabled={busy} onClick={() => {
                 const edited = corrections > 0;
                 if (edited && !confirm(`This replaces your ${corrections} correction${corrections > 1 ? 's' : ''} with a fresh transcript. The history keeps a record that this happened. Continue?`)) return;

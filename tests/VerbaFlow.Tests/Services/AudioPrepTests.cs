@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using VerbaFlow.Infrastructure.Services;
+using VerbaFlow.Core.Providers;
 
 namespace VerbaFlow.Tests.Services;
 
@@ -47,6 +48,49 @@ public class AudioPrepTests
         }
         finally { File.Delete(tmp); }
         Assert.Equal(original, input.ToArray()); // the original stream content is unchanged
+    }
+
+    /// <summary>A quiet tone (standing in for a voice) under loud steady hiss, then the hiss alone.</summary>
+    private static byte[] NoisyClip()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"vf-noisy-{Guid.NewGuid():N}.wav");
+        Run("ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=4:c=white:a=0.08:r=48000", "-ac", "1", path);
+        try { return File.ReadAllBytes(path); } finally { File.Delete(path); }
+    }
+
+    private static double MeanVolume(string file) => double.Parse(Run("bash", "-c",
+        $"ffmpeg -hide_banner -i '{file}' -af volumedetect -f null - 2>&1 | grep mean_volume | sed 's/.*mean_volume: //; s/ dB//'"), System.Globalization.CultureInfo.InvariantCulture);
+
+    private static async Task<string> Prepare(byte[] clip, NoiseReduction noise, List<string> applied)
+    {
+        var enhanced = await new FfmpegAudioEnhancer(null).EnhanceAsync(new MemoryStream(clip), noise, default);
+        Assert.Null(enhanced.Warning);
+        applied.Add(enhanced.Applied);
+        var tmp = Path.GetTempFileName() + ".flac";
+        await using (var f = File.Create(tmp)) { await enhanced.Audio.CopyToAsync(f); }
+        await enhanced.Audio.DisposeAsync();
+        return tmp;
+    }
+
+    [Fact]
+    public async Task Background_noise_reduction_takes_hiss_away_and_strong_takes_more_than_light()
+    {
+        if (!OperatingSystem.IsLinux() || !await HaveFfmpeg()) return;
+        var clip = NoisyClip();
+        var applied = new List<string>();
+        var none = await Prepare(clip, NoiseReduction.None, applied);
+        var light = await Prepare(clip, NoiseReduction.Light, applied);
+        var strong = await Prepare(clip, NoiseReduction.Strong, applied);
+        try
+        {
+            double n = MeanVolume(none), l = MeanVolume(light), s = MeanVolume(strong);
+            Assert.True(l < n - 3, $"light should take the hiss down (none {n} dB, light {l} dB)");
+            Assert.True(s < l - 3, $"strong should take more away than light (light {l} dB, strong {s} dB)");
+            Assert.Equal("mono 16 kHz, levelled", applied[0]);
+            Assert.Contains("reduced a little", applied[1]);
+            Assert.Contains("RNNoise", applied[2]);
+        }
+        finally { File.Delete(none); File.Delete(light); File.Delete(strong); }
     }
 
     [Fact]

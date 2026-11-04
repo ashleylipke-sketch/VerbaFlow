@@ -30,7 +30,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             // The owner can ask for a run on the untouched recording, to compare it with the cleaned-up copy.
             var useOriginal = item.SpeechAudio == "original";
             var enhanced = useOriginal ? new EnhancedAudio(stores.Media.OpenRead(asset), "none (original recording chosen)")
-                : await enhancer.EnhanceAsync(original, ct);
+                : await enhancer.EnhanceAsync(original, item.NoiseChoice, ct);
             if (enhanced.Warning is not null)
             {
                 var rep = await reporter.ReportAsync("audio-preparation", itemId, new InvalidOperationException(enhanced.Warning));
@@ -84,7 +84,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             {
                 try
                 {
-                    result = await TranscribePeopleAsync(voices, request, useOriginal, ct);
+                    result = await TranscribePeopleAsync(voices, request, useOriginal, item.NoiseChoice, ct);
                     var people = voices.Parts.Select(p => p.Participant).Distinct().Count();
                     personAudio = $"{people} {(people == 1 ? "person" : "people")}, {voices.Parts.Count} part{(voices.Parts.Count == 1 ? "" : "s")}";
                 }
@@ -243,7 +243,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames), ("personAudio", personAudio), ("introductions", introductions),
-                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : "prepared"), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : item.NoiseChoice switch { NoiseReduction.Light => "prepared, background noise reduced a little", NoiseReduction.Strong => "prepared, background noise reduced a lot", _ => "prepared" }), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
                     ("vocabularyTerms", phrases.Count), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
@@ -259,7 +259,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
     }
 
     /// <summary>Each stretch of each person's own audio goes to the speech service alone (one voice, no speaker separation).</summary>
-    private async Task<TranscriptionResult> TranscribePeopleAsync(MeetingVoices voices, TranscribeOptions request, bool useOriginal, CancellationToken ct)
+    private async Task<TranscriptionResult> TranscribePeopleAsync(MeetingVoices voices, TranscribeOptions request, bool useOriginal, NoiseReduction noise, CancellationToken ct)
     {
         var one = request with { MaxSpeakers = 1, Diarize = false };
         var heard = new List<PersonAudioMerger.Heard>();
@@ -269,7 +269,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             if (part.DurationMs is > 0 and < MinPersonAudioMs) continue; // a blip when someone unmuted: nothing to hear
             var asset = await stores.Media.FindAsync(part.AssetId) ?? throw new InvalidOperationException($"Person audio {part.AssetId} is missing.");
             await using var raw = stores.Media.OpenRead(asset);
-            var prepared = useOriginal ? new EnhancedAudio(stores.Media.OpenRead(asset), "none") : await enhancer.EnhanceAsync(raw, ct);
+            var prepared = useOriginal ? new EnhancedAudio(stores.Media.OpenRead(asset), "none") : await enhancer.EnhanceAsync(raw, noise, ct);
             await using var audio = prepared.Audio;
             var result = await speech.TranscribeAsync(audio, one, ct);
             engine ??= result.Engine;

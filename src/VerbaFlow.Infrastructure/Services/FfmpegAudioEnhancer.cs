@@ -6,6 +6,8 @@ namespace VerbaFlow.Infrastructure.Services;
 /// <summary>
 /// Prepares the processing copy for speaker separation: mono, 16 kHz, low rumble removed, and loudness evened out
 /// so quiet speakers are not drowned out by loud ones. The original recording is never touched.
+/// When asked, background noise is taken away first (RNNoise, a small speech-trained model built into ffmpeg's arnndn
+/// filter; the model file ships inside VerbaFlow). Over-filtering can cost quiet words, so it is the owner's choice per run.
 /// If ffmpeg is missing or fails, the original audio is used and the result carries a warning. Transcription never fails because of this step.
 /// </summary>
 public sealed class FfmpegAudioEnhancer(string? ffmpegPath) : IAudioEnhancer
@@ -16,7 +18,22 @@ public sealed class FfmpegAudioEnhancer(string? ffmpegPath) : IAudioEnhancer
     /// <summary>The filter chain. dynaudnorm raises quiet passages gently over short windows; highpass removes room rumble below 80 Hz.</summary>
     internal static readonly string[] Arguments =
         ["-hide_banner", "-loglevel", "error", "-y", "-i", "{in}", "-vn", "-ac", "1", "-ar", "16000",
-         "-af", "highpass=f=80,dynaudnorm=f=200:g=15:p=0.9:m=15", "-c:a", "flac", "{out}"];
+         "-af", "{filters}", "-c:a", "flac", "{out}"];
+
+    internal const string Levelling = "highpass=f=80,dynaudnorm=f=200:g=15:p=0.9:m=15";
+
+    /// <summary>The model file inside the temporary folder (a plain name, so no path needs escaping inside the filter, also on Windows).</summary>
+    internal const string ModelFile = "rnnoise.rnnn";
+    internal const string ModelName = "RNNoise somnolent-hogwash 2018-09-01";
+
+    /// <summary>The filter chain. Noise goes first, before levelling, so the levelling does not raise the noise too.
+    /// Light keeps 40% of the untouched sound mixed back in, which protects quiet words; strong keeps none.</summary>
+    internal static string Filters(NoiseReduction noise) => noise switch
+    {
+        NoiseReduction.Light => $"highpass=f=80,arnndn=m={ModelFile}:mix=0.6,{Levelling[(Levelling.IndexOf(',') + 1)..]}",
+        NoiseReduction.Strong => $"highpass=f=80,arnndn=m={ModelFile}:mix=1,{Levelling[(Levelling.IndexOf(',') + 1)..]}",
+        _ => Levelling,
+    };
 
     public static async Task<bool> IsAvailableAsync(string? path)
     {
@@ -32,7 +49,9 @@ public sealed class FfmpegAudioEnhancer(string? ffmpegPath) : IAudioEnhancer
         catch { return false; }
     }
 
-    public async Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct)
+    public Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct) => EnhanceAsync(original, NoiseReduction.None, ct);
+
+    public async Task<EnhancedAudio> EnhanceAsync(Stream original, NoiseReduction noise, CancellationToken ct)
     {
         var dir = Directory.CreateTempSubdirectory("verbaflow-audio-");
         var input = Path.Combine(dir.FullName, "in");
@@ -42,8 +61,16 @@ public sealed class FfmpegAudioEnhancer(string? ffmpegPath) : IAudioEnhancer
             if (original.CanSeek) original.Position = 0;
             await using (var f = File.Create(input)) await original.CopyToAsync(f, ct);
 
-            var psi = new ProcessStartInfo(Executable) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
-            foreach (var a in Arguments) psi.ArgumentList.Add(a.Replace("{in}", input).Replace("{out}", output));
+            if (noise != NoiseReduction.None)
+            {
+                await using var model = typeof(FfmpegAudioEnhancer).Assembly.GetManifestResourceStream("rnnoise-speech.rnnn")
+                    ?? throw new InvalidOperationException("The noise model is missing from this build.");
+                await using var mf = File.Create(Path.Combine(dir.FullName, ModelFile));
+                await model.CopyToAsync(mf, ct);
+            }
+            var psi = new ProcessStartInfo(Executable)
+            { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = dir.FullName };
+            foreach (var a in Arguments) psi.ArgumentList.Add(a.Replace("{in}", input).Replace("{out}", output).Replace("{filters}", Filters(noise)));
             using var proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");
             var err = proc.StandardError.ReadToEndAsync(ct);
             _ = proc.StandardOutput.ReadToEndAsync(ct);
@@ -56,7 +83,13 @@ public sealed class FfmpegAudioEnhancer(string? ffmpegPath) : IAudioEnhancer
 
             File.Delete(input);
             var stream = new TempFolderStream(output, dir.FullName);
-            return new EnhancedAudio(stream, "mono 16 kHz, levelled");
+            var applied = noise switch
+            {
+                NoiseReduction.Light => $"mono 16 kHz, background noise reduced a little ({ModelName}, mix 0.6), levelled",
+                NoiseReduction.Strong => $"mono 16 kHz, background noise reduced a lot ({ModelName}), levelled",
+                _ => "mono 16 kHz, levelled",
+            };
+            return new EnhancedAudio(stream, applied);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

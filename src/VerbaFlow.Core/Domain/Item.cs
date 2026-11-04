@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using VerbaFlow.Core.Providers;
 
 namespace VerbaFlow.Core.Domain;
 
@@ -75,14 +76,22 @@ public sealed class Item
     [JsonInclude] public string? SpeakerMethod { get; private set; }
     public void SetSpeakerMethod(string? value) =>
         SpeakerMethod = value?.ToLowerInvariant() is "windowed" or "azure" ? value.ToLowerInvariant() : null;
-    /// <summary>Which audio the speech service hears when the conversion is run again: "original" (the untouched recording, no clean-up) or null for the cleaned-up copy.</summary>
+    /// <summary>Which audio the speech service hears when the conversion is run again: "original" (the untouched recording, no clean-up),
+    /// "less-noise" / "much-less-noise" (the cleaned-up copy with background noise reduced a little / a lot), or null for the cleaned-up copy.</summary>
     [JsonInclude] public string? SpeechAudio { get; private set; }
     /// <summary>Which speech service a dictation uses when converted again: "fast", or null for word for word (spoken commands reach VerbaFlow).</summary>
     [JsonInclude] public string? DictationService { get; private set; }
     public void SetDictationService(string? value) =>
         DictationService = value?.ToLowerInvariant() == "fast" ? "fast" : null;
     public void SetSpeechAudio(string? value) =>
-        SpeechAudio = value?.ToLowerInvariant() == "original" ? "original" : null;
+        SpeechAudio = value?.ToLowerInvariant() is "original" or "less-noise" or "much-less-noise" ? value.ToLowerInvariant() : null;
+    /// <summary>The background-noise choice for the cleaned-up copy.</summary>
+    [JsonIgnore] public NoiseReduction NoiseChoice => SpeechAudio switch
+    {
+        "less-noise" => NoiseReduction.Light,
+        "much-less-noise" => NoiseReduction.Strong,
+        _ => NoiseReduction.None,
+    };
     [JsonInclude] public bool ObjectionFlag { get; private set; }
     [JsonInclude] public DateTimeOffset? ApprovedAt { get; private set; }
     [JsonInclude] public Guid? ApprovedBy { get; private set; }

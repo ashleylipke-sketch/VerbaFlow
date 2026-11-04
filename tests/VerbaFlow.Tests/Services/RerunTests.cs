@@ -24,8 +24,35 @@ public class RerunTests
     private sealed class CountingEnhancer : IAudioEnhancer
     {
         public int Calls { get; private set; }
+        public NoiseReduction LastNoise { get; private set; }
         public string Name => "counting";
-        public Task<EnhancedAudio> EnhanceAsync(Stream original, CancellationToken ct) { Calls++; return Task.FromResult(new EnhancedAudio(original, "levelled")); }
+        public Task<EnhancedAudio> EnhanceAsync(Stream original, NoiseReduction noise, CancellationToken ct)
+        { Calls++; LastNoise = noise; return Task.FromResult(new EnhancedAudio(original, "levelled")); }
+    }
+
+    [Theory]
+    [InlineData("less-noise", NoiseReduction.Light, "prepared, background noise reduced a little")]
+    [InlineData("much-less-noise", NoiseReduction.Strong, "prepared, background noise reduced a lot")]
+    public async Task Running_again_with_background_noise_reduced_asks_the_clean_up_for_it_and_says_so_in_the_history(string audio, NoiseReduction expected, string history)
+    {
+        var env = new Env();
+        using var _ = env;
+        var enhancer = new CountingEnhancer();
+        var processing = new ProcessingService(env.Stores, env.Speech, env.Ai, enhancer, env.Clock, env.Reporter, new SpyDiarizer());
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Recording());
+        await processing.ProcessAsync(id);
+        Assert.Equal(NoiseReduction.None, enhancer.LastNoise);
+        await env.Meeting.RerunAsync(env.Alice, id, null, audio: audio);
+        await processing.ProcessAsync(id);
+        Assert.Equal(expected, enhancer.LastNoise);
+        Assert.Equal(audio, (await env.Item(id)).SpeechAudio);
+        var events = await env.Stores.Audit.ListAsync(id);
+        Assert.Contains($"\"audio\":\"{audio}\"", events.Last(a => a.Type == "processing.rerun_requested").Details);
+        Assert.Contains($"\"audioSentToSpeech\":\"{history}\"", events.Last(a => a.Type == "processing.completed").Details);
+        // Running again with the normal choice goes back to no noise reduction.
+        await env.Meeting.RerunAsync(env.Alice, id, null, audio: null);
+        await processing.ProcessAsync(id);
+        Assert.Equal(NoiseReduction.None, enhancer.LastNoise);
     }
 
     [Fact]

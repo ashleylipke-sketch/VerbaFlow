@@ -1,0 +1,42 @@
+# Scores Meta's free Omnilingual speech model on public recordings of the South African languages Azure cannot
+# transcribe (tools/language-trial). A trial only: nothing here is part of VerbaFlow itself.
+name: Language trial
+on:
+  push:
+    paths: ['tools/language-trial/**', '.github/workflows/language-trial.yml']
+  workflow_dispatch:
+jobs:
+  trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        lang: [xho, sot, tsn, nso, tso, ssw, ven, nbl]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libsndfile1
+          pip install -q omnilingual-asr jiwer soundfile remotezip
+      - name: Run
+        run: python tools/language-trial/trial.py ${{ matrix.lang }} result-${{ matrix.lang }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: result-${{ matrix.lang }}
+          path: result-${{ matrix.lang }}.json
+          if-no-files-found: ignore
+  summary:
+    needs: trial
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+      - run: python tools/language-trial/summarise.py results | tee -a "$GITHUB_STEP_SUMMARY"

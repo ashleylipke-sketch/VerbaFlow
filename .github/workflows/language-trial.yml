@@ -21,7 +21,11 @@ jobs:
       - name: Install
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q libsndfile1
-          pip install -q omnilingual-asr jiwer soundfile remotezip
+          # CPU-only torch, and fairseq2 built for that same torch (the default wheels expect a graphics card)
+          pip install -q torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -q fairseq2 --extra-index-url https://fair.pkg.atmeta.com/fairseq2/whl/pt2.8.0/cpu
+          pip install -q omnilingual-asr jiwer soundfile remotezip --extra-index-url https://fair.pkg.atmeta.com/fairseq2/whl/pt2.8.0/cpu
+          pip list 2>/dev/null | grep -iE "^(torch|torchaudio|fairseq2|fairseq2n|omnilingual)" 
       - name: Run
         run: python tools/language-trial/trial.py ${{ matrix.lang }} result-${{ matrix.lang }}.json
       - uses: actions/upload-artifact@v4

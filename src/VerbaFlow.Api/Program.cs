@@ -103,6 +103,7 @@ builder.Services.AddSingleton<VerbaFlow.Infrastructure.Export.ExportService>();
 builder.Services.AddSingleton<VocabularyService>();
 builder.Services.AddSingleton<SavedTextService>();
 builder.Services.AddSingleton<DepartmentService>();
+builder.Services.AddSingleton<SearchService>();
 builder.Services.AddSingleton<LetterheadService>();
 builder.Services.AddSingleton<SignOffService>();
 // Dictations go word for word through the Speech SDK when Azure Speech and ffmpeg are both there.

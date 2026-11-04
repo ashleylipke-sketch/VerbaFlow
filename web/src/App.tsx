@@ -13,6 +13,7 @@ import SavedTextPage from './pages/SavedText';
 import LetterheadPage from './pages/Letterhead';
 import RetentionPage from './pages/Retention';
 import DepartmentsPage from './pages/Departments';
+import SearchPage from './pages/Search';
 import WidgetPage from './pages/Widget';
 import Meet from './pages/Meet';
 import Support from './pages/Support';
@@ -53,7 +54,8 @@ export default function App() {
   const key = (u: UserView) => u.email.split('@')[0];
   const pickTest = (u: string) => { setTestUser(u); setProblem(''); setWay(signedIn()); };
   const path = hash.replace(/^#/, '');
-  const item = path.match(/^\/items\/([0-9a-f-]{36})$/);
+  const item = path.match(/^\/items\/([0-9a-f-]{36})(?:\?(.*))?$/);
+  const itemQuery = new URLSearchParams(item?.[2] ?? '');
   const draft = path.match(/^\/dictate\/record\/([0-9a-f-]{36})$/);
   const carryOn = /^\/speech\/live\/([0-9a-f-]{36})$/.exec(path);
   const admin = me?.isAdmin;
@@ -69,6 +71,7 @@ export default function App() {
           <a href="#/speech" className={path.startsWith('/speech') ? 'on' : ''}>Speech</a>
           <a href="#/" className={path === '/' || path === '/record' || path === '/import' ? 'on' : ''}>Meeting</a>
           <a href="#/meet" className={path === '/meet' ? 'on' : ''}>Meet</a>
+          <a href="#/search" className={path.startsWith('/search') ? 'on' : ''}>Search</a>
           <a href="#/vocabulary" className={path === '/vocabulary' ? 'on' : ''}>Vocabulary</a>
           <a href="#/saved-text" className={path === '/saved-text' ? 'on' : ''}>Saved text</a>
           <a href="#/letterhead" className={path === '/letterhead' ? 'on' : ''}>Letterhead</a>
@@ -104,7 +107,7 @@ export default function App() {
           {!way && info.testUsers && <p className="note">{info.microsoft ? 'Or, on this computer only, pick a test user at the top right.' : 'Pick a test user at the top right. (Microsoft sign-in is not set up yet.)'}</p>}
           {!way && !info.microsoft && !info.testUsers && !problem && <p className="note">Sign-in is not set up yet. Your administrator needs to finish setting up VerbaFlow.</p>}
         </div>
-          : item ? <ItemPage id={item[1]} />
+          : item ? <ItemPage id={item[1]} at={itemQuery.get('at') ? Number(itemQuery.get('at')) : undefined} seg={itemQuery.get('seg') ?? undefined} />
           : path === '/record' ? <Record mode="meeting" />
           : path === '/import' ? <Import mode="meeting" />
           : draft ? <Dictate key={draft[1]} draftId={draft[1]} />
@@ -121,6 +124,7 @@ export default function App() {
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />
           : path === '/departments' ? <DepartmentsPage />
+          : path.startsWith('/search') ? <SearchPage key={path} query={new URLSearchParams(path.split('?')[1] ?? '')} />
           : path === '/meet' ? <Meet />
           : path === '/support' ? <Support />
           : <Dashboard key="meeting" mode="meeting" />}

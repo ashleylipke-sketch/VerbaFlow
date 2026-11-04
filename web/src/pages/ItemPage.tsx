@@ -25,7 +25,8 @@ function useFit(text: string) {
 /** Lets an Edit button pause the recording while the person types, and carry on playing once they save or cancel. */
 const EditPause = createContext<{ pause: () => void; resume: () => void }>({ pause: () => undefined, resume: () => undefined });
 
-export default function ItemPage({ id }: { id: string }) {
+/** `at` and `seg`: a moment to open at (from Search): the player is moved there and the passage shown and lit up. */
+export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg?: string }) {
   const [d, setD] = useState<Detail | null>(null);
   const [t, setT] = useState<Transcript | null>(null);
   const [o, setO] = useState<Outputs | null>(null);
@@ -110,10 +111,12 @@ export default function ItemPage({ id }: { id: string }) {
     return () => { cancelAnimationFrame(raf); a.removeEventListener('play', onPlay); a.removeEventListener('pause', onStop); a.removeEventListener('ended', onStop); a.removeEventListener('seeked', track); };
   }, [track, audioUrl]);
   // Recordings made in the browser have no length stored in the file, which stops seeking. Reading to the end once fixes it.
+  // Where the player starts: the beginning, or the moment Search pointed at.
+  const startAt = useRef(0);
   const fixDuration = () => {
     const a = player.current;
     if (!a || a.duration !== Infinity) return;
-    const back = () => { a.removeEventListener('timeupdate', back); a.currentTime = 0; };
+    const back = () => { a.removeEventListener('timeupdate', back); a.currentTime = startAt.current; };
     a.addEventListener('timeupdate', back);
     a.currentTime = 1e101;
   };
@@ -182,6 +185,26 @@ export default function ItemPage({ id }: { id: string }) {
     setOffers(v => v.filter(x => x.from !== from || x.to !== to));
   });
   const seek = (ms: number) => { const a = player.current; if (!a) return; a.currentTime = ms / 1000; a.play().catch(() => undefined); };
+  // Opened from Search: show the passage that matched (once), and put the player there without starting it.
+  const jumped = useRef('');
+  useEffect(() => {
+    if (!seg || !t || jumped.current === `${id}/${seg}`) return;
+    const el = document.querySelector<HTMLElement>(`[data-seg="${CSS.escape(seg)}"], [data-segs~="${CSS.escape(seg)}"]`);
+    if (!el) return;
+    jumped.current = `${id}/${seg}`;
+    scrollIntoClearView(el);
+    el.classList.add('found');
+    setTimeout(() => el.classList.remove('found'), 4000);
+  }, [id, seg, t]);
+  useEffect(() => {
+    const a = player.current;
+    startAt.current = at !== undefined && at > 0 ? at / 1000 : 0;
+    if (a && startAt.current > 0 && audioUrl) {
+      // A recording made in the browser first has to be read to its end (fixDuration), which then comes back here.
+      const go = () => { if (Number.isFinite(a.duration) && a.currentTime === 0) a.currentTime = startAt.current; };
+      if (a.readyState >= 1) go(); else a.addEventListener('loadedmetadata', go, { once: true });
+    }
+  }, [at, audioUrl]);
 
   const run = async (fn: () => Promise<unknown>) => { setError(''); try { await fn(); await load(); } catch (e: any) { setError(e.message); } };
   const download = () => run(async () => { const b = await api.audio(id, true); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = d!.originalFileName ?? 'audio'; a.click(); });
@@ -401,7 +424,7 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
   const ops = marked ? diffWords(s.originalText!, s.text) : null;
 
   return (
-    <div ref={row} className={'seg' + (s.lowConfidence ? ' low' : '') + (active ? ' reading' : '') + (marked ? ' changed' : '')} aria-current={active ? 'true' : undefined}>
+    <div ref={row} data-seg={s.id} className={'seg' + (s.lowConfidence ? ' low' : '') + (active ? ' reading' : '') + (marked ? ' changed' : '')} aria-current={active ? 'true' : undefined}>
       <div className="who">{!hideSpeaker && s.speaker}
         <div className="t">{canSeek ? <button className="link" onClick={() => onSeek(s.startMs)} title="Play from here">{fmtLen(s.startMs)}</button> : fmtLen(s.startMs)} · {s.language}
           {marked && <> · <span className="tag">Edited</span></>}</div></div>
@@ -555,7 +578,7 @@ function Paragraph({ pieces, marker, t, timed, pos, playing, canSeek, onSeek, ed
     </div>);
 
   return (
-    <div className={'para' + (reading ? ' reading' : '') + (marker ? ' list-point' : '')} ref={el}>
+    <div className={'para' + (reading ? ' reading' : '') + (marker ? ' list-point' : '')} ref={el} data-segs={segs.map(x => x.id).join(' ')}>
       {marker && <span className="list-marker" aria-hidden="true">{marker}</span>}
       {pieces.map(p => {
         const s = t.segments[p.seg];

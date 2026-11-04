@@ -170,3 +170,14 @@ p.back { margin:0 0 8px; }
 .dept h3 { margin:0; }
 .dept h3 .tag, .dept code { margin-left:6px; }
 .card code { overflow-wrap:anywhere; }
+/* Search */
+.search-form { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+.search-form input[type=search] { flex:1 1 260px; min-width:0; }
+.result { border-top:1px solid var(--line); padding:10px 0; }
+.result h3 { margin:0 0 2px; font-size:1.05em; }
+.hits { list-style:none; padding:0; margin:6px 0 0; }
+.hits li { margin:4px 0; overflow-wrap:anywhere; }
+.hit-where { font-weight:600; margin-right:4px; white-space:nowrap; }
+mark { background:#fde68a; color:inherit; border-radius:2px; padding:0 1px; }
+@media (prefers-color-scheme: dark) { mark { background:#7a5b0c; } }
+.found { outline:3px solid #f59e0b; outline-offset:2px; transition:outline-color 1s; }

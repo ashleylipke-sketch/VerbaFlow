@@ -141,6 +141,8 @@ public static class Endpoints
         api.MapPut("/letterhead/space", async (HttpContext h, LetterheadService l, LetterSpaceBody b) =>
             Results.Ok(await l.SetPdfSpaceAsync(h.Current(), b.TopFirstMm, b.TopNextMm, b.BottomMm, b.SideMm, b.RepeatFirstPage)));
 
+        api.MapGet("/search", (HttpContext h, SearchService s, string? q, string? mode) =>
+            s.SearchAsync(h.Current(), q, string.IsNullOrWhiteSpace(mode) ? null : ModeOf(mode)));
         api.MapGet("/items", (HttpContext h, MeetingService s, string? statuses, bool? selfAssigned, string? search, string? mode) =>
         {
             HashSet<ItemStatus>? set = null;

@@ -8,7 +8,7 @@ for f in sorted(Path(sys.argv[1]).rglob("*.json")):
     r = json.loads(f.read_text(encoding="utf-8"))
     for s in r["sets"]:
         if "error" in s:
-            rows.append(f"| {r['name']} | {s['source']} | - | - | could not download: {s['error'][:80]} | |")
+            rows.append(f"| {r['name']} | {s['source']} | - | - | not run: {s['error'][:80]} | |")
             continue
         for m, v in s["models"].items():
             if "error" in v:

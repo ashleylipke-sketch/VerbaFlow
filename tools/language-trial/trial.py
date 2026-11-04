@@ -4,6 +4,8 @@ typed by native speakers. Nobody needs to read the languages: the score is the s
 (word error rate, WER) and of letters (character error rate, CER).
 
 Usage: python trial.py <lang> <out.json>    lang = xho sot tsn nso tso ssw ven nbl
+ENGINE=meta (default: Meta Omnilingual on this computer) or ENGINE=google (Google Speech-to-Text v2, EU, with a
+service account key in GOOGLE_SPEECH_KEY).
 """
 import csv, io, json, os, random, re, sys, tarfile, time, unicodedata, urllib.request, xml.etree.ElementTree as ET, zipfile
 from pathlib import Path
@@ -11,6 +13,10 @@ from pathlib import Path
 CLIPS = int(os.environ.get("CLIPS", "30"))
 WORK = Path(os.environ.get("WORK", "/tmp/trial"))
 MODELS = os.environ.get("MODELS", "omniASR_CTC_1B,omniASR_LLM_1B").split(",")
+ENGINE = os.environ.get("ENGINE", "meta")
+# Google's code and model per language (EU list checked 2026-11-04); isiNdebele is not offered.
+GOOGLE = {"xho": ("xh-ZA", "chirp_3"), "nso": ("nso-ZA", "chirp_3"), "sot": ("st-ZA", "long"),
+          "tsn": ("tn-Latn-ZA", "long"), "tso": ("ts-ZA", "long"), "ssw": ("ss-Latn-ZA", "long"), "ven": ("ve-ZA", "long")}
 
 OPENSLR = "https://openslr.elda.org/resources/32/{}.tar.gz"
 FLEURS = "https://huggingface.co/datasets/google/fleurs/resolve/main/data/{}/{}"
@@ -132,17 +138,58 @@ def normalise(s):
     return " ".join(s.replace("'", "").split())
 
 
+class Google:
+    """Google Speech-to-Text v2, one short (synchronous) request per clip, EU servers."""
+
+    def __init__(self):
+        from google.oauth2 import service_account
+        import google.auth.transport.requests as gr
+        info = json.loads(os.environ["GOOGLE_SPEECH_KEY"])
+        self.project = info["project_id"]
+        self.creds = service_account.Credentials.from_service_account_info(
+            info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        self.session = gr.AuthorizedSession(self.creds)
+
+    def transcribe(self, paths, code, model):
+        import base64
+        url = f"https://eu-speech.googleapis.com/v2/projects/{self.project}/locations/eu/recognizers/_:recognize"
+        out = []
+        for p in paths:
+            body = {"config": {"autoDecodingConfig": {}, "languageCodes": [code], "model": model},
+                    "content": base64.b64encode(Path(p).read_bytes()).decode()}
+            for attempt in range(4):
+                r = self.session.post(url, json=body, timeout=120)
+                if r.status_code not in (429, 500, 503):
+                    break
+                time.sleep(2 ** (attempt + 1))
+            if r.status_code != 200:
+                raise RuntimeError(f"Google said {r.status_code}: {r.text[:300]}")
+            res = r.json().get("results", [])
+            out.append(" ".join(x["alternatives"][0].get("transcript", "") for x in res if x.get("alternatives")))
+        return out
+
+
 def main():
     lang, dest = sys.argv[1], sys.argv[2]
     WORK.mkdir(parents=True, exist_ok=True)
     import jiwer, soundfile as sf
 
-    from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
-    try:
-        from omnilingual_asr.models.wav2vec2_llama.lang_ids import supported_langs
-        supported = f"{lang}_Latn" in supported_langs
-    except Exception:
-        supported = None
+    if ENGINE == "google":
+        if lang not in GOOGLE:
+            log(lang, "is not offered by Google")
+            Path(dest).write_text(json.dumps({"lang": lang, "name": NAMES[lang], "sets": [
+                {"source": "-", "error": "Google does not offer this language"}]}), encoding="utf-8")
+            return
+        google, supported = Google(), True
+        models = [f"google-{GOOGLE[lang][1]}"]
+    else:
+        from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
+        try:
+            from omnilingual_asr.models.wav2vec2_llama.lang_ids import supported_langs
+            supported = f"{lang}_Latn" in supported_langs
+        except Exception:
+            supported = None
+        models = MODELS
     log(lang, "listed by the model:", supported)
 
     results = {"lang": lang, "name": NAMES[lang], "listedByModel": supported, "sets": []}
@@ -158,14 +205,18 @@ def main():
         seconds = sum(sf.info(str(w)).duration for w, _ in pairs)
         entry = {"source": kind, "about": about, "clips": len(pairs), "seconds": round(seconds), "models": {}}
         refs = [normalise(t) for _, t in pairs]
-        for card in MODELS:
+        for card in models:
             log("model", card, "on", len(pairs), "clips from", kind)
             t0 = time.time()
             try:
-                pipe = ASRInferencePipeline(model_card=card)
-                # a language the model does not list is transcribed without telling it the language
-                code = f"{lang}_Latn" if supported else None
-                hyps = pipe.transcribe([str(w) for w, _ in pairs], lang=[code] * len(pairs), batch_size=2)
+                if ENGINE == "google":
+                    hyps = google.transcribe([str(w) for w, _ in pairs], *GOOGLE[lang])
+                else:
+                    pipe = ASRInferencePipeline(model_card=card)
+                    # a language the model does not list is transcribed without telling it the language
+                    code = f"{lang}_Latn" if supported else None
+                    hyps = pipe.transcribe([str(w) for w, _ in pairs], lang=[code] * len(pairs), batch_size=2)
+                    del pipe
             except Exception as e:
                 log("model failed", repr(e)[:300])
                 entry["models"][card] = {"error": repr(e)[:300]}
@@ -179,7 +230,6 @@ def main():
                 "examples": [{"correct": pairs[i][1], "model": hyps[i]} for i in range(min(4, len(pairs)))],
             }
             log(card, kind, "WER", round(wer * 100, 1), "% CER", round(cer * 100, 1), "% in", round(took), "s")
-            del pipe
         results["sets"].append(entry)
     Path(dest).write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 

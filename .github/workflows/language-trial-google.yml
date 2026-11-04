@@ -1,0 +1,46 @@
+# Scores Google Speech-to-Text (EU servers) on the same public recordings as the Meta trial (tools/language-trial).
+# Needs the repository secret GOOGLE_SPEECH_KEY: a Google Cloud service account key (JSON) with the role
+# Cloud Speech Client. A trial only: nothing here is part of VerbaFlow itself. Costs well under $1 a run.
+name: Language trial (Google)
+on:
+  workflow_dispatch:
+jobs:
+  trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        lang: [xho, sot, tsn, nso, tso, ssw, ven]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libsndfile1
+          pip install -q jiwer soundfile remotezip google-auth requests
+      - name: Run
+        env:
+          ENGINE: google
+          GOOGLE_SPEECH_KEY: ${{ secrets.GOOGLE_SPEECH_KEY }}
+        run: |
+          if [ -z "$GOOGLE_SPEECH_KEY" ]; then echo "The GOOGLE_SPEECH_KEY secret is not set"; exit 1; fi
+          python tools/language-trial/trial.py ${{ matrix.lang }} result-${{ matrix.lang }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: result-${{ matrix.lang }}
+          path: result-${{ matrix.lang }}.json
+          if-no-files-found: ignore
+  summary:
+    needs: trial
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+      - run: python tools/language-trial/summarise.py results | tee -a "$GITHUB_STEP_SUMMARY"

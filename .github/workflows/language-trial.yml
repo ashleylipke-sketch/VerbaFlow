@@ -1,9 +1,8 @@
 # Scores Meta's free Omnilingual speech model on public recordings of the South African languages Azure cannot
 # transcribe (tools/language-trial). A trial only: nothing here is part of VerbaFlow itself.
 name: Language trial
+# Run by hand only (Actions > Language trial > Run workflow): it takes about three hours.
 on:
-  push:
-    paths: ['tools/language-trial/**', '.github/workflows/language-trial.yml']
   workflow_dispatch:
 jobs:
   trial:

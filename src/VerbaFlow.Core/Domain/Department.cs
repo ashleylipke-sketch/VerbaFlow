@@ -5,9 +5,17 @@ namespace VerbaFlow.Core.Domain;
 /// (read, listen and, once approved, export) but cannot change, assign, approve or delete them.
 /// Members come from a Microsoft group (its object id, <see cref="GroupId"/>), read from each person's Microsoft sign-in.
 /// <see cref="HandMembers"/> holds people added by hand, only for those who do not sign in with Microsoft (the test users).
+/// <see cref="Admins"/> are the department's own administrators, picked by an administrator: they can assign and approve the
+/// recordings of the department's members (not reopen or delete them), and do not need to be members themselves.
 /// </summary>
-public sealed record Department(Guid Id, string Name, string? GroupId, IReadOnlyList<Guid> HandMembers, DateTimeOffset CreatedAt)
+public sealed record Department(Guid Id, string Name, string? GroupId, IReadOnlyList<Guid> HandMembers, DateTimeOffset CreatedAt,
+    IReadOnlyList<Guid>? Admins = null)
 {
+    public const int MaxAdmins = 10;
+
+    /// <summary>The department admins (none on departments made before they existed).</summary>
+    public IReadOnlyList<Guid> Leads => Admins ?? [];
+
     public const int MaxName = 80;
 
     public static string CleanName(string? name)

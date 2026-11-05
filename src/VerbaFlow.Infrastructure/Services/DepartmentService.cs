@@ -4,11 +4,13 @@ using VerbaFlow.Core.Domain;
 namespace VerbaFlow.Infrastructure.Services;
 
 public sealed record DepartmentMember(Guid Id, string Name, string How);
-public sealed record DepartmentView(Guid Id, string Name, string? GroupId, IReadOnlyList<DepartmentMember> Members, bool Mine);
+public sealed record DepartmentView(Guid Id, string Name, string? GroupId, IReadOnlyList<DepartmentMember> Members, bool Mine,
+    IReadOnlyList<PersonOption> Admins, bool IAdminister);
 public sealed record UnlinkedGroup(string GroupId, int People, IReadOnlyList<string> Names);
 public sealed record PersonOption(Guid Id, string Name);
 public sealed record DepartmentsOverview(IReadOnlyList<DepartmentView> Departments, IReadOnlyList<string> Mine, bool CanChange,
-    IReadOnlyList<UnlinkedGroup> GroupsNotLinked, IReadOnlyList<PersonOption> AddableByHand, int PeopleWithTooManyGroups, bool AnyGroupsSeen);
+    IReadOnlyList<UnlinkedGroup> GroupsNotLinked, IReadOnlyList<PersonOption> AddableByHand, int PeopleWithTooManyGroups, bool AnyGroupsSeen,
+    IReadOnlyList<PersonOption> People, IReadOnlyList<string> IAdminister);
 
 /// <summary>
 /// Departments: everyone can see them; only administrators create, rename, link or remove them. Membership comes from the
@@ -20,15 +22,23 @@ public sealed class DepartmentService(Stores stores, TimeProvider clock)
     private const string Product = "platform";
     public const int MaxDepartments = 200;
 
-    /// <summary>The person with <see cref="User.Colleagues"/> filled in: everyone who shares a department with them.</summary>
+    /// <summary>
+    /// The person with <see cref="User.Colleagues"/> filled in (everyone who shares a department with them) and
+    /// <see cref="User.Leads"/> (the members of the departments they are a department admin of).
+    /// </summary>
     public async Task<User> WithColleaguesAsync(User user)
     {
-        var departments = (await stores.Departments.ListAsync()).Where(d => d.Has(user)).ToList();
-        if (departments.Count == 0) return user.Colleagues.Count == 0 ? user : user with { Colleagues = new HashSet<Guid>() };
-        var colleagues = (await stores.Users.ListAsync())
-            .Where(u => u.Id != user.Id && !u.IsSupport && departments.Any(d => d.Has(u)))
-            .Select(u => u.Id).ToHashSet();
-        return user with { Colleagues = colleagues };
+        var all = await stores.Departments.ListAsync();
+        var departments = all.Where(d => d.Has(user)).ToList();
+        var led = user.IsSupport ? [] : all.Where(d => d.Leads.Contains(user.Id)).ToList();
+        if (departments.Count == 0 && led.Count == 0)
+            return user.Colleagues.Count == 0 && user.Leads.Count == 0 ? user : user with { Colleagues = new HashSet<Guid>(), Leads = new HashSet<Guid>() };
+        var users = (await stores.Users.ListAsync()).Where(u => u.Id != user.Id && !u.IsSupport).ToList();
+        return user with
+        {
+            Colleagues = users.Where(u => departments.Any(d => d.Has(u))).Select(u => u.Id).ToHashSet(),
+            Leads = users.Where(u => led.Any(d => d.Has(u))).Select(u => u.Id).ToHashSet(),
+        };
     }
 
     public async Task<DepartmentsOverview> OverviewAsync(User actor)
@@ -38,7 +48,9 @@ public sealed class DepartmentService(Stores stores, TimeProvider clock)
         var views = departments.OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).Select(d => new DepartmentView(d.Id, d.Name,
             actor.IsAdmin ? d.GroupId : null,
             users.Where(d.Has).OrderBy(u => u.Name).Select(u => new DepartmentMember(u.Id, u.Name, d.HandMembers.Contains(u.Id) ? "by hand" : "Microsoft group")).ToList(),
-            d.Has(actor))).ToList();
+            d.Has(actor),
+            d.Leads.Select(id => new PersonOption(id, users.FirstOrDefault(u => u.Id == id)?.Name ?? "Someone no longer here")).OrderBy(p => p.Name).ToList(),
+            d.Leads.Contains(actor.Id))).ToList();
         var linked = departments.Where(d => d.GroupId is not null).Select(d => d.GroupId!).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var unlinked = !actor.IsAdmin ? [] : users
             .SelectMany(u => (u.GroupIds ?? []).Where(g => g != EntraUsers.TooManyGroups && !linked.Contains(g)).Select(g => (Group: g, User: u)))
@@ -48,7 +60,9 @@ public sealed class DepartmentService(Stores stores, TimeProvider clock)
         var byHand = !actor.IsAdmin ? [] : users.Where(u => u.EntraObjectId is null).OrderBy(u => u.Name).Select(u => new PersonOption(u.Id, u.Name)).ToList();
         return new DepartmentsOverview(views, views.Where(v => v.Mine).Select(v => v.Name).ToList(), actor.IsAdmin, unlinked, byHand,
             actor.IsAdmin ? users.Count(u => u.GroupIds?.Contains(EntraUsers.TooManyGroups) == true) : 0,
-            users.Any(u => u.GroupIds is { Count: > 0 }));
+            users.Any(u => u.GroupIds is { Count: > 0 }),
+            !actor.IsAdmin ? [] : users.OrderBy(u => u.Name).Select(u => new PersonOption(u.Id, u.Name)).ToList(),
+            views.Where(v => v.IAdminister).Select(v => v.Name).ToList());
     }
 
     public async Task<Department> CreateAsync(User actor, string? name, string? groupId)
@@ -99,6 +113,25 @@ public sealed class DepartmentService(Stores stores, TimeProvider clock)
         var changed = d with { HandMembers = member ? [.. d.HandMembers, userId] : d.HandMembers.Where(m => m != userId).ToList() };
         await stores.Departments.UpsertAsync(id, changed);
         await Audit(actor, member ? "department.member_added" : "department.member_removed", ("department", id), ("name", d.Name), ("person", person.Name));
+        return changed;
+    }
+
+    /// <summary>
+    /// Makes someone a department admin, or stops it. They can then assign and approve the recordings of the department's
+    /// members, as an administrator can, but only those; reopening and deleting stay with administrators.
+    /// </summary>
+    public async Task<Department> SetAdminAsync(User actor, Guid id, Guid userId, bool admin)
+    {
+        RequireAdmin(actor);
+        var d = await Require(id);
+        var person = await stores.Users.GetAsync(userId) ?? throw new NotFoundException("That person does not exist.");
+        if (admin && person.IsSupport) throw new DomainException("VerbaFlow support cannot be a department admin.");
+        if (admin == d.Leads.Contains(userId)) return d;
+        if (admin && d.Leads.Count >= Department.MaxAdmins)
+            throw new DomainException($"A department can have at most {Department.MaxAdmins} department admins.");
+        var changed = d with { Admins = admin ? [.. d.Leads, userId] : d.Leads.Where(m => m != userId).ToList() };
+        await stores.Departments.UpsertAsync(id, changed);
+        await Audit(actor, admin ? "department.admin_added" : "department.admin_removed", ("department", id), ("name", d.Name), ("person", person.Name));
         return changed;
     }
 

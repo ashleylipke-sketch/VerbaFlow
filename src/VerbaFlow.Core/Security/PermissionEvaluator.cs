@@ -11,7 +11,8 @@ public readonly record struct Decision(bool Allowed, string Reason)
 /// <summary>
 /// Effective permissions, evaluated in a fixed order:
 /// 1. Lock: an approved item can only be read or exported, whatever anyone has been granted.
-/// 2. Role on this item: the owner (author/importer), the assignee, a meeting attendee, and a colleague in the owner's department.
+/// 2. Role on this item: the owner (author/importer), the assignee, a department admin of the owner's department, a meeting
+///    attendee, and a colleague in the owner's department.
 /// 3. Administrator and per-capability grants.
 /// 4. Otherwise deny.
 /// Audio is never writable in Meeting mode, so there is no capability for it.
@@ -24,11 +25,17 @@ public static class PermissionEvaluator
     {
         if (item.OwnerId == user.Id) return ItemRole.Owner;
         if (item.AssignedUserId == user.Id) return ItemRole.Assignee;
+        // A department admin of the owner's department; an unfinished dictation stays the author's own here too.
+        if (Leads(user, item)) return ItemRole.DepartmentAdmin;
         if (item.Attendees.Contains(user.Id)) return ItemRole.Attendee;
         // Someone in the same department as the owner; an unfinished dictation stays the author's own until they finish it.
         if (user.Colleagues.Contains(item.OwnerId) && item.Status != ItemStatus.Draft) return ItemRole.Colleague;
         return ItemRole.None;
     }
+
+    /// <summary>Whether the user is a department admin of a department the item's owner is in (unfinished dictations excepted).</summary>
+    public static bool Leads(User user, Item item) =>
+        item.OwnerId != user.Id && user.Leads.Contains(item.OwnerId) && item.Status != ItemStatus.Draft;
 
     public static Decision Evaluate(User user, Item item, Capability capability)
     {
@@ -51,6 +58,10 @@ public static class PermissionEvaluator
             case Capability.Export when role is ItemRole.Assignee or ItemRole.Attendee or ItemRole.Colleague && item.Status == ItemStatus.Completed: // once approved, the typist (or someone who was in the meeting, or in the owner's department) can take it out too
                 return Decision.Allow($"role:{role}");
         }
+
+        // A department admin acts as an administrator for their department's recordings, also on one assigned to themselves.
+        if (Leads(user, item) && capability is Capability.Reassign or Capability.Approve or Capability.Export)
+            return Decision.Allow("role:DepartmentAdmin");
 
         if (user.IsAdmin && capability is Capability.Read or Capability.Reassign or Capability.Approve or Capability.Export)
             return Decision.Allow("admin");

@@ -40,6 +40,7 @@ public static class Endpoints
     public sealed record SavedTextBody(string? Code, string? Text);
     public sealed record DepartmentBody(string? Name, string? GroupId);
     public sealed record DepartmentMemberBody(Guid UserId, bool Member);
+    public sealed record DepartmentAdminBody(Guid UserId, bool Admin);
     public sealed record LetterSpaceBody(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm, bool? RepeatFirstPage = null);
     public sealed record SignOffBody(bool On, string? Closing, string? Name, string? Title);
     private static object TemplateView(MinutesTemplate t) => new
@@ -100,6 +101,8 @@ public static class Endpoints
         api.MapPost("/departments", async (HttpContext h, DepartmentService d, DepartmentBody b) => Results.Ok(await d.CreateAsync(h.Current(), b.Name, b.GroupId)));
         api.MapPut("/departments/{id:guid}", async (HttpContext h, DepartmentService d, Guid id, DepartmentBody b) => Results.Ok(await d.ChangeAsync(h.Current(), id, b.Name, b.GroupId)));
         api.MapDelete("/departments/{id:guid}", async (HttpContext h, DepartmentService d, Guid id) => { await d.RemoveAsync(h.Current(), id); return Results.NoContent(); });
+        api.MapPost("/departments/{id:guid}/admins", async (HttpContext h, DepartmentService d, Guid id, DepartmentAdminBody b) =>
+            Results.Ok(await d.SetAdminAsync(h.Current(), id, b.UserId, b.Admin)));
         api.MapPost("/departments/{id:guid}/members", async (HttpContext h, DepartmentService d, Guid id, DepartmentMemberBody b) =>
             Results.Ok(await d.SetHandMemberAsync(h.Current(), id, b.UserId, b.Member)));
         api.MapGet("/saved-text", (SavedTextService t) => t.ListAsync());

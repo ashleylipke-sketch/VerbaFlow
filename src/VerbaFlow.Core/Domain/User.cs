@@ -17,10 +17,17 @@ public sealed record User(Guid Id, string Name, string Email, bool IsAdmin, Capa
     public IReadOnlySet<Guid> Colleagues { get; init; } = NoOne;
     private static readonly IReadOnlySet<Guid> NoOne = new HashSet<Guid>();
 
+    /// <summary>
+    /// The members of the departments this person is a department admin of (not themselves), worked out per request like
+    /// <see cref="Colleagues"/>. They can assign and approve those people's recordings.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlySet<Guid> Leads { get; init; } = NoOne;
+
     public bool Equals(User? other) =>
         other is not null && Id == other.Id && Name == other.Name && Email == other.Email && IsAdmin == other.IsAdmin && Grants == other.Grants
         && Department == other.Department && IsSupport == other.IsSupport && EntraObjectId == other.EntraObjectId
-        && (GroupIds ?? []).SequenceEqual(other.GroupIds ?? []) && Colleagues.SetEquals(other.Colleagues);
+        && (GroupIds ?? []).SequenceEqual(other.GroupIds ?? []) && Colleagues.SetEquals(other.Colleagues) && Leads.SetEquals(other.Leads);
 
     public override int GetHashCode() => HashCode.Combine(Id, Name, Email, IsAdmin, EntraObjectId);
 }

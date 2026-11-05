@@ -351,7 +351,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, Capability.Approve);
         var selfReview = item.IsSelfAssigned || item.AssignedUserId is null && item.OwnerId == actor.Id;
-        item.Approve(actor.Id, actor.IsAdmin, policy.BlockSelfApproval, clock.GetUtcNow());
+        // A department admin is someone other than the author, so they may approve a self-assigned item as an administrator can.
+        item.Approve(actor.Id, actor.IsAdmin || PermissionEvaluator.Leads(actor, item), policy.BlockSelfApproval, clock.GetUtcNow());
         var asset = await stores.Media.FindCurrentAsync(item.MediaSourceItemId);
         var transcript = await stores.Transcripts.GetAsync(id);
         await stores.Items.UpsertAsync(id, item);
@@ -843,7 +844,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             PermissionEvaluator.Evaluate(actor, item, Capability.Write).Allowed,
             PermissionEvaluator.Evaluate(actor, item, Capability.Write).Allowed && (role == ItemRole.Owner || actor.IsAdmin),
             PermissionEvaluator.Evaluate(actor, item, Capability.ExportAudio).Allowed,
-            actor.IsAdmin && role == ItemRole.None ? "Admin" : role.ToString(), item.OutputLanguage, item.ApprovedAt,
+            actor.IsAdmin && role == ItemRole.None ? "Admin" : role == ItemRole.DepartmentAdmin ? "Department admin" : role.ToString(), item.OutputLanguage, item.ApprovedAt,
             item.ApprovedBy is { } a ? users.GetValueOrDefault(a)?.Name : null, item.ChainId,
             chain.Select(c => new ChainEntry(c.Id, c.VersionNo, StatusLabels.For(c.Mode, c.Status), !all.Any(x => x.SupersedesItemId == c.Id))).ToList(),
             item.Source switch { SourceKind.Imported => "Imported (external source)", SourceKind.OnlineMeeting => item.ExternalSourceNote ?? "Online meeting", _ => "Recorded in app" }, item.SpokenLanguages,
@@ -890,7 +891,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             i.ClientReference, i.Description, i.AssignedUserId is { } a ? users.GetValueOrDefault(a)?.Name : null,
             users.GetValueOrDefault(i.OwnerId)?.Name, i.CreatedAt,
             i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo, i.FailureReason, IsOutstanding(actor, i, superseded),
-            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId), PermissionEvaluator.RoleOn(actor, i) == ItemRole.Colleague);
+            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId), PermissionEvaluator.RoleOn(actor, i) is ItemRole.Colleague or ItemRole.DepartmentAdmin);
     }
 
     /// <summary>
@@ -962,6 +963,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         ItemRole.Assignee => "assignee",
         ItemRole.Attendee => "attendee",
         ItemRole.Colleague => "colleague",
+        ItemRole.DepartmentAdmin => "department admin",
         _ => actor.IsAdmin ? "admin" : "user"
     };
 

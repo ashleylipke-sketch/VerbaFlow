@@ -128,6 +128,8 @@ Someone in more than about 200 groups gets no list from Microsoft; the Departmen
 
 The test users (Alice, Bob…) do not sign in with Microsoft, so on your computer an administrator can add them to a department by hand on the same page.
 
+**Department admins.** Under each department an administrator can pick **Make someone a department admin…** (up to 10 per department; they do not have to be in it; anyone who has signed in at least once can be picked). A department admin can assign, re-assign and approve the recordings of the department's members, and export them, as an administrator can, but only those. Reopening, deleting, and changing settings stay with administrators. **take off** beside their name stops it. This is set in VerbaFlow, not in Microsoft.
+
 ## How it works (for whoever looks after VerbaFlow)
 
 - The web app uses Microsoft's sign-in library (MSAL.js, `@azure/msal-browser`) and sends an access token for `api://<client id>/access_as_user` with every call. The Widget does the same through the browser's sign-in window (`chrome.identity.launchWebAuthFlow`, authorisation code with PKCE); its tokens are kept in browser-session memory only.

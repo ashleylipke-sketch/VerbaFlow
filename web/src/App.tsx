@@ -137,7 +137,7 @@ export default function App() {
 }
 
 /** Settings and admin pages, folded into one list so the header shows only the five main pages.
- *  Each person sees only what they may change: everyone their own sign-off, admins the rest. */
+ *  Each person sees only what they may change: everyone their own sign-off (and the departments, to see who runs theirs), admins the rest. */
 function MoreMenu({ path, admin, support }: { path: string; admin: boolean; support: boolean }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -150,7 +150,7 @@ function MoreMenu({ path, admin, support }: { path: string; admin: boolean; supp
     return () => { removeEventListener('mousedown', away); removeEventListener('keydown', esc); };
   }, [open]);
   const pages: [string, string][] = [
-    ...(admin ? [] : [['/sign-off', 'Your sign-off'] as [string, string]]),
+    ...(admin ? [] : [['/sign-off', 'Your sign-off'], ['/departments', 'Departments']] as [string, string][]),
     ...(admin ? [
       ['/workload', 'Workload'],
       ['/vocabulary', 'Vocabulary'], ['/saved-text', 'Saved text'], ['/letterhead', 'Letterhead and your sign-off'],

@@ -49,6 +49,59 @@ public class DepartmentTests
     }
 
     [Fact]
+    public async Task A_department_admin_can_assign_and_approve_their_departments_recordings_only()
+    {
+        using var env = new Env();
+        var departments = Service(env);
+        var legal = await departments.CreateAsync(env.Carol, "Legal", null);
+        await departments.SetHandMemberAsync(env.Carol, legal.Id, env.Alice.Id, true);
+        await Assert.ThrowsAsync<ForbiddenException>(() => departments.SetAdminAsync(env.Alice, legal.Id, env.Bob.Id, true));
+        await departments.SetAdminAsync(env.Carol, legal.Id, env.Bob.Id, true); // Bob runs Legal without being in it
+        var mine = await env.ProcessedRecordingAsync(env.Alice);
+        var other = await env.ProcessedRecordingAsync(env.Xavier);
+
+        var bob = await departments.WithColleaguesAsync(env.Bob);
+        Assert.Equal([env.Alice.Id], bob.Leads);
+        Assert.Empty(bob.Colleagues);
+        var item = await env.Item(mine);
+        Assert.Equal(ItemRole.DepartmentAdmin, PermissionEvaluator.RoleOn(bob, item));
+        foreach (var c in new[] { Capability.Read, Capability.Reassign, Capability.Approve, Capability.Export })
+            Assert.True(PermissionEvaluator.Evaluate(bob, item, c).Allowed);
+        foreach (var c in new[] { Capability.Write, Capability.ExportAudio })
+            Assert.False(PermissionEvaluator.Evaluate(bob, item, c).Allowed);
+        Assert.False(PermissionEvaluator.CanSee(bob, await env.Item(other)));
+
+        var row = Assert.Single(await env.Meeting.ListAsync(bob, new ListQuery(null, null, null)));
+        Assert.True(row.FromDepartment);
+        Assert.Contains("approve", row.Actions);
+        Assert.Contains("assign", row.Actions);
+        Assert.DoesNotContain("delete", row.Actions);
+        Assert.Equal("Department admin", (await env.Meeting.GetItemAsync(bob, mine)).Role);
+        await Assert.ThrowsAsync<ForbiddenException>(() => env.Meeting.AssignAsync(bob, other, env.Bob.Id, null));
+
+        // Alice assigns it to herself, so it needs approving by someone else: her department admin may.
+        await env.Meeting.AssignAsync(env.Alice, mine, env.Alice.Id, null);
+        await env.Meeting.AssignAsync(bob, mine, env.Xavier.Id, "Alice is on leave");
+        await env.Meeting.AssignAsync(bob, mine, env.Bob.Id, "Xavier is busy");
+        Assert.Contains("reassign", (await env.Meeting.GetItemAsync(bob, mine)).Row.Actions); // still theirs to move on while it is with them
+        await env.Meeting.AssignAsync(bob, mine, env.Alice.Id, "Back from leave");
+        Assert.True((await env.Item(mine)).IsSelfAssigned);
+        await env.Meeting.ApproveAsync(bob, mine);
+        Assert.Equal(ItemStatus.Completed, (await env.Item(mine)).Status);
+        var approved = (await env.Stores.Audit.ListAsync(mine)).Last(e => e.Type == "item.approved");
+        Assert.Equal("department admin", approved.Capacity);
+
+        // No longer a department admin: back to nothing.
+        await departments.SetAdminAsync(env.Dave, legal.Id, env.Bob.Id, false);
+        Assert.False(PermissionEvaluator.CanSee(await departments.WithColleaguesAsync(env.Bob), await env.Item(mine)));
+        var types = (await env.Stores.Audit.ListAsync()).Select(e => e.Type).ToList();
+        Assert.Contains("department.admin_added", types);
+        Assert.Contains("department.admin_removed", types);
+        var overview = await departments.OverviewAsync(env.Carol);
+        Assert.Empty(Assert.Single(overview.Departments).Admins);
+    }
+
+    [Fact]
     public async Task An_unfinished_dictation_stays_the_authors_own()
     {
         using var env = new Env();

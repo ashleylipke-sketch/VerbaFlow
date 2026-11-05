@@ -296,6 +296,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         ItemRole.Assignee => "assignee",
         ItemRole.Attendee => "attendee",
         ItemRole.Colleague => "colleague",
+        ItemRole.DepartmentAdmin => "department admin",
         _ => actor.IsAdmin ? "admin" : "user"
     };
 

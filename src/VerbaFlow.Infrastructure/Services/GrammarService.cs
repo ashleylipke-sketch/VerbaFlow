@@ -82,6 +82,7 @@ public sealed class GrammarService(Stores stores, IGrammarChecker checker, TimeP
         ItemRole.Assignee => "assignee",
         ItemRole.Attendee => "attendee",
         ItemRole.Colleague => "colleague",
+        ItemRole.DepartmentAdmin => "department admin",
         _ => actor.IsAdmin ? "admin" : "user"
     };
 

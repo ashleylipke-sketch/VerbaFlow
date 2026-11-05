@@ -15,7 +15,7 @@ public sealed class BulkActions(MeetingService meetings, Stores stores, FailureR
     public const int Max = 100;
     public static readonly string[] Actions = ["assign", "accept", "return", "approve"];
 
-    public async Task<IReadOnlyList<BulkResult>> RunAsync(User actor, string? action, IReadOnlyList<Guid>? ids, Guid? toUserId, string? reason)
+    public async Task<IReadOnlyList<BulkResult>> RunAsync(User actor, string? action, IReadOnlyList<Guid>? ids, Guid? toUserId, string? reason, DateOnly? dueDate = null)
     {
         var a = action?.Trim().ToLowerInvariant();
         if (a is null || !Actions.Contains(a)) throw new DomainException("Choose what to do with the ticked recordings.");
@@ -35,7 +35,7 @@ public sealed class BulkActions(MeetingService meetings, Stores stores, FailureR
             {
                 switch (a)
                 {
-                    case "assign": await meetings.AssignAsync(actor, id, toUserId, reason); break;
+                    case "assign": await meetings.AssignAsync(actor, id, toUserId, reason, dueDate); break;
                     case "accept": await meetings.AcceptAsync(actor, id); break;
                     case "return": await meetings.ReturnAsync(actor, id); break;
                     case "approve": await meetings.ApproveAsync(actor, id); break;

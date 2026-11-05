@@ -20,6 +20,8 @@ export type Detail = {
   recordingRemoved: string | null;
   /** In-room meetings: the people who said their name at the start, in order. */
   introduced: string[] | null;
+  /** Whether this person may set or change the due date. */
+  canSetDueDate?: boolean;
 };
 export type NoteTakerRow = { id: string; name: string; platform: string; joinAt: string; state: string; stateLabel: string; failureReason: string | null;
   itemId: string | null; bookedBy: string; alsoFor: string[]; youBookedFirst: boolean; youAsked: boolean; canCancel: boolean; createdAt: string;
@@ -131,8 +133,8 @@ export const api = {
   verify: () => call<{ ok: boolean; count: number; problem: string | null }>('GET', '/audit/verify'),
   get: <T,>(path: string) => call<T>('GET', path),
   del: (path: string) => call<void>('DELETE', path),
-  bulk: (action: string, ids: string[], userId?: string | null, reason?: string | null) =>
-    call<BulkResult[]>('POST', '/items/bulk', { action, ids, userId: userId ?? null, reason: reason || null }),
+  bulk: (action: string, ids: string[], userId?: string | null, reason?: string | null, dueDate?: string | null) =>
+    call<BulkResult[]>('POST', '/items/bulk', { action, ids, userId: userId ?? null, reason: reason || null, dueDate: dueDate || null }),
   post: (path: string, body?: unknown) => call<any>('POST', path, body ?? {}),
   put: (path: string, body: unknown) => call<void>('PUT', path, body),
   form: (path: string, f: FormData) => call<{ id: string }>('POST', path, f),

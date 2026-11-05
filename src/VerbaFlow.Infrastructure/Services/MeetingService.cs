@@ -314,10 +314,45 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             ("dueDate", item.DueDate?.ToString("yyyy-MM-dd")));
     }
 
-    public async Task AssignAsync(User actor, Guid id, Guid? toUserId, string? reason)
+    /// <summary>
+    /// Who may set the due date: whoever may assign the recording (its owner, administrators, department admins), while it
+    /// is not approved, deleted, an unfinished dictation or an older version.
+    /// </summary>
+    private static bool CanSetDueDate(User actor, Item item, bool superseded) =>
+        !superseded && item.Status is not (ItemStatus.Completed or ItemStatus.Purged or ItemStatus.Draft)
+        && PermissionEvaluator.Evaluate(actor, item, Capability.Reassign).Allowed;
+
+    private DateOnly Today => DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
+
+    private void CheckDueDate(DateOnly? due)
+    {
+        if (due is { } d && d < Today.AddDays(-1)) throw new DomainException("The due date cannot be in the past.");
+        if (due is { } far && far > Today.AddYears(5)) throw new DomainException("Choose a due date within the next five years.");
+    }
+
+    /// <summary>Sets or clears a recording's due date.</summary>
+    public async Task SetDueDateAsync(User actor, Guid id, DateOnly? due)
+    {
+        var item = await stores.RequireItemAsync(id);
+        PermissionEvaluator.Require(actor, item, Capability.Read);
+        var superseded = (await stores.Items.ListAsync()).Any(x => x.SupersedesItemId == id);
+        if (!CanSetDueDate(actor, item, superseded))
+            throw new ForbiddenException(item.Status == ItemStatus.Completed ? "This recording is approved, so its due date can no longer change."
+                : "You cannot change the due date of this recording.");
+        CheckDueDate(due);
+        if (item.DueDate == due) return;
+        var previous = item.DueDate;
+        item.SetDueDate(due);
+        await stores.Items.UpsertAsync(id, item);
+        await Audit(actor, CapacityOf(actor, item), id, "item.due_date_set", ("dueDate", due?.ToString("yyyy-MM-dd") ?? "none"),
+            ("previous", previous?.ToString("yyyy-MM-dd")));
+    }
+
+    public async Task AssignAsync(User actor, Guid id, Guid? toUserId, string? reason, DateOnly? dueDate = null)
     {
         var item = await stores.RequireItemAsync(id);
         PermissionEvaluator.Require(actor, item, Capability.Reassign);
+        if (dueDate is not null) CheckDueDate(dueDate);
         User? target = null;
         if (toUserId is { } t) target = await stores.RequireUserAsync(t);
         var previous = item.AssignedUserId;
@@ -325,9 +360,12 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (isReassignment && string.IsNullOrWhiteSpace(reason))
             throw new DomainException("Give a reason when re-assigning an item (for example sickness or leave).");
         item.Assign(toUserId);
+        // A due date chosen with the assignment goes with it (taking it back leaves the date as it was).
+        if (dueDate is not null && toUserId is not null) item.SetDueDate(dueDate);
         await stores.Items.UpsertAsync(id, item);
         await Audit(actor, CapacityOf(actor, item), id, "item.assigned", ("from", previous), ("to", toUserId),
-            ("toName", target?.Name), ("selfAssigned", item.IsSelfAssigned), ("reason", reason));
+            ("toName", target?.Name), ("selfAssigned", item.IsSelfAssigned), ("reason", reason),
+            ("dueDate", dueDate is not null && toUserId is not null ? dueDate.Value.ToString("yyyy-MM-dd") : null));
     }
 
     public async Task AcceptAsync(User actor, Guid id)
@@ -852,7 +890,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             item.Status != ItemStatus.Purged && PermissionEvaluator.Evaluate(actor, item, Capability.Export).Allowed,
             item.Mode.ToString(), item.DocumentType, item.ClientReference, asset?.ContentType.StartsWith("video/") == true,
             item.Attendees.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), removed,
-            item.IntroducedPeople.Count == 0 ? null : item.IntroducedPeople);
+            item.IntroducedPeople.Count == 0 ? null : item.IntroducedPeople,
+            CanSetDueDate(actor, item, superseded));
     }
 
     public async Task<IReadOnlyList<AuditEvent>> GetAuditAsync(User actor, Guid itemId)

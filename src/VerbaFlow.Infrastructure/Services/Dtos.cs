@@ -57,7 +57,7 @@ public sealed record ItemDetail(
     string? ApprovedBy, Guid ChainId, IReadOnlyList<ChainEntry> Chain, string Provenance, string SpokenLanguages = "en",
     DateTimeOffset? DeletedAt = null, string? DeletedBy = null, string? DeleteReason = null, bool CanExport = false,
     string Mode = "Meeting", string? DocumentType = null, string? ClientReference = null, bool Video = false, IReadOnlyList<string>? Attendees = null,
-    string? RecordingRemoved = null, IReadOnlyList<string>? Introduced = null);
+    string? RecordingRemoved = null, IReadOnlyList<string>? Introduced = null, bool CanSetDueDate = false);
 
 public sealed record ChainEntry(Guid Id, int VersionNo, string Status, bool IsCurrent);
 

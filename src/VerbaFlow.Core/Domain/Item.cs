@@ -252,6 +252,13 @@ public sealed class Item
         if (clearDueDate) DueDate = null; else if (dueDate is { } d) DueDate = d;
     }
 
+    /// <summary>Sets or clears the date the work should be done by (only before approval).</summary>
+    public void SetDueDate(DateOnly? due)
+    {
+        EnsureNotLocked();
+        DueDate = due;
+    }
+
     public void SetLength(int lengthMs)
     {
         EnsureNotLocked();

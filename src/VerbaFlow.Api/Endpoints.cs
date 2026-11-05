@@ -7,8 +7,9 @@ namespace VerbaFlow.Api;
 
 public static class Endpoints
 {
-    public sealed record AssignBody(Guid? UserId, string? Reason);
-    public sealed record BulkBody(string? Action, List<Guid>? Ids, Guid? UserId, string? Reason);
+    public sealed record AssignBody(Guid? UserId, string? Reason, DateOnly? DueDate = null);
+    public sealed record DueDateBody(DateOnly? DueDate);
+    public sealed record BulkBody(string? Action, List<Guid>? Ids, Guid? UserId, string? Reason, DateOnly? DueDate = null);
     public sealed record ReasonBody(string Reason);
     public sealed record TextBody(string Text);
     public sealed record ReplaceBody(string? From, string? To);
@@ -278,8 +279,10 @@ public static class Endpoints
         api.MapPut("/items/{id:guid}/details", async (HttpContext h, MeetingService s, Guid id, DetailsUpdate d) =>
         { await s.UpdateDetailsAsync(h.Current(), id, d); return Results.NoContent(); });
         api.MapPost("/items/{id:guid}/assign", async (HttpContext h, MeetingService s, Guid id, AssignBody b) =>
-        { await s.AssignAsync(h.Current(), id, b.UserId, b.Reason); return Results.NoContent(); });
-        api.MapPost("/items/bulk", (HttpContext h, BulkActions b, BulkBody body) => b.RunAsync(h.Current(), body.Action, body.Ids, body.UserId, body.Reason));
+        { await s.AssignAsync(h.Current(), id, b.UserId, b.Reason, b.DueDate); return Results.NoContent(); });
+        api.MapPut("/items/{id:guid}/due", async (HttpContext h, MeetingService s, Guid id, DueDateBody b) =>
+        { await s.SetDueDateAsync(h.Current(), id, b.DueDate); return Results.NoContent(); });
+        api.MapPost("/items/bulk", (HttpContext h, BulkActions b, BulkBody body) => b.RunAsync(h.Current(), body.Action, body.Ids, body.UserId, body.Reason, body.DueDate));
         api.MapPost("/items/{id:guid}/accept", async (HttpContext h, MeetingService s, Guid id) =>
         { await s.AcceptAsync(h.Current(), id); return Results.NoContent(); });
         api.MapPost("/items/{id:guid}/return", async (HttpContext h, MeetingService s, Guid id) =>

@@ -1,4 +1,5 @@
 import { AssignOptions } from '../assignOptions';
+import DueDate, { todayIso } from '../DueDate';
 import { scrollIntoClearView } from '../clearView';
 import AttachmentsCard from '../AttachmentsCard';
 import RetentionLine from '../RetentionLine';
@@ -45,6 +46,7 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
   const [rerunService, setRerunService] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [reason, setReason] = useState('');
+  const [assignDue, setAssignDue] = useState('');
   const [reopenReason, setReopenReason] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
   const [open, setOpen] = useState<'reopen' | 'delete' | null>(null);
@@ -228,6 +230,7 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
         <div className="note">
           <span className="pill">{r.status}</span> · {fmtLen(r.lengthMs)} · Owner {d.owner} · You are: {d.role} · Created {fmtDate(r.createdOn)}
           {r.assignedTo && <> · Assigned to {r.assignedTo}</>}
+          <DueDate key={r.dueDate ?? ''} id={id} due={r.dueDate} overdue={r.overdue} canSet={!!d.canSetDueDate} onDone={load} />
           {d.attendees && d.attendees.length > 0 && <> · Also for {d.attendees.join(', ')}</>}
           {d.introduced && <> · Introduced at the start: {d.introduced.join(', ')}</>}
           {d.approvedAt && <> · Approved by {d.approvedBy} on {fmtDate(d.approvedAt)}</>}
@@ -259,7 +262,10 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
               <AssignOptions users={assignee} ownerIds={[d.row.ownerId]} />
             </select>
             {acts.has('reassign') && assignTo && <input placeholder="Reason (required)" value={reason} onChange={e => setReason(e.target.value)} />}
-            {assignTo && <button onClick={() => run(async () => { await api.post(`/items/${id}/assign`, { userId: assignTo === 'none' ? null : assignTo, reason: reason || null }); setAssignTo(''); })}>Apply</button>}
+            {assignTo && assignTo !== 'none' && <label className="note">Due by <input type="date" aria-label="Due by (optional)" min={todayIso()} value={assignDue || r.dueDate || ''} onChange={e => setAssignDue(e.target.value)} /></label>}
+            {assignTo && <button onClick={() => run(async () => {
+              await api.post(`/items/${id}/assign`, { userId: assignTo === 'none' ? null : assignTo, reason: reason || null, dueDate: assignTo !== 'none' && assignDue ? assignDue : null });
+              setAssignTo(''); setAssignDue(''); })}>Apply</button>}
           </span>}
           {audioUrl && d.canDownloadAudio && <button onClick={download}>{d.video ? 'Download video' : 'Download audio'}</button>}
           {acts.has('request-reopen') && open !== 'reopen' && <button onClick={() => setOpen('reopen')}>Reopen…</button>}

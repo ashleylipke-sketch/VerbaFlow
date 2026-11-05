@@ -237,3 +237,4 @@ li.unread .bell-item::before { content:''; }
 .bulk-bar .inline-group { display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center; }
 .bulk-results { padding:8px 10px; margin-bottom:10px; border:1px solid var(--line); border-radius:8px; } .bulk-results ul { margin:4px 0; }
 th.tick, td.tick { width:28px; } tr.ticked td { background:var(--saved); }
+.due-edit { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; margin-left:6px; }

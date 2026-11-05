@@ -1,4 +1,5 @@
 import { AssignOptions } from '../assignOptions';
+import { todayIso } from '../DueDate';
 import { useEffect, useState } from 'react';
 import { api, fmtDate, fmtLen, type BulkResult, type Mode, type Row, type UserView } from '../api';
 
@@ -58,6 +59,7 @@ export default function Dashboard({ mode }: { mode: Mode }) {
   const [users, setUsers] = useState<UserView[]>([]);
   const [assignTo, setAssignTo] = useState('');
   const [reason, setReason] = useState('');
+  const [assignDue, setAssignDue] = useState('');
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<{ what: string; list: BulkResult[] } | null>(null);
   useEffect(() => { api.users().then(u => setUsers(u.filter(x => !x.isSupport))).catch(() => {}); }, []);
@@ -81,12 +83,12 @@ export default function Dashboard({ mode }: { mode: Mode }) {
     if (a === 'approve' && !confirm(`Approving locks ${rowsFor.length === 1 ? 'this recording' : `these ${rowsFor.length} recordings`}. Continue?`)) return;
     setBusy(true); setError(''); setResults(null);
     try {
-      const list = await api.bulk(a, rowsFor.map(r => r.id), a === 'assign' ? (assignTo === 'none' ? null : assignTo) : null, a === 'assign' ? reason : null);
-      const what = a === 'assign' ? (assignTo === 'none' ? 'Taken back' : `Assigned to ${users.find(u => u.id === assignTo)?.name ?? 'them'}`)
+      const list = await api.bulk(a, rowsFor.map(r => r.id), a === 'assign' ? (assignTo === 'none' ? null : assignTo) : null, a === 'assign' ? reason : null, a === 'assign' && assignTo !== 'none' && assignDue ? assignDue : null);
+      const what = a === 'assign' ? (assignTo === 'none' ? 'Taken back' : `Assigned to ${users.find(u => u.id === assignTo)?.name ?? 'them'}${assignDue ? `, due ${fmtDate(assignDue)}` : ''}`)
         : a === 'accept' ? 'Accepted' : a === 'return' ? 'Returned' : 'Approved';
       setResults({ what, list });
       setTicked(new Set(list.filter(x => !x.done).map(x => x.id)));
-      if (a === 'assign') { setAssignTo(''); setReason(''); }
+      if (a === 'assign') { setAssignTo(''); setReason(''); setAssignDue(''); }
       load();
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
@@ -137,6 +139,7 @@ export default function Dashboard({ mode }: { mode: Mode }) {
             <option value="">Assign to…</option><option value="none">Nobody (take back)</option>
             <AssignOptions users={users} ownerIds={chosen.filter(r => canBulk(r, 'assign')).map(r => r.ownerId)} />
           </select>
+          {assignTo && assignTo !== 'none' && <label className="note">Due by <input type="date" aria-label="Due by (optional)" min={todayIso()} value={assignDue} onChange={e => setAssignDue(e.target.value)} /></label>}
           {assignTo && needsReason && <input placeholder="Reason (some are with someone else)" value={reason} onChange={e => setReason(e.target.value)} />}
           {assignTo && <button disabled={busy || (needsReason && !reason.trim())} onClick={() => bulk('assign')}>
             Apply{chosen.filter(r => canBulk(r, 'assign')).length < chosen.length ? ` (${chosen.filter(r => canBulk(r, 'assign')).length})` : ''}</button>}

@@ -1,5 +1,5 @@
 import { AssignOptions } from '../assignOptions';
-import { todayIso } from '../DueDate';
+import { dueWhen, todayIso } from '../DueDate';
 import { useEffect, useState } from 'react';
 import { api, fmtDate, fmtLen, type BulkResult, type Mode, type Row, type UserView } from '../api';
 
@@ -171,7 +171,9 @@ export default function Dashboard({ mode }: { mode: Mode }) {
                 <td data-label="Author">{r.author ?? ''}</td>
                 <td data-label="Assigned to">{r.assignedTo ?? ''}</td>
                 <td data-label="Created on">{fmtDate(r.createdOn)}</td>
-                <td data-label="Due date" className={r.overdue ? 'overdue' : ''}>{r.dueDate ? fmtDate(r.dueDate) : ''}{r.overdue && <> <span aria-hidden="true">⚠</span> Overdue</>}</td>
+                <td data-label="Due date" className={r.overdue ? 'overdue' : r.dueDate && dueWhen(r.dueDate, todayIso(), r.statusCode === 'Completed').level === 'soon' ? 'due-soon' : ''}>{r.dueDate ? fmtDate(r.dueDate) : ''}{r.overdue
+  ? <> <span aria-hidden="true">⚠</span> Overdue</>
+  : r.dueDate && r.statusCode !== 'Completed' && dueWhen(r.dueDate, todayIso()).level === 'soon' ? <> ({dueWhen(r.dueDate, todayIso()).words})</> : null}</td>
                 <td data-label="Actions"><div className="actions">{r.actions.filter(a => a in ACTION_LABEL).map(a => <button key={a} onClick={() => act(r, a)}>{ACTION_LABEL[a]}</button>)}</div></td>
               </tr>
             ))}

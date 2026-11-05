@@ -225,12 +225,14 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
       <div className="card">
         <div className="item-head">
           <h2>{r.name} {r.tags.map(x => <span key={x} className="tag">{x}</span>)}</h2>
-          {d.canExport && t && <ExportMenu id={id} approved={approved} dictate={dictate} documentType={d.documentType} onDone={load} />}
+          <div className="item-head-side">
+            <DueDate key={r.dueDate ?? ''} id={id} due={r.dueDate} done={r.statusCode === 'Completed' || r.statusCode === 'Purged'} canSet={!!d.canSetDueDate} onDone={load} />
+            {d.canExport && t && <ExportMenu id={id} approved={approved} dictate={dictate} documentType={d.documentType} onDone={load} />}
+          </div>
         </div>
         <div className="note">
           <span className="pill">{r.status}</span> · {fmtLen(r.lengthMs)} · Owner {d.owner} · You are: {d.role} · Created {fmtDate(r.createdOn)}
           {r.assignedTo && <> · Assigned to {r.assignedTo}</>}
-          <DueDate key={r.dueDate ?? ''} id={id} due={r.dueDate} overdue={r.overdue} canSet={!!d.canSetDueDate} onDone={load} />
           {d.attendees && d.attendees.length > 0 && <> · Also for {d.attendees.join(', ')}</>}
           {d.introduced && <> · Introduced at the start: {d.introduced.join(', ')}</>}
           {d.approvedAt && <> · Approved by {d.approvedBy} on {fmtDate(d.approvedAt)}</>}

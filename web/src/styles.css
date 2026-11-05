@@ -237,4 +237,14 @@ li.unread .bell-item::before { content:''; }
 .bulk-bar .inline-group { display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center; }
 .bulk-results { padding:8px 10px; margin-bottom:10px; border:1px solid var(--line); border-radius:8px; } .bulk-results ul { margin:4px 0; }
 th.tick, td.tick { width:28px; } tr.ticked td { background:var(--saved); }
-.due-edit { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; margin-left:6px; }
+
+
+.item-head-side { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.due-badge { display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 12px; border-radius:8px; border:1px solid var(--brand); background:var(--saved); color:var(--ink); font-size:14px; }
+.due-badge.soon { border-color:var(--warn); background:rgba(180,83,9,.12); }
+.due-badge.late { border-color:var(--bad); background:rgba(180,40,24,.12); color:var(--bad); }
+.due-badge.done { border-color:var(--line); background:transparent; color:var(--muted); }
+.due-badge.editing { border-color:var(--line); background:var(--card); }
+button.due-set { font-size:14px; }
+@media (max-width:700px) { .item-head-side { justify-content:flex-start; width:100%; } }
+.due-soon { color:var(--warn); font-weight:600; }

@@ -106,6 +106,16 @@ export function saveFile(f: File) {
 
 const tpl = (t?: string) => t ? `&template=${encodeURIComponent(t)}` : '';
 
+export type WorkloadPerson = {
+  userId: string; name: string; asAuthor: number; toAccept: number; beingTyped: number; overdue: number; dueToday: number;
+  assignedToThem: number; returned: number; approved: number; hoursToAccept: number | null; hoursTyping: number | null; hoursToApprove: number | null;
+};
+export type WorkloadItem = { itemId: string; name: string; mode: string; holder: string; stage: string; due: string | null; daysLate: number | null; since: string };
+export type Workload = {
+  days: number; mode: string; open: number; overdue: number; dueToday: number; approvedInPeriod: number; daysToApprove: number | null;
+  people: WorkloadPerson[]; overdueItems: WorkloadItem[]; waitingLongest: WorkloadItem[];
+};
+
 export const api = {
   users: () => call<UserView[]>('GET', '/users'),
   languages: () => call<{ max: number; languages: Lang[] }>('GET', '/languages'),
@@ -203,6 +213,7 @@ export const api = {
   },
   emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[], template?: string) =>
     call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(','), template: template || null }),
+  workload: (mode: string, days: number) => call<Workload>('GET', `/workload?mode=${mode}&days=${days}`),
   notifications: () => call<NotificationList>('GET', '/notifications'),
   markRead: (id?: string) => call<NotificationList>('POST', '/notifications/read', { id: id ?? null }),
   notificationSettings: () => call<NotificationSettings>('GET', '/notifications/settings'),

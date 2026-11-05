@@ -12,6 +12,7 @@ import Vocabulary from './pages/Vocabulary';
 import SavedTextPage from './pages/SavedText';
 import LetterheadPage from './pages/Letterhead';
 import RetentionPage from './pages/Retention';
+import WorkloadPage from './pages/Workload';
 import DepartmentsPage from './pages/Departments';
 import MinutesTemplatesPage from './pages/MinutesTemplates';
 import NotificationsPage from './pages/Notifications';
@@ -124,6 +125,7 @@ export default function App() {
           : path === '/sign-off' ? <SignOffCard />
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />
+          : path === '/workload' ? <WorkloadPage />
           : path === '/departments' ? <DepartmentsPage />
           : path.startsWith('/search') ? <SearchPage key={path} query={new URLSearchParams(path.split('?')[1] ?? '')} />
           : path === '/meet' ? <Meet />
@@ -150,6 +152,7 @@ function MoreMenu({ path, admin, support }: { path: string; admin: boolean; supp
   const pages: [string, string][] = [
     ...(admin ? [] : [['/sign-off', 'Your sign-off'] as [string, string]]),
     ...(admin ? [
+      ['/workload', 'Workload'],
       ['/vocabulary', 'Vocabulary'], ['/saved-text', 'Saved text'], ['/letterhead', 'Letterhead and your sign-off'],
       ['/minutes-templates', 'Minutes templates'],
       ['/retention', 'Retention'], ['/departments', 'Departments'], ['/reopen', 'Reopen and delete requests'],

@@ -228,3 +228,8 @@ li.unread .bell-item::before { content:''; }
   header.top nav { order:3; } header.top .signin { order:4; }
   .bell-panel { position:fixed; left:16px; right:16px; top:56px; width:auto; }
 }
+.workload .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin:14px 0; }
+.workload .tile { border:1px solid var(--line); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:2px; }
+.workload .tile strong { font-size:26px; font-variant-numeric:tabular-nums; } .workload .tile span { color:var(--muted); font-size:13px; }
+.workload .tile.bad { border-color:var(--bad); } .workload .tile.bad strong { color:var(--bad); }
+.workload td .tag { margin-left:6px; }

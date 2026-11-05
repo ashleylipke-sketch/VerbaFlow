@@ -147,6 +147,7 @@ else builder.Services.AddSingleton<ICalendarReader, VerbaFlow.Infrastructure.Sta
 builder.Services.AddSingleton<ICalendarReader>(_ => new VerbaFlow.Infrastructure.Calendars.LinkCalendarReader());
 builder.Services.AddSingleton<CalendarService>();
 builder.Services.AddSingleton<RetentionService>();
+builder.Services.AddSingleton<WorkloadService>();
 builder.Services.AddSingleton<AttachmentService>();
 // Where VerbaFlow can be opened, for the link in notification emails.
 var siteAddress = builder.Configuration["Notifications:SiteAddress"] is { Length: > 0 } site ? site : "http://localhost:5044";
@@ -260,6 +261,7 @@ api.MapLiveEndpoints();
 api.MapMeetEndpoints();
 api.MapRetentionEndpoints();
 api.MapNotificationEndpoints();
+api.MapWorkloadEndpoints();
 api.MapAttachmentEndpoints();
 app.MapLiveSocket();
 app.MapPlayback();

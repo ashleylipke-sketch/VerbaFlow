@@ -77,7 +77,10 @@ public static class PdfMinutesWriter
             row.Cells[1].AddParagraph(Clean(value));
         }
 
+        var earlier = false; // whether a part was printed before the transcript, which then starts on a new page
         foreach (var (part, heading) in style.Order)
+        {
+            if (part != "transcript") earlier |= DocxMinutesWriter.HasContent(d, part);
             switch (part)
             {
                 case "summary" when !string.IsNullOrWhiteSpace(d.Summary):
@@ -97,7 +100,7 @@ public static class PdfMinutesWriter
                 case "tone" when !string.IsNullOrWhiteSpace(d.Tone):
                     Heading(section, heading, colour); Text(section, d.Tone); break;
                 case "transcript" when d.Transcript.Count > 0:
-                    Heading(section, d.TranscriptHeading, colour);
+                    Heading(section, d.TranscriptHeading, colour, newPage: earlier);
                     foreach (var p in d.Transcript)
                     {
                         var para = section.AddParagraph();
@@ -113,6 +116,7 @@ public static class PdfMinutesWriter
                     }
                     break;
             }
+        }
         if (footerAtEnd)
         {
             var end = section.AddParagraph();
@@ -139,10 +143,11 @@ public static class PdfMinutesWriter
         return new Color((byte)(v >> 16), (byte)(v >> 8 & 0xFF), (byte)(v & 0xFF));
     }
 
-    private static void Heading(Section s, string text, Color? colour)
+    private static void Heading(Section s, string text, Color? colour, bool newPage = false)
     {
         var p = s.AddParagraph();
-        p.Format.SpaceBefore = Unit.FromPoint(12);
+        p.Format.PageBreakBefore = newPage;
+        p.Format.SpaceBefore = Unit.FromPoint(newPage ? 0 : 12);
         p.Format.SpaceAfter = Unit.FromPoint(4);
         p.Format.KeepWithNext = true;
         var t = p.AddFormattedText(Clean(text), TextFormat.Bold);

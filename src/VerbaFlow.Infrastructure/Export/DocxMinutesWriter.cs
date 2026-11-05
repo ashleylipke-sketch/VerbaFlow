@@ -58,7 +58,10 @@ public static class DocxMinutesWriter
                 new TableCell(new TableCellProperties(new TableCellWidth { Type = TableWidthUnitValues.Dxa, Width = "6838" }), Para(value, size: 20, font: f))));
         yield return table;
 
+        var earlier = false; // whether a part was printed before the transcript, which then starts on a new page
         foreach (var (part, heading) in style.Order)
+        {
+            if (part != "transcript") earlier |= HasContent(d, part);
             switch (part)
             {
                 case "summary" when !string.IsNullOrWhiteSpace(d.Summary):
@@ -79,7 +82,7 @@ public static class DocxMinutesWriter
                 case "tone" when !string.IsNullOrWhiteSpace(d.Tone):
                     yield return Heading(heading, style); yield return Para(d.Tone, font: f); break;
                 case "transcript" when d.Transcript.Count > 0:
-                    yield return Heading(d.TranscriptHeading, style);
+                    yield return Heading(d.TranscriptHeading, style, newPage: earlier);
                     foreach (var p in d.Transcript)
                     {
                         var para = new Paragraph(ListOrPlain(p.Marker, "120"));
@@ -91,10 +94,23 @@ public static class DocxMinutesWriter
                     }
                     break;
             }
+        }
     }
 
-    private static Paragraph Heading(string text, MinutesStyle style) =>
-        new(new ParagraphProperties(new KeepNext(), new SpacingBetweenLines { Before = "320", After = "120" }),
+    /// <summary>Whether the document has something to print for a part.</summary>
+    internal static bool HasContent(MinutesDocument d, string part) => part switch
+    {
+        "summary" => !string.IsNullOrWhiteSpace(d.Summary),
+        "actions" => d.ActionPoints.Count > 0,
+        "minutes" => d.MinutesLines.Count > 0,
+        "tone" => !string.IsNullOrWhiteSpace(d.Tone),
+        "transcript" => d.Transcript.Count > 0,
+        _ => false,
+    };
+
+    private static Paragraph Heading(string text, MinutesStyle style, bool newPage = false) =>
+        new(newPage ? new ParagraphProperties(new KeepNext(), new PageBreakBefore(), new SpacingBetweenLines { Before = "0", After = "120" })
+                : new ParagraphProperties(new KeepNext(), new SpacingBetweenLines { Before = "320", After = "120" }),
             Run(text, bold: true, size: 28, color: style.Hex == "000000" ? null : style.Hex, font: style.Font));
 
     private static Paragraph Para(string text, bool bold = false, int size = 22, string? color = null, int indent = 0, string? font = null)

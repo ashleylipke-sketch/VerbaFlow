@@ -19,7 +19,7 @@ Admins can decide how exported meeting minutes look, so they match your house st
 - **Footer text**, for example "Confidential". The meeting's name, the Draft or Approved marker and the reference are always added after it.
 - **Use this template by default.**
 
-The title, the Draft or Approved marker and the details table are always included.
+The title, the Draft or Approved marker and the details table are always included. The transcript always starts on a new page.
 
 ## Exporting with a template
 

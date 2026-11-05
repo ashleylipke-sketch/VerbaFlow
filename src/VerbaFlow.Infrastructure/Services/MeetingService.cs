@@ -868,8 +868,12 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return await stores.Audit.VerifyAsync();
     }
 
-    public async Task<IReadOnlyList<UserView>> ListUsersAsync() =>
-        (await stores.Users.ListAsync()).Select(u => new UserView(u.Id, u.Name, u.Email, u.IsAdmin, u.IsSupport)).ToList();
+    public async Task<IReadOnlyList<UserView>> ListUsersAsync()
+    {
+        var departments = (await stores.Departments.ListAsync()).OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        return (await stores.Users.ListAsync()).Select(u => new UserView(u.Id, u.Name, u.Email, u.IsAdmin, u.IsSupport,
+            u.IsSupport ? [] : departments.Where(d => d.Has(u)).Select(d => d.Name).ToList())).ToList();
+    }
 
     // ---------- helpers ----------
 
@@ -891,7 +895,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             i.ClientReference, i.Description, i.AssignedUserId is { } a ? users.GetValueOrDefault(a)?.Name : null,
             users.GetValueOrDefault(i.OwnerId)?.Name, i.CreatedAt,
             i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo, i.FailureReason, IsOutstanding(actor, i, superseded),
-            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId), PermissionEvaluator.RoleOn(actor, i) is ItemRole.Colleague or ItemRole.DepartmentAdmin);
+            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId), PermissionEvaluator.RoleOn(actor, i) is ItemRole.Colleague or ItemRole.DepartmentAdmin, i.OwnerId);
     }
 
     /// <summary>

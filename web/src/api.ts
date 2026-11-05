@@ -3,7 +3,7 @@ export type Row = {
   id: string; name: string; priority: string; status: string; statusCode: string; lengthMs: number;
   clientReference: string | null; description: string | null; assignedTo: string | null; author: string | null; createdOn: string;
   dueDate: string | null; overdue: boolean; tags: string[]; actions: string[]; versionNo: number;
-  failureReason?: string | null; outstanding?: boolean; attachments?: number; fromDepartment?: boolean;
+  failureReason?: string | null; outstanding?: boolean; attachments?: number; fromDepartment?: boolean; ownerId?: string | null;
 };
 export type Detail = {
   row: Row; owner: string; ownerRole: string; processingState: string | null; failureReason: string | null;
@@ -53,7 +53,7 @@ export type NotificationRow = { id: string; text: string; group: string; itemId:
 export type NotificationList = { unread: number; items: NotificationRow[] };
 export type NotificationSettings = { hasEmail: boolean; email: string | null; emailReal: boolean; groups: { key: string; label: string; email: boolean }[] };
 export type BulkResult = { id: string; name: string; done: boolean; problem: string | null };
-export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean; runsDepartment?: boolean };
+export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean; runsDepartment?: boolean; departments?: string[] };
 export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
 export type AuditEvent = { seq: number; at: string; actorId: string | null; capacity: string; type: string; details: string; hash: string };
 

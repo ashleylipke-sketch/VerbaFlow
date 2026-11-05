@@ -1,3 +1,4 @@
+import { AssignOptions } from '../assignOptions';
 import { useEffect, useState } from 'react';
 import { api, fmtDate, fmtLen, type BulkResult, type Mode, type Row, type UserView } from '../api';
 
@@ -134,7 +135,7 @@ export default function Dashboard({ mode }: { mode: Mode }) {
         {chosen.some(r => canBulk(r, 'assign')) && <span className="inline-group">
           <select aria-label="Assign the ticked recordings to" value={assignTo} onChange={e => setAssignTo(e.target.value)}>
             <option value="">Assign to…</option><option value="none">Nobody (take back)</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            <AssignOptions users={users} ownerIds={chosen.filter(r => canBulk(r, 'assign')).map(r => r.ownerId)} />
           </select>
           {assignTo && needsReason && <input placeholder="Reason (some are with someone else)" value={reason} onChange={e => setReason(e.target.value)} />}
           {assignTo && <button disabled={busy || (needsReason && !reason.trim())} onClick={() => bulk('assign')}>

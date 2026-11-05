@@ -46,7 +46,7 @@ public sealed record ItemRow(
     Guid Id, string Name, string Priority, string Status, ItemStatus StatusCode, int LengthMs, string? ClientReference,
     string? Description, string? AssignedTo, string? Author, DateTimeOffset CreatedOn, DateOnly? DueDate, bool Overdue,
     IReadOnlyList<string> Tags, IReadOnlyList<string> Actions, int VersionNo, string? FailureReason = null, bool Outstanding = false, int Attachments = 0,
-    bool FromDepartment = false);
+    bool FromDepartment = false, Guid? OwnerId = null);
 
 public sealed record MarkerView(string Type, int OffsetMs, string? Note, string By, DateTimeOffset At);
 
@@ -85,7 +85,8 @@ public sealed record AudioHandle(Stream Content, string ContentType, string File
 public sealed record ReopenView(Guid Id, Guid ItemId, string ItemName, string Reason, string RequestedBy, int Approvals,
     IReadOnlyList<string> ApprovedBy, bool Open, string? Outcome, Guid? NewItemId);
 
-public sealed record UserView(Guid Id, string Name, string Email, bool IsAdmin, bool IsSupport = false);
+/// <summary>A person, with the names of the departments they are in (so Assign to… can list the recording's department first).</summary>
+public sealed record UserView(Guid Id, string Name, string Email, bool IsAdmin, bool IsSupport = false, IReadOnlyList<string>? Departments = null);
 
 public sealed record DeleteRequestView(Guid Id, Guid ItemId, string ItemName, string Reason, string RequestedBy, int Approvals,
     IReadOnlyList<string> ApprovedBy, bool Open, string? Outcome);

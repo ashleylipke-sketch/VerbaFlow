@@ -1,3 +1,4 @@
+import { AssignOptions } from '../assignOptions';
 import { scrollIntoClearView } from '../clearView';
 import AttachmentsCard from '../AttachmentsCard';
 import RetentionLine from '../RetentionLine';
@@ -255,7 +256,7 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
           {(acts.has('assign') || acts.has('reassign')) && <span className="inline-group">
             <select aria-label={acts.has('reassign') ? 'Reassign to' : 'Assign to'} value={assignTo} onChange={e => setAssignTo(e.target.value)}>
               <option value="">{acts.has('reassign') ? 'Reassign to…' : 'Assign to…'}</option><option value="none">Nobody (take back)</option>
-              {assignee.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              <AssignOptions users={assignee} ownerIds={[d.row.ownerId]} />
             </select>
             {acts.has('reassign') && assignTo && <input placeholder="Reason (required)" value={reason} onChange={e => setReason(e.target.value)} />}
             {assignTo && <button onClick={() => run(async () => { await api.post(`/items/${id}/assign`, { userId: assignTo === 'none' ? null : assignTo, reason: reason || null }); setAssignTo(''); })}>Apply</button>}

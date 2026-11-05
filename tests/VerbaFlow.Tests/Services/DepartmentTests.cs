@@ -49,6 +49,22 @@ public class DepartmentTests
     }
 
     [Fact]
+    public async Task The_people_list_says_each_persons_departments_and_rows_carry_the_owner()
+    {
+        using var env = new Env();
+        var departments = Service(env);
+        var legal = await departments.CreateAsync(env.Carol, "Legal", null);
+        await departments.SetHandMemberAsync(env.Carol, legal.Id, env.Alice.Id, true);
+        var id = await env.ProcessedRecordingAsync(env.Alice);
+
+        var users = await env.Meeting.ListUsersAsync();
+        Assert.Equal(["Legal"], users.Single(u => u.Id == env.Alice.Id).Departments);
+        Assert.Empty(users.Single(u => u.Id == env.Bob.Id).Departments!);
+        var row = (await env.Meeting.ListAsync(env.Alice, new ListQuery(null, null, null))).Single(r => r.Id == id);
+        Assert.Equal(env.Alice.Id, row.OwnerId);
+    }
+
+    [Fact]
     public async Task A_department_admin_can_assign_and_approve_their_departments_recordings_only()
     {
         using var env = new Env();

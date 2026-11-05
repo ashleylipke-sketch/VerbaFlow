@@ -7,8 +7,12 @@ namespace VerbaFlow.Infrastructure.Export;
 /// <summary>Lays a <see cref="MinutesDocument"/> out as a Word file.</summary>
 public static class DocxMinutesWriter
 {
-    public static byte[] Write(MinutesDocument d)
+    /// <param name="letterhead">A Word letterhead to put the minutes on (from a minutes template), or null for a plain A4 page.</param>
+    public static byte[] Write(MinutesDocument d, byte[]? letterhead = null)
     {
+        var style = d.Style ?? MinutesStyle.Standard;
+        if (letterhead is not null)
+            return LetterWriter.IntoLetterhead(letterhead, main => Content(d, style, main).Append(Para(d.Footer, size: 16, color: "666666", font: style.Font)));
         using var ms = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(ms, WordprocessingDocumentType.Document))
         {
@@ -17,54 +21,9 @@ public static class DocxMinutesWriter
             main.Document = new Document(body);
 
             var footerPart = main.AddNewPart<FooterPart>();
-            footerPart.Footer = new Footer(Para(d.Footer, size: 16, color: "666666"));
+            footerPart.Footer = new Footer(Para(d.Footer, size: 16, color: "666666", font: style.Font));
             var footerId = main.GetIdOfPart(footerPart);
-
-            body.Append(Para(d.Title, bold: true, size: 36));
-            body.Append(Para(d.Marker.ToUpperInvariant(), bold: true, size: 24, color: d.Marker == "Approved" ? "1E7B34" : "B3261E"));
-            body.Append(Para(d.MarkerLine, size: 20, color: "444444"));
-
-            var table = new Table(new TableProperties(
-                new TableWidth { Type = TableWidthUnitValues.Dxa, Width = "9638" },
-                new TableBorders(new TopBorder { Val = BorderValues.Single, Size = 4, Color = "DDDDDD" },
-                    new BottomBorder { Val = BorderValues.Single, Size = 4, Color = "DDDDDD" },
-                    new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4, Color = "DDDDDD" }),
-                new TableLayout { Type = TableLayoutValues.Fixed }),
-                new TableGrid(new GridColumn { Width = "2800" }, new GridColumn { Width = "6838" }));
-            foreach (var (label, value) in d.Details)
-                table.Append(new TableRow(
-                    new TableCell(new TableCellProperties(new TableCellWidth { Type = TableWidthUnitValues.Dxa, Width = "2800" }), Para(label, bold: true, size: 20)),
-                    new TableCell(new TableCellProperties(new TableCellWidth { Type = TableWidthUnitValues.Dxa, Width = "6838" }), Para(value, size: 20))));
-            body.Append(table);
-
-            if (!string.IsNullOrWhiteSpace(d.Summary)) { body.Append(Heading("Summary")); body.Append(Para(d.Summary)); }
-            if (d.ActionPoints.Count > 0)
-            {
-                body.Append(Heading("Action points"));
-                foreach (var a in d.ActionPoints) body.Append(Para("•  " + a, indent: 360));
-            }
-            if (d.MinutesLines.Count > 0)
-            {
-                body.Append(Heading("Minutes"));
-                foreach (var line in d.MinutesLines)
-                {
-                    if (line.StartsWith("- ")) body.Append(Para("•  " + line[2..], indent: 360));
-                    else if (line.EndsWith(':')) body.Append(Para(line, bold: true));
-                    else body.Append(Para(line));
-                }
-            }
-            if (!string.IsNullOrWhiteSpace(d.Tone)) { body.Append(Heading("Tone of the meeting")); body.Append(Para(d.Tone)); }
-
-            if (d.Transcript.Count > 0) body.Append(Heading(d.TranscriptHeading));
-            foreach (var p in d.Transcript)
-            {
-                var para = new Paragraph(ListOrPlain(p.Marker, "120"));
-                if (p.Marker is not null) para.Append(Run(p.Marker), new DocumentFormat.OpenXml.Wordprocessing.Run(new TabChar()));
-                if (p.Time.Length > 0) para.Append(Run(p.Time + "  ", size: 18, color: "666666"));
-                if (p.Speaker.Length > 0) para.Append(Run(p.Speaker + ": ", bold: true));
-                para.Append(Run(p.Text));
-                body.Append(para);
-            }
+            foreach (var e in Content(d, style, main)) body.Append(e);
 
             body.Append(new SectionProperties(
                 new FooterReference { Type = HeaderFooterValues.Default, Id = footerId },
@@ -75,19 +34,80 @@ public static class DocxMinutesWriter
         return ms.ToArray();
     }
 
-    private static Paragraph Heading(string text) =>
-        new(new ParagraphProperties(new SpacingBetweenLines { Before = "320", After = "120" }), Run(text, bold: true, size: 28));
+    /// <summary>Everything in the body, in order: logo, title, marker, details, then the parts in the template's order.</summary>
+    private static IEnumerable<OpenXmlElement> Content(MinutesDocument d, MinutesStyle style, MainDocumentPart main)
+    {
+        var f = style.Font;
+        if (style.Logo is { } logo)
+            yield return LetterWriter.PictureParagraph(main, logo, LetterWriter.Fit(logo, MinutesStyle.LogoHeightMm, MinutesStyle.LogoMaxWidthMm),
+                "Logo", style.LogoPlace == "right");
+        yield return Para(d.Title, bold: true, size: 36, color: style.Hex, font: f);
+        yield return Para(d.Marker.ToUpperInvariant(), bold: true, size: 24, color: d.Marker == "Approved" ? "1E7B34" : "B3261E", font: f);
+        yield return Para(d.MarkerLine, size: 20, color: "444444", font: f);
 
-    private static Paragraph Para(string text, bool bold = false, int size = 22, string? color = null, int indent = 0)
+        var table = new Table(new TableProperties(
+            new TableWidth { Type = TableWidthUnitValues.Dxa, Width = "9638" },
+            new TableBorders(new TopBorder { Val = BorderValues.Single, Size = 4, Color = "DDDDDD" },
+                new BottomBorder { Val = BorderValues.Single, Size = 4, Color = "DDDDDD" },
+                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4, Color = "DDDDDD" }),
+            new TableLayout { Type = TableLayoutValues.Fixed }),
+            new TableGrid(new GridColumn { Width = "2800" }, new GridColumn { Width = "6838" }));
+        foreach (var (label, value) in d.Details)
+            table.Append(new TableRow(
+                new TableCell(new TableCellProperties(new TableCellWidth { Type = TableWidthUnitValues.Dxa, Width = "2800" }), Para(label, bold: true, size: 20, font: f)),
+                new TableCell(new TableCellProperties(new TableCellWidth { Type = TableWidthUnitValues.Dxa, Width = "6838" }), Para(value, size: 20, font: f))));
+        yield return table;
+
+        foreach (var (part, heading) in style.Order)
+            switch (part)
+            {
+                case "summary" when !string.IsNullOrWhiteSpace(d.Summary):
+                    yield return Heading(heading, style); yield return Para(d.Summary, font: f); break;
+                case "actions" when d.ActionPoints.Count > 0:
+                    yield return Heading(heading, style);
+                    foreach (var a in d.ActionPoints) yield return Para("•  " + a, indent: 360, font: f);
+                    break;
+                case "minutes" when d.MinutesLines.Count > 0:
+                    yield return Heading(heading, style);
+                    foreach (var line in d.MinutesLines)
+                    {
+                        if (line.StartsWith("- ")) yield return Para("•  " + line[2..], indent: 360, font: f);
+                        else if (line.EndsWith(':')) yield return Para(line, bold: true, font: f);
+                        else yield return Para(line, font: f);
+                    }
+                    break;
+                case "tone" when !string.IsNullOrWhiteSpace(d.Tone):
+                    yield return Heading(heading, style); yield return Para(d.Tone, font: f); break;
+                case "transcript" when d.Transcript.Count > 0:
+                    yield return Heading(d.TranscriptHeading, style);
+                    foreach (var p in d.Transcript)
+                    {
+                        var para = new Paragraph(ListOrPlain(p.Marker, "120"));
+                        if (p.Marker is not null) para.Append(Run(p.Marker, font: f), new DocumentFormat.OpenXml.Wordprocessing.Run(new TabChar()));
+                        if (p.Time.Length > 0) para.Append(Run(p.Time + "  ", size: 18, color: "666666", font: f));
+                        if (p.Speaker.Length > 0) para.Append(Run(p.Speaker + ": ", bold: true, font: f));
+                        para.Append(Run(p.Text, font: f));
+                        yield return para;
+                    }
+                    break;
+            }
+    }
+
+    private static Paragraph Heading(string text, MinutesStyle style) =>
+        new(new ParagraphProperties(new KeepNext(), new SpacingBetweenLines { Before = "320", After = "120" }),
+            Run(text, bold: true, size: 28, color: style.Hex == "000000" ? null : style.Hex, font: style.Font));
+
+    private static Paragraph Para(string text, bool bold = false, int size = 22, string? color = null, int indent = 0, string? font = null)
     {
         var props = new ParagraphProperties(new SpacingBetweenLines { After = "80" });
         if (indent > 0) props.Append(new Indentation { Left = indent.ToString() });
-        return new Paragraph(props, Run(text, bold, size, color));
+        return new Paragraph(props, Run(text, bold, size, color, font));
     }
 
-    private static Run Run(string text, bool bold = false, int size = 22, string? color = null)
+    private static Run Run(string text, bool bold = false, int size = 22, string? color = null, string? font = null)
     {
         var rp = new RunProperties();
+        if (font is not null) rp.Append(new RunFonts { Ascii = font, HighAnsi = font, ComplexScript = font, EastAsia = font });
         if (bold) rp.Append(new Bold());
         if (color is not null) rp.Append(new Color { Val = color });
         rp.Append(new FontSize { Val = size.ToString() });

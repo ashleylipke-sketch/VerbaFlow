@@ -13,7 +13,7 @@ namespace VerbaFlow.Tests.Services;
 public class LetterheadTests
 {
     /// <summary>A Word letterhead with the firm's name in its header and some sample text in the body.</summary>
-    private static byte[] WordLetterhead(string bodyText = "Sample letter text")
+    internal static byte[] WordLetterhead(string bodyText = "Sample letter text")
     {
         var ms = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(ms, WordprocessingDocumentType.Document))
@@ -33,7 +33,7 @@ public class LetterheadTests
     }
 
     /// <summary>A two-page PDF letterhead in US Letter size.</summary>
-    private static byte[] PdfLetterhead()
+    internal static byte[] PdfLetterhead()
     {
         PdfMinutesWriterFonts();
         var pdf = new PdfDocument();

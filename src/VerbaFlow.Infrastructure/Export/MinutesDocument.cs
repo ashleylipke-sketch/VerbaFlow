@@ -20,7 +20,25 @@ public sealed record MinutesDocument(
     string? Tone,
     IReadOnlyList<MinutesPassage> Transcript,
     string Footer,
-    string TranscriptHeading = "Transcript");
+    string TranscriptHeading = "Transcript",
+    MinutesStyle? Style = null);
+
+/// <summary>How the minutes look (from a minutes template): font, title and heading colour, a logo, and the order and
+/// headings of the parts. The transcript's heading is <see cref="MinutesDocument.TranscriptHeading"/>.</summary>
+/// <param name="Order">Every part once, in printed order, with its heading.</param>
+/// <param name="ReferenceAtEnd">True on a letterhead: the footer line is printed under the text, since the letterhead has its own foot.</param>
+public sealed record MinutesStyle(string Font, string Colour, byte[]? Logo, string LogoPlace,
+    IReadOnlyList<(string Part, string Heading)> Order, bool ReferenceAtEnd = false)
+{
+    public static MinutesStyle Standard { get; } = new("Arial", "#000000", null, "left",
+        VerbaFlow.Core.Domain.MinutesTemplate.StandardSections.Select(s => (s.Part, s.Heading)).ToList());
+
+    /// <summary>The colour without the #, as Word wants it.</summary>
+    public string Hex => Colour.TrimStart('#').ToUpperInvariant();
+
+    /// <summary>The printed size of the logo: 16 mm high, at most 60 mm wide.</summary>
+    public const double LogoHeightMm = 16, LogoMaxWidthMm = 60;
+}
 
 /// <param name="Marker">In a dictation, "•" or "1." in front of a list point; null otherwise.</param>
 public sealed record MinutesPassage(string Time, string Speaker, string Text, string? Marker = null);
@@ -38,10 +56,10 @@ public static class ExportParts
 
     public static string NameOf(string part) => Names[part];
 
-    /// <summary>A comma-separated list such as "summary,transcript". Nothing given means everything.</summary>
-    public static IReadOnlyList<string> Parse(string? text)
+    /// <summary>A comma-separated list such as "summary,transcript". Nothing given (null) means the template's usual parts.</summary>
+    public static IReadOnlyList<string>? Parse(string? text)
     {
-        if (text is null) return All;
+        if (text is null) return null;
         var chosen = text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(p => p.ToLowerInvariant() switch { "action" or "actionpoints" or "action-points" => Actions, var x => x }).ToHashSet();
         var unknown = chosen.FirstOrDefault(c => !Names.ContainsKey(c));

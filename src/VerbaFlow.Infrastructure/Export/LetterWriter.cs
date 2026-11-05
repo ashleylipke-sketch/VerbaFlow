@@ -54,6 +54,16 @@ public static class LetterWriter
             return ms.ToArray(); // only complete once the document is closed
         }
 
+        return IntoLetterhead(letterhead, main => Paragraphs(letter, plain: false, main));
+    }
+
+    /// <summary>
+    /// Puts content into a Word letterhead: where the body says {{letter}} if it does, otherwise in place of the typed text
+    /// in its body (pictures, shapes and text boxes there are kept). Headers, footers, page set-up and styles stay.
+    /// </summary>
+    internal static byte[] IntoLetterhead(byte[] letterhead, Func<MainDocumentPart, IEnumerable<OpenXmlElement>> content)
+    {
+        var ms = new MemoryStream();
         ms.Write(letterhead);
         ms.Position = 0;
         using (var doc = WordprocessingDocument.Open(ms, true))
@@ -63,12 +73,12 @@ public static class LetterWriter
             var spot = body.Descendants<W.Paragraph>().FirstOrDefault(p => p.InnerText.Contains(Placeholder, StringComparison.OrdinalIgnoreCase));
             if (spot is not null)
             {
-                foreach (var p in Paragraphs(letter, plain: false, doc.MainDocumentPart)) spot.InsertBeforeSelf(p);
+                foreach (var p in content(doc.MainDocumentPart).ToList()) spot.InsertBeforeSelf(p);
                 spot.Remove();
             }
             else
             {
-                // The letter replaces the letterhead's typed text. Kept: the page set-up (it points at the headers and footers),
+                // The content replaces the letterhead's typed text. Kept: the page set-up (it points at the headers and footers),
                 // and anything drawn in the body, because many letterheads put the logo, address box or lines there rather
                 // than in the header. Plain text next to a drawing is dropped; text inside a text box stays with its box.
                 var setup = body.Elements<SectionProperties>().LastOrDefault();
@@ -79,7 +89,7 @@ public static class LetterWriter
                     foreach (var run in child.Descendants<W.Run>().Where(r => !HasGraphics(r) && r.Ancestors().All(a => !IsGraphic(a))).ToList()) run.Remove();
                 }
                 setup?.Remove();
-                foreach (var p in Paragraphs(letter, plain: false, doc.MainDocumentPart)) body.Append(p);
+                foreach (var p in content(doc.MainDocumentPart).ToList()) body.Append(p);
                 if (setup is not null) body.Append(setup);
             }
             doc.MainDocumentPart.Document.Save();
@@ -126,13 +136,16 @@ public static class LetterWriter
     public const double SignatureHeightMm = 18, SignatureMaxWidthMm = 70;
 
     /// <summary>The printed size of a signature picture in millimetres.</summary>
-    public static (double W, double H) SignatureSize(byte[] picture)
+    public static (double W, double H) SignatureSize(byte[] picture) => Fit(picture, SignatureHeightMm, SignatureMaxWidthMm);
+
+    /// <summary>A picture's printed size in millimetres: the given height, narrower if it would be wider than maxWidth.</summary>
+    public static (double W, double H) Fit(byte[] picture, double heightMm, double maxWidthMm)
     {
         using var img = XImage.FromStream(new MemoryStream(picture));
         var ratio = img.PixelWidth / (double)Math.Max(1, img.PixelHeight);
-        var h = SignatureHeightMm;
+        var h = heightMm;
         var w = h * ratio;
-        if (w > SignatureMaxWidthMm) { w = SignatureMaxWidthMm; h = w / ratio; }
+        if (w > maxWidthMm) { w = maxWidthMm; h = w / ratio; }
         return (w, h);
     }
 
@@ -142,26 +155,30 @@ public static class LetterWriter
         return p;
     }
 
-    private static W.Paragraph PictureParagraph(MainDocumentPart main, byte[] picture)
+    private static W.Paragraph PictureParagraph(MainDocumentPart main, byte[] picture) =>
+        PictureParagraph(main, picture, SignatureSize(picture), "signature", null);
+
+    /// <summary>A paragraph holding one picture at the given size (mm), optionally aligned right.</summary>
+    internal static W.Paragraph PictureParagraph(MainDocumentPart main, byte[] picture, (double W, double H) size, string name, bool? right)
     {
         var png = Services.SignOffService.PictureType(picture) == "png";
         var part = main.AddImagePart(png ? ImagePartType.Png : ImagePartType.Jpeg);
         using (var s = new MemoryStream(picture)) part.FeedData(s);
         var rel = main.GetIdOfPart(part);
-        var (wmm, hmm) = SignatureSize(picture);
+        var (wmm, hmm) = size;
         long cx = (long)(wmm * 36000), cy = (long)(hmm * 36000); // EMU per millimetre
         var id = (uint)(main.Parts.Count() + 1000);
         var drawing = new W.Drawing(
             new DocumentFormat.OpenXml.Drawing.Wordprocessing.Inline(
                 new DocumentFormat.OpenXml.Drawing.Wordprocessing.Extent { Cx = cx, Cy = cy },
                 new DocumentFormat.OpenXml.Drawing.Wordprocessing.EffectExtent { LeftEdge = 0, TopEdge = 0, RightEdge = 0, BottomEdge = 0 },
-                new DocumentFormat.OpenXml.Drawing.Wordprocessing.DocProperties { Id = id, Name = "Signature" },
+                new DocumentFormat.OpenXml.Drawing.Wordprocessing.DocProperties { Id = id, Name = name },
                 new DocumentFormat.OpenXml.Drawing.Wordprocessing.NonVisualGraphicFrameDrawingProperties(
                     new DocumentFormat.OpenXml.Drawing.GraphicFrameLocks { NoChangeAspect = true }),
                 new DocumentFormat.OpenXml.Drawing.Graphic(new DocumentFormat.OpenXml.Drawing.GraphicData(
                     new DocumentFormat.OpenXml.Drawing.Pictures.Picture(
                         new DocumentFormat.OpenXml.Drawing.Pictures.NonVisualPictureProperties(
-                            new DocumentFormat.OpenXml.Drawing.Pictures.NonVisualDrawingProperties { Id = 0, Name = "signature" },
+                            new DocumentFormat.OpenXml.Drawing.Pictures.NonVisualDrawingProperties { Id = 0, Name = name },
                             new DocumentFormat.OpenXml.Drawing.Pictures.NonVisualPictureDrawingProperties()),
                         new DocumentFormat.OpenXml.Drawing.Pictures.BlipFill(
                             new DocumentFormat.OpenXml.Drawing.Blip { Embed = rel },
@@ -174,7 +191,9 @@ public static class LetterWriter
                             { Preset = DocumentFormat.OpenXml.Drawing.ShapeTypeValues.Rectangle })))
                 { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" }))
             { DistanceFromTop = 0, DistanceFromBottom = 0, DistanceFromLeft = 0, DistanceFromRight = 0 });
-        return new W.Paragraph(new ParagraphProperties(new SpacingBetweenLines { After = "60" }), new W.Run(drawing));
+        var props = new ParagraphProperties(new SpacingBetweenLines { After = right is null ? "60" : "200" });
+        if (right == true) props.Append(new Justification { Val = JustificationValues.Right });
+        return new W.Paragraph(props, new W.Run(drawing));
     }
 
     private static W.Paragraph Para(string text, bool plain, bool right, int after, int? size = null, string? color = null, bool bold = false)
@@ -208,28 +227,7 @@ public static class LetterWriter
             section.PageSetup.TopMargin = section.PageSetup.BottomMargin = Unit.FromCentimeter(2.5);
             section.PageSetup.LeftMargin = section.PageSetup.RightMargin = Unit.FromCentimeter(2.5);
         }
-        else
-        {
-            // The letter's pages are the letterhead's size, so it fits exactly behind them.
-            form.PageNumber = 1;
-            section.PageSetup.PageWidth = Unit.FromPoint(form.PointWidth);
-            section.PageSetup.PageHeight = Unit.FromPoint(form.PointHeight);
-            // A one-page letterhead repeated on every page needs the first page's space at the top of every page.
-            var sameOnEveryPage = space.RepeatFirstPage && form.PageCount < 2;
-            var topNext = sameOnEveryPage ? Math.Max(space.TopFirstMm, space.TopNextMm) : space.TopNextMm;
-            section.PageSetup.TopMargin = Unit.FromMillimeter(topNext);
-            section.PageSetup.BottomMargin = Unit.FromMillimeter(space.BottomMm);
-            section.PageSetup.LeftMargin = section.PageSetup.RightMargin = Unit.FromMillimeter(space.SideMm);
-            // The first page usually has more printed at the top (the logo and address): start the letter lower there.
-            var extra = space.TopFirstMm - topNext;
-            if (extra > 0)
-            {
-                var spacer = section.AddParagraph();
-                spacer.Format.SpaceAfter = 0;
-                spacer.Format.LineSpacingRule = LineSpacingRule.Exactly;
-                spacer.Format.LineSpacing = Unit.FromMillimeter(extra);
-            }
-        }
+        else SetUpOnLetterhead(section, form, space);
 
         if (letter.Note is not null)
         {
@@ -290,18 +288,47 @@ public static class LetterWriter
         var renderer = new PdfDocumentRenderer { Document = doc };
         renderer.RenderDocument();
         var pdf = renderer.PdfDocument;
-        if (form is not null)
-            for (var i = 0; i < pdf.PageCount; i++)
-            {
-                var page = pdf.Pages[i];
-                // Later pages: the letterhead's page 2 if it has one; otherwise page 1 again only when asked, else plain.
-                if (i > 0 && form.PageCount < 2 && !space.RepeatFirstPage) continue;
-                form.PageNumber = i == 0 || form.PageCount < 2 ? 1 : 2;
-                using var g = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Prepend); // behind the letter's text
-                g.DrawImage(form, 0, 0, page.Width.Point, page.Height.Point);
-            }
+        if (form is not null) DrawLetterhead(pdf, form, space);
         using var ms = new MemoryStream();
         pdf.Save(ms, false);
         return ms.ToArray();
+    }
+
+    /// <summary>Gives a PDF section the letterhead's page size and the space it leaves free, starting page 1 lower.</summary>
+    internal static void SetUpOnLetterhead(Section section, XPdfForm form, LetterSpace space)
+    {
+        // The letter's pages are the letterhead's size, so it fits exactly behind them.
+        form.PageNumber = 1;
+        section.PageSetup.PageWidth = Unit.FromPoint(form.PointWidth);
+        section.PageSetup.PageHeight = Unit.FromPoint(form.PointHeight);
+        // A one-page letterhead repeated on every page needs the first page's space at the top of every page.
+        var sameOnEveryPage = space.RepeatFirstPage && form.PageCount < 2;
+        var topNext = sameOnEveryPage ? Math.Max(space.TopFirstMm, space.TopNextMm) : space.TopNextMm;
+        section.PageSetup.TopMargin = Unit.FromMillimeter(topNext);
+        section.PageSetup.BottomMargin = Unit.FromMillimeter(space.BottomMm);
+        section.PageSetup.LeftMargin = section.PageSetup.RightMargin = Unit.FromMillimeter(space.SideMm);
+        // The first page usually has more printed at the top (the logo and address): start the letter lower there.
+        var extra = space.TopFirstMm - topNext;
+        if (extra > 0)
+        {
+            var spacer = section.AddParagraph();
+            spacer.Format.SpaceAfter = 0;
+            spacer.Format.LineSpacingRule = LineSpacingRule.Exactly;
+            spacer.Format.LineSpacing = Unit.FromMillimeter(extra);
+        }
+    }
+
+    /// <summary>Draws the letterhead behind each page: page 1 behind the first, page 2 (if any) behind later pages;
+    /// a one-page letterhead leaves later pages plain unless it is set to repeat.</summary>
+    internal static void DrawLetterhead(PdfSharp.Pdf.PdfDocument pdf, XPdfForm form, LetterSpace space)
+    {
+        for (var i = 0; i < pdf.PageCount; i++)
+        {
+            var page = pdf.Pages[i];
+            if (i > 0 && form.PageCount < 2 && !space.RepeatFirstPage) continue;
+            form.PageNumber = i == 0 || form.PageCount < 2 ? 1 : 2;
+            using var g = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Prepend); // behind the text
+            g.DrawImage(form, 0, 0, page.Width.Point, page.Height.Point);
+        }
     }
 }

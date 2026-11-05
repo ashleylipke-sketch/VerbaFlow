@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, saveFile, type ExportCheck, type Letterhead } from './api';
+import { api, saveFile, type ExportCheck, type Letterhead, type MinutesTemplates } from './api';
 import { letterheadNote } from './letterheadNote';
 
 /** The parts a person can tick. The title, Approved/Draft marker and details are always in the file. */
@@ -32,6 +32,25 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
   const box = useRef<HTMLDivElement>(null);
   const [letterhead, setLetterhead] = useState<Letterhead | null>(null);
   const letter = dictate && documentType === 'letter';
+  const [templates, setTemplates] = useState<MinutesTemplates | null>(null);
+  const [template, setTemplate] = useState('');
+  // Meetings: the minutes templates admins have made; the default one is chosen, with its ticked parts.
+  useEffect(() => {
+    if (!open || dictate || templates) return;
+    api.minutesTemplates().then(t => {
+      setTemplates(t);
+      const chosen = t.templates.find(x => x.isDefault);
+      if (chosen) { setTemplate(chosen.id); setParts(chosen.sections.filter(x => x.on).map(x => x.part)); }
+    }).catch(() => {});
+  }, [open, dictate, templates]);
+  const current = templates ? (templates.templates.find(x => x.id === template) ?? templates.standard) : null;
+  const pickTemplate = (id: string) => {
+    setTemplate(id);
+    const t = templates?.templates.find(x => x.id === id) ?? templates?.standard;
+    if (t) setParts(t.sections.filter(x => x.on).map(x => x.part));
+  };
+  const tid = dictate ? undefined : (template || (templates && templates.templates.length ? 'standard' : undefined));
+  const shown = current ? current.sections.map(x => ({ key: x.part, label: x.heading })) : exportParts.map(p => ({ key: p.key as string, label: p.label as string }));
 
   // A dictated letter goes out on the letterhead, so the menu says which letterheads are set up.
   useEffect(() => {
@@ -48,7 +67,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
   }, [open]);
 
   const none = parts.length === 0;
-  const toggle = (k: string) => setParts(p => p.includes(k) ? p.filter(x => x !== k) : exportParts.map(x => x.key).filter(x => x === k || p.includes(x)));
+  const toggle = (k: string) => setParts(p => p.includes(k) ? p.filter(x => x !== k) : shown.map(x => x.key).filter(x => x === k || p.includes(x)));
   const act = async (fn: () => Promise<unknown>) => {
     setError(''); setBusy(true);
     try { await fn(); onDone(); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
@@ -58,7 +77,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
     const tab = window.open('', '_blank');
     act(async () => {
       try {
-        const url = URL.createObjectURL(await api.previewMinutes(id, parts));
+        const url = URL.createObjectURL(await api.previewMinutes(id, parts, tid));
         if (tab) tab.location.href = url; else window.open(url, '_blank');
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
       } catch (e) { tab?.close(); throw e; }
@@ -81,7 +100,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
   };
   const startShare = () => act(async () => {
     setInfo(''); setPending(null);
-    const file = await api.exportFile(id, format, parts, 'share');
+    const file = await api.exportFile(id, format, parts, 'share', tid);
     if (!navigator.canShare?.({ files: [file] })) {
       saveFile(file);
       setInfo('This browser cannot pass files to other apps, so the file has been downloaded instead. Attach it in WhatsApp from your Downloads folder.');
@@ -97,16 +116,22 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
       <button className="primary" aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(o => !o)}>Export ▾</button>
       {open && <div className="menu-panel" role="dialog" aria-label="Export">
         {dictate ? <><p className="note">Exports the text of the dictation, with its details and {approved ? 'Approved' : 'Draft'} marker.</p>
-          <p className="note" data-testid="letterhead-note">{letterheadNote(documentType, letterhead)}</p></> : <><fieldset>
+          <p className="note" data-testid="letterhead-note">{letterheadNote(documentType, letterhead)}</p></> : <>
+        {templates && templates.templates.length > 0 && <div className="field"><label>Template<br />
+          <select aria-label="Template" value={template || 'standard'} onChange={e => pickTemplate(e.target.value === 'standard' ? '' : e.target.value)}>
+            {templates.templates.map(t => <option key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''}</option>)}
+            <option value="standard">{templates.standard.name}</option>
+          </select></label></div>}
+        <fieldset>
           <legend>Include</legend>
-          {exportParts.map(p => <label key={p.key} className="check">
+          {shown.map(p => <label key={p.key} className="check">
             <input type="checkbox" checked={parts.includes(p.key)} onChange={() => toggle(p.key)} /> {p.label}</label>)}
         </fieldset>
         <p className="note">The title, details and {approved ? 'Approved' : 'Draft'} marker are always included. Each file's fingerprint is recorded, so a copy can be checked later.</p></>}
         {none && <p className="error">Tick at least one part.</p>}
         <div className="menu-items">
-          <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'docx', parts))}>Download Word</button>
-          <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'pdf', parts))}>Download PDF</button>
+          <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'docx', parts, 'export', tid))}>Download Word</button>
+          <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'pdf', parts, 'export', tid))}>Download PDF</button>
           <button disabled={busy || none} onClick={preview}>Preview PDF</button>
           <button disabled={none} aria-expanded={panel === 'email'} onClick={() => { setInfo(''); setPanel(p => p === 'email' ? '' : 'email'); }}>Email…</button>
           <button disabled={none} aria-expanded={panel === 'share'} onClick={() => { setInfo(''); setPending(null); setPanel(p => p === 'share' ? '' : 'share'); }}>Share… (WhatsApp, Teams and more)</button>
@@ -116,7 +141,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
           <p className="note">Opens a new email in your own email program, from your own account, with the {dictate ? 'dictation' : 'minutes'} attached. Choose the people there.</p>
           <div className="actions">{formatPicker}
             <button disabled={busy || none} onClick={() => act(async () => {
-              saveFile(await api.exportFile(id, format, parts, 'draft'));
+              saveFile(await api.exportFile(id, format, parts, 'draft', tid));
               setInfo('An email file has been downloaded. Open it (click it in your browser\'s downloads) and it appears as a new email in Outlook.');
             })}>Open a new email</button></div>
           {info && <p className="ok" role="status">{info}</p>}
@@ -130,7 +155,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
           <div className="actions">{formatPicker}
             <button disabled={busy || none || !mailTo.trim()} onClick={() => act(async () => {
               setMailSent('');
-              const r = await api.emailMinutes(id, format, mailTo, mailNote, parts);
+              const r = await api.emailMinutes(id, format, mailTo, mailNote, parts, tid);
               setMailSent(r.message); setMailTo(''); setMailNote('');
             })}>{busy ? 'Sending…' : 'Send email'}</button></div>
           <p className="note">Sent by VerbaFlow as an attachment; the history records who it went to. Replies go to you.</p>

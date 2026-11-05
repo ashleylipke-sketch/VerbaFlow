@@ -44,6 +44,11 @@ export type Outputs = { engine: string; language: string; summary: string; actio
 export type LetterheadFile = { sha256: string; fileName: string; sizeBytes: number; uploadedBy: string; uploadedAt: string };
 export type SignOff = { on: boolean; closing: string; name: string; title: string | null; hasPicture: boolean; picture: string | null };
 export type Letterhead = { word: LetterheadFile | null; pdf: LetterheadFile | null; pdfTopFirstMm: number; pdfTopNextMm: number; pdfBottomMm: number; pdfSideMm: number; pdfRepeatFirstPage: boolean };
+export type TemplateSection = { part: string; heading: string; on: boolean };
+export type MinutesTemplate = { id: string; name: string; isDefault: boolean; title: string; font: string; colour: string; hasLogo: boolean; logoVersion: string | null;
+  logoPlace: 'left' | 'right'; onLetterhead: boolean; sections: TemplateSection[]; transcriptTimes: boolean; footerText: string };
+export type TemplateInput = Omit<MinutesTemplate, 'id' | 'hasLogo' | 'logoVersion'>;
+export type MinutesTemplates = { templates: MinutesTemplate[]; canChange: boolean; standard: MinutesTemplate; fonts: string[]; wordLetterhead: boolean; pdfLetterhead: boolean };
 export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean };
 export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
 export type AuditEvent = { seq: number; at: string; actorId: string | null; capacity: string; type: string; details: string; hash: string };
@@ -95,6 +100,8 @@ export function saveFile(f: File) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
 }
+
+const tpl = (t?: string) => t ? `&template=${encodeURIComponent(t)}` : '';
 
 export const api = {
   users: () => call<UserView[]>('GET', '/users'),
@@ -172,9 +179,9 @@ export const api = {
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },
   /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
   /** Fetches an export (the file itself, or an unsent email with it attached) with the name the server gives. */
-  async exportFile(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' | 'share' = 'export'): Promise<File> {
+  async exportFile(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' | 'share' = 'export', template?: string): Promise<File> {
     const path = kind === 'draft' ? 'export/draft' : 'export';
-    const res = await fetch(`/api/items/${id}/${path}?format=${format}&parts=${parts.join(',')}${kind === 'share' ? '&purpose=share' : ''}`, { headers: await authHeaders() });
+    const res = await fetch(`/api/items/${id}/${path}?format=${format}&parts=${parts.join(',')}${kind === 'share' ? '&purpose=share' : ''}${tpl(template)}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     const cd = res.headers.get('Content-Disposition') ?? '';
     const name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? `meeting.${format}`;
@@ -182,17 +189,29 @@ export const api = {
     return new File([blob], decodeURIComponent(name), { type: blob.type });
   },
   /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
-  async exportMinutes(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' = 'export'): Promise<void> {
-    saveFile(await api.exportFile(id, format, parts, kind));
+  async exportMinutes(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' = 'export', template?: string): Promise<void> {
+    saveFile(await api.exportFile(id, format, parts, kind, template));
   },
   /** The PDF as the person would download it, for showing in a browser tab. */
-  async previewMinutes(id: string, parts: string[]): Promise<Blob> {
-    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true&parts=${parts.join(',')}`, { headers: await authHeaders() });
+  async previewMinutes(id: string, parts: string[], template?: string): Promise<Blob> {
+    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true&parts=${parts.join(',')}${tpl(template)}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     return res.blob();
   },
-  emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[]) =>
-    call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(',') }),
+  emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[], template?: string) =>
+    call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(','), template: template || null }),
+  minutesTemplates: () => call<MinutesTemplates>('GET', '/minutes-templates'),
+  addTemplate: (t: TemplateInput) => call<MinutesTemplate>('POST', '/minutes-templates', t),
+  changeTemplate: (id: string, t: TemplateInput) => call<MinutesTemplate>('PUT', `/minutes-templates/${id}`, t),
+  removeTemplate: (id: string) => call<void>('DELETE', `/minutes-templates/${id}`),
+  uploadTemplateLogo: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<MinutesTemplate>('POST', `/minutes-templates/${id}/logo`, f); },
+  removeTemplateLogo: (id: string) => call<MinutesTemplate>('DELETE', `/minutes-templates/${id}/logo`),
+  /** A file from a template (its logo, or a sample of minutes laid out with it). */
+  async templateFile(id: string, path: string): Promise<Blob> {
+    const res = await fetch(`/api/minutes-templates/${id}/${path}`, { headers: await authHeaders() });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
+    return res.blob();
+  },
   async audio(id: string, download = false): Promise<Blob> {
     const res = await fetch(`/api/items/${id}/audio${download ? '?download=true' : ''}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);

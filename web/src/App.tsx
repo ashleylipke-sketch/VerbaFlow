@@ -13,6 +13,7 @@ import SavedTextPage from './pages/SavedText';
 import LetterheadPage from './pages/Letterhead';
 import RetentionPage from './pages/Retention';
 import DepartmentsPage from './pages/Departments';
+import MinutesTemplatesPage from './pages/MinutesTemplates';
 import SearchPage from './pages/Search';
 import WidgetPage from './pages/Widget';
 import Meet from './pages/Meet';
@@ -115,6 +116,7 @@ export default function App() {
           : path === '/vocabulary' ? <Vocabulary />
           : path === '/saved-text' ? <SavedTextPage />
           : path === '/letterhead' ? <LetterheadPage />
+          : path === '/minutes-templates' ? <MinutesTemplatesPage />
           : path === '/sign-off' ? <SignOffCard />
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />
@@ -145,6 +147,7 @@ function MoreMenu({ path, admin, support }: { path: string; admin: boolean; supp
     ...(admin ? [] : [['/sign-off', 'Your sign-off'] as [string, string]]),
     ...(admin ? [
       ['/vocabulary', 'Vocabulary'], ['/saved-text', 'Saved text'], ['/letterhead', 'Letterhead and your sign-off'],
+      ['/minutes-templates', 'Minutes templates'],
       ['/retention', 'Retention'], ['/departments', 'Departments'], ['/reopen', 'Reopen and delete requests'],
     ] as [string, string][] : []),
     ...(support ? [['/support', 'Support: errors'] as [string, string]] : []),

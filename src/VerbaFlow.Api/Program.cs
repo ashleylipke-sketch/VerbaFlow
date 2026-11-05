@@ -103,6 +103,7 @@ builder.Services.AddSingleton<VerbaFlow.Infrastructure.Export.ExportService>();
 builder.Services.AddSingleton<VocabularyService>();
 builder.Services.AddSingleton<SavedTextService>();
 builder.Services.AddSingleton<DepartmentService>();
+builder.Services.AddSingleton<MinutesTemplateService>();
 builder.Services.AddSingleton<SearchService>();
 builder.Services.AddSingleton<LetterheadService>();
 builder.Services.AddSingleton<SignOffService>();

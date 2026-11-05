@@ -33,7 +33,7 @@ public static class Endpoints
     internal static ItemMode ModeOf(string? mode) => string.IsNullOrWhiteSpace(mode) ? ItemMode.Meeting
         : mode.Trim().ToLowerInvariant() switch { "dictate" => ItemMode.Dictate, "speech" => ItemMode.Speech, "meeting" => ItemMode.Meeting, _ => throw new DomainException("Unknown mode.") };
 
-    public sealed record EmailBody(string? Format, string? To, string? Note, string? Parts = null);
+    public sealed record EmailBody(string? Format, string? To, string? Note, string? Parts = null, string? Template = null);
     public sealed record NameBody(string Name);
     public sealed record TermBody(string Text, string? Note);
     public sealed record SavedTextBody(string? Code, string? Text);
@@ -41,6 +41,12 @@ public static class Endpoints
     public sealed record DepartmentMemberBody(Guid UserId, bool Member);
     public sealed record LetterSpaceBody(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm, bool? RepeatFirstPage = null);
     public sealed record SignOffBody(bool On, string? Closing, string? Name, string? Title);
+    private static object TemplateView(MinutesTemplate t) => new
+    {
+        id = t.Id, name = t.Name, isDefault = t.IsDefault, title = t.Title, font = t.Font, colour = t.Colour, hasLogo = t.LogoSha256 is not null,
+        logoVersion = t.LogoSha256?[..12], logoPlace = t.LogoPlace, onLetterhead = t.OnLetterhead,
+        sections = t.Sections.Select(s => new { part = s.Part, heading = s.Heading, on = s.On }), transcriptTimes = t.TranscriptTimes, footerText = t.FooterText,
+    };
     private static object SignOffView(SignOff s) =>
         new { s.On, s.Closing, s.Name, s.Title, hasPicture = s.PictureSha256 is not null, picture = s.PictureSha256?[..12] };
     public sealed record LinesBody(string Lines);
@@ -122,6 +128,36 @@ public static class Endpoints
             return Results.Ok(await l.UploadAsync(h.Current(), kind, s, file.FileName));
         }).DisableAntiforgery();
         api.MapDelete("/letterhead/{kind}", async (HttpContext h, LetterheadService l, string kind) => Results.Ok(await l.RemoveAsync(h.Current(), kind)));
+        // Minutes templates: everyone sees them (to pick one when exporting); only admins change them.
+        api.MapGet("/minutes-templates", async (HttpContext h, MinutesTemplateService m, LetterheadService l) =>
+        {
+            var lh = await l.GetAsync();
+            return new { templates = (await m.ListAsync()).Select(TemplateView), canChange = h.Current().IsAdmin,
+                standard = TemplateView(MinutesTemplate.Standard), fonts = MinutesTemplate.Fonts,
+                wordLetterhead = lh.Word is not null, pdfLetterhead = lh.Pdf is not null };
+        });
+        api.MapPost("/minutes-templates", async (HttpContext h, MinutesTemplateService m, MinutesTemplateInput b) => TemplateView(await m.CreateAsync(h.Current(), b)));
+        api.MapPut("/minutes-templates/{id:guid}", async (HttpContext h, MinutesTemplateService m, Guid id, MinutesTemplateInput b) => TemplateView(await m.ChangeAsync(h.Current(), id, b)));
+        api.MapDelete("/minutes-templates/{id:guid}", async (HttpContext h, MinutesTemplateService m, Guid id) => { await m.RemoveAsync(h.Current(), id); return Results.NoContent(); });
+        api.MapPost("/minutes-templates/{id:guid}/logo", async (HttpContext h, MinutesTemplateService m, Guid id, IFormFile file) =>
+        {
+            await using var stream = file.OpenReadStream();
+            return TemplateView(await m.SetLogoAsync(h.Current(), id, stream));
+        }).DisableAntiforgery();
+        api.MapDelete("/minutes-templates/{id:guid}/logo", async (HttpContext h, MinutesTemplateService m, Guid id) => TemplateView(await m.RemoveLogoAsync(h.Current(), id)));
+        api.MapGet("/minutes-templates/{id:guid}/logo", async (MinutesTemplateService m, Guid id) =>
+        {
+            var t = await m.PickAsync(id);
+            var bytes = await m.LogoAsync(t) ?? throw new NotFoundException("This template has no logo.");
+            return Results.File(bytes, t.LogoType == "png" ? "image/png" : "image/jpeg");
+        });
+        // A made-up meeting laid out with the template (Guid.Empty = VerbaFlow standard); not recorded as an export.
+        api.MapGet("/minutes-templates/{id:guid}/sample", async (HttpContext h, MinutesTemplateService m, Guid id, string? format, bool? download) =>
+        {
+            var file = await m.SampleAsync(h.Current(), id, format ?? "pdf");
+            return download == true ? Results.File(file.Content, file.ContentType, file.FileName) : Results.File(file.Content, file.ContentType);
+        });
+
         // Each person's own letter sign-off; nobody else can see or change it.
         api.MapGet("/signoff", async (HttpContext h, SignOffService s) => SignOffView(await s.GetAsync(h.Current())));
         api.MapPut("/signoff", async (HttpContext h, SignOffService s, SignOffBody b) =>
@@ -303,20 +339,20 @@ public static class Endpoints
 
         // Minutes as Word or PDF. The file's fingerprint is recorded, so a copy can be checked later for changes.
         // preview=true shows the file in the browser instead of saving it; parts=summary,minutes,actions,transcript,tone picks what goes in.
-        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format, bool? preview, string? parts, string? purpose) =>
+        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format, bool? preview, string? parts, string? purpose, string? template) =>
         {
             var why = preview == true ? "preview" : purpose == "share" ? "share" : "download";
-            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf", why, parts);
+            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf", why, parts, template);
             return preview == true ? Results.File(file.Content, file.ContentType) : Results.File(file.Content, file.ContentType, file.FileName);
         });
         // A new, unsent email (.eml) with the file attached, to open in the person's own email program.
-        api.MapGet("/items/{id:guid}/export/draft", async (HttpContext h, ExportService s, Guid id, string? format, string? parts) =>
+        api.MapGet("/items/{id:guid}/export/draft", async (HttpContext h, ExportService s, Guid id, string? format, string? parts, string? template) =>
         {
-            var file = await s.DraftAsync(h.Current(), id, format ?? "pdf", parts);
+            var file = await s.DraftAsync(h.Current(), id, format ?? "pdf", parts, template);
             return Results.File(file.Content, file.ContentType, file.FileName);
         });
         api.MapPost("/items/{id:guid}/export/email", async (HttpContext h, ExportService s, Guid id, EmailBody b, CancellationToken ct) =>
-            new { message = await s.EmailAsync(h.Current(), id, b.Format ?? "pdf", b.To ?? "", b.Note, ct, b.Parts) });
+            new { message = await s.EmailAsync(h.Current(), id, b.Format ?? "pdf", b.To ?? "", b.Note, ct, b.Parts, b.Template) });
         api.MapPost("/items/{id:guid}/export/check", async (HttpContext h, ExportService s, Guid id, CancellationToken ct) =>
         {
             var f = await h.Request.ReadFormAsync(ct);

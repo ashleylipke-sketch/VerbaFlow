@@ -47,6 +47,10 @@ public sealed class Stores
     /// <summary>The organisation's retention rules (one record, RetentionPolicy.Id).</summary>
     /// <summary>Departments (teams), whose members can open each other's recordings.</summary>
     public DocTable<Department> Departments { get; }
+
+    /// <summary>Minutes templates (how exported meeting minutes look) and the folder their logos are kept in.</summary>
+    public DocTable<MinutesTemplate> MinutesTemplates { get; }
+    public string TemplateLogoRoot { get; }
     public DocTable<RetentionPolicy> Retention { get; }
     /// <summary>Recordings administrators have put on hold, by chain id: the retention rules never delete them.</summary>
     public DocTable<RetentionHold> RetentionHolds { get; }
@@ -83,6 +87,8 @@ public sealed class Stores
         CalendarSettings = new(db, "doc_calendar_settings");
         CalendarChoices = new(db, "doc_calendar_choices");
         Departments = new(db, "doc_departments");
+        MinutesTemplates = new(db, "doc_minutes_templates");
+        TemplateLogoRoot = Path.Combine(mediaRoot, "template-logos");
         Retention = new(db, "doc_retention");
         RetentionHolds = new(db, "doc_retention_holds");
         RecordingRemovals = new(db, "doc_recording_removals");

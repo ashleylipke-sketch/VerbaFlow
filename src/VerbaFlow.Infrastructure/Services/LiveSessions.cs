@@ -17,8 +17,9 @@ namespace VerbaFlow.Infrastructure.Services;
 /// <param name="Reconnects">How often the connection was lost and made again while speaking.</param>
 /// <param name="FailureReference">Set when the live service stopped working (the VF- reference of the report).</param>
 /// <param name="EarlierGap">Set when an unfinished Speech item was carried on and the text saved before was already incomplete (why).</param>
+/// <param name="Fixes">Corrections typed into the live text while speaking; put in as the speaker's own edit when converted.</param>
 public sealed record LiveTranscript(Guid ItemId, string Engine, IReadOnlyList<Segment> Phrases, bool Finished, int CoveredMs,
-    int Reconnects, string? FailureReference, string? EarlierGap = null)
+    int Reconnects, string? FailureReference, string? EarlierGap = null, IReadOnlyList<LiveFix>? Fixes = null)
 {
     /// <summary>Why the live text cannot stand as the item's text, in plain words, or null when it can.</summary>
     public string? Problem(int lengthMs) =>
@@ -55,6 +56,7 @@ public sealed class LiveSession
 {
     private readonly object _gate = new();
     private readonly List<Segment> _phrases = [];
+    private readonly List<LiveFix> _fixes = [];
     private int _generation, _fromMs, _reconnects, _connections;
     private long _bytes;
     private bool _finished;
@@ -69,6 +71,7 @@ public sealed class LiveSession
         lock (_gate)
         {
             _phrases.AddRange(saved.Phrases);
+            _fixes.AddRange(saved.Fixes ?? []);
             _fromMs = saved.CoveredMs;
             _finished = saved.Finished;
             _reconnects = saved.Reconnects;
@@ -129,12 +132,43 @@ public sealed class LiveSession
     public bool Failed { get { lock (_gate) return _failure is not null; } }
 
     /// <summary>The finished phrases with spoken commands applied, and where the last one ends (to carry on from after a lost connection).</summary>
-    public (IReadOnlyList<Segment> Text, int HeardToMs) Snapshot()
+    public (IReadOnlyList<Segment> Text, int HeardToMs, HashSet<int> Fixed) Snapshot()
     {
         List<Segment> phrases;
         lock (_gate) phrases = [.. _phrases];
-        return (DictationContext.Apply(phrases, Saved, Phrases), phrases.Count == 0 ? 0 : phrases.Max(p => p.EndMs));
+        var (text, fixd) = Show(phrases);
+        return (text, phrases.Count == 0 ? 0 : phrases.Max(p => p.EndMs), fixd);
     }
+
+    /// <summary>Phrases as they are shown: spoken commands applied, then the corrections typed so far.</summary>
+    public (List<Segment> Segments, HashSet<int> Fixed) Show(IEnumerable<Segment> phrases)
+    {
+        List<LiveFix> fixes;
+        lock (_gate) fixes = [.. _fixes];
+        return LiveFixes.Apply(DictationContext.Apply(phrases, Saved, Phrases), fixes);
+    }
+
+    /// <summary>
+    /// A correction typed into a finished passage. <paramref name="original"/> is the passage as the person saw it; the
+    /// correction is refused when that passage is not (or no longer) there.
+    /// </summary>
+    public (List<Segment> Segments, HashSet<int> Fixed) AddFix(int startMs, string? original, string? text)
+    {
+        original ??= ""; text = (text ?? "").Replace("\r\n", "\n").Trim();
+        if (text.Length > LiveFixes.MaxLength) throw new DomainException("That correction is too long.");
+        var (shown, _) = Show(PhrasesSoFar());
+        // The passage may have grown since the person started typing (they kept speaking): what they saw must still be its start.
+        if (!shown.Any(s => Math.Abs(s.StartMs - startMs) <= 40 && LiveFixes.Fit(s.Text, new LiveFix(startMs, original, text)) is not null))
+            throw new DomainException("That part of the text has changed since you started correcting it. Try again.");
+        lock (_gate)
+        {
+            if (_fixes.Count >= LiveFixes.MaxFixes) throw new DomainException("That is as many corrections as can be made while speaking. Make the rest after saving.");
+            if (text != original) _fixes.Add(new LiveFix(startMs, original, text));
+        }
+        return Show(PhrasesSoFar());
+    }
+
+    public int FixCount { get { lock (_gate) return _fixes.Count; } }
 
     /// <summary>The finished phrases as heard, commands not yet applied.</summary>
     public List<Segment> PhrasesSoFar() { lock (_gate) return [.. _phrases]; }
@@ -142,7 +176,8 @@ public sealed class LiveSession
     public LiveTranscript ToTranscript(Guid itemId)
     {
         lock (_gate)
-            return new LiveTranscript(itemId, Engine, [.. _phrases.OrderBy(p => p.StartMs)], _finished, _fromMs + (int)(_bytes / 32), _reconnects, _failure, _earlierGap);
+            return new LiveTranscript(itemId, Engine, [.. _phrases.OrderBy(p => p.StartMs)], _finished, _fromMs + (int)(_bytes / 32), _reconnects, _failure, _earlierGap,
+                _fixes.Count == 0 ? null : [.. _fixes]);
     }
 
     public void Close() { lock (_gate) _current?.Cancel(); }
@@ -204,6 +239,9 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
         _sessions.TryGetValue(id, out var s) && s.OwnerId == user.Id ? s.ToTranscript(itemId) : null;
 
     public void Resume(User user, Guid id) => Require(user, id).Resume();
+
+    public (List<Segment> Segments, HashSet<int> Fixed) Fix(User user, Guid id, int startMs, string? original, string? text) =>
+        Require(user, id).AddFix(startMs, original, text);
 
     public void Discard(User user, Guid id)
     {

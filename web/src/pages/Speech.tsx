@@ -12,7 +12,15 @@ import { CommandHelp, drawWave } from './Record';
 type Phase = 'loading' | 'setup' | 'starting' | 'live' | 'paused' | 'finishing' | 'review' | 'saving';
 /** The connection to the live speech service: being made, working, lost (being made again), stopped for good, or finished. */
 type Link = 'connecting' | 'live' | 'lost' | 'off' | 'done';
-export type LiveSeg = { text: string; newParagraph: boolean | null; list?: 'bullet' | 'number' | null };
+export type LiveSeg = { text: string; newParagraph: boolean | null; list?: 'bullet' | 'number' | null; startMs?: number; fixed?: boolean };
+
+/** The text up to the end of its first `n` words (keeping line breaks inside it). */
+export function firstWords(text: string, n: number): string {
+  if (n <= 0) return '';
+  const re = /\S+/g; let m: RegExpExecArray | null, k = 0;
+  while ((m = re.exec(text))) if (++k === n) return text.slice(0, m.index + m[0].length);
+  return text;
+}
 
 /**
  * Speech mode: the text is typed as the person speaks. The microphone goes to the live speech service and is kept,
@@ -254,6 +262,11 @@ export default function Speech({ draftId }: { draftId?: string }) {
 
   const pause = () => { paused.current = true; setPhase('paused'); };
   const resume = () => { paused.current = false; setPhase('live'); };
+  /** Sends a typed correction; gives back a sentence to show when it could not be put in. */
+  const fix = async (startMs: number, original: string, text: string): Promise<string | null> => {
+    try { const r = await api.post(`/live/${session.current}/fix`, { startMs, original, text }); if (Array.isArray(r.segments)) setSegs(r.segments); return null; }
+    catch (e: any) { return e?.message || 'The correction could not be saved. Try again.'; }
+  };
 
   const stop = () => {
     stopping.current = true; paused.current = false;
@@ -365,7 +378,8 @@ export default function Speech({ draftId }: { draftId?: string }) {
       {phase === 'finishing' && <p role="status">{link === 'lost' ? 'Finishing the text. The connection was lost; trying again…' : 'Finishing the text…'}</p>}
 
       {phase !== 'setup' && phase !== 'starting' && phase !== 'loading' && <LiveText segs={segs} pending={phase === 'review' || phase === 'saving' ? 0 : pending}
-        type={docType || 'document'} name={name} clientRef={clientRef} empty={speaking ? 'Start speaking: the text appears here.' : 'No words were heard.'} />}
+        type={docType || 'document'} name={name} clientRef={clientRef} empty={speaking ? 'Start speaking: the text appears here.' : 'No words were heard.'}
+        onFix={session.current && !liveOff.current && phase !== 'saving' ? fix : undefined} />}
 
       {(phase === 'review' || phase === 'saving') && <>
         <p className="note">Length {fmtLen(elapsed)}.{' '}
@@ -398,12 +412,33 @@ function LinkStatus({ link, delay, notice }: { link: Link; delay: number | null;
 }
 
 /** The text so far, laid out as the letter, Word document or email it will be. Words still being heard are lighter. */
-function LiveText({ segs, pending, type, name, clientRef, empty }: { segs: LiveSeg[]; pending: number; type: string; name: string; clientRef: string; empty: string }) {
+function LiveText({ segs, pending, type, name, clientRef, empty, onFix }: { segs: LiveSeg[]; pending: number; type: string; name: string; clientRef: string; empty: string;
+  onFix?: (startMs: number, original: string, text: string) => Promise<string | null> }) {
+  const [editing, setEditing] = useState<{ seg: number; startMs: number; original: string; text: string } | null>(null);
+  const [fixError, setFixError] = useState('');
+  const [saving, setSaving] = useState(false);
   const paras = useMemo(() => paragraphPieces(segs), [segs]);
   const markers = useMemo(() => paragraphMarkers(segs, paras), [segs, paras]);
   const words = useMemo(() => segs.map(s => s.text.split(/\s+/).filter(Boolean)), [segs]);
   const total = words.reduce((n, w) => n + w.length, 0);
   const firm = total - pending;
+  // Words of each passage that are finished (not still being heard), so a correction starts from settled text.
+  const firmIn = (seg: number) => { const before = words.slice(0, seg).reduce((a, w) => a + w.length, 0); return Math.max(0, Math.min(words[seg].length, firm - before)); };
+  const open = (seg: number) => {
+    if (!onFix || segs[seg].startMs === undefined) return;
+    const original = firstWords(segs[seg].text, firmIn(seg));
+    if (!original) return;
+    setFixError(''); setEditing({ seg, startMs: segs[seg].startMs!, original, text: original });
+  };
+  const save = async () => {
+    if (!editing || !onFix) return;
+    if (editing.text.trim() === editing.original.trim()) { setEditing(null); return; }
+    setSaving(true);
+    const problem = await onFix(editing.startMs, editing.original, editing.text);
+    setSaving(false);
+    if (problem) setFixError(problem); else setEditing(null);
+  };
+  const editingPara = editing ? paras.findIndex(p => p.some(x => x.seg === editing.seg)) : -1;
   let n = 0;
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   return (
@@ -412,13 +447,33 @@ function LiveText({ segs, pending, type, name, clientRef, empty }: { segs: LiveS
       {type === 'email' && <div className="mail-head"><div><b>Subject</b> {name}</div>{clientRef && <div><b>Reference</b> {clientRef}</div>}</div>}
       {type === 'document' && <h1 className="page-title">{name}</h1>}
       {total === 0 && <p className="note">{empty}</p>}
-      {paras.map((pieces, k) => <div key={k} className={'para' + (markers[k] ? ' list-point' : '')}>
-        {markers[k] && <span className="list-marker" aria-hidden="true">{markers[k]}</span>}
-        {pieces.flatMap(p => words[p.seg].slice(p.from, p.to)).map((w, i) => {
-          const pend = n++ >= firm;
-          return <span key={i} className={pend ? 'pending' : undefined}>{i ? ' ' : ''}{w}</span>;
-        })}
-      </div>)}
+      {onFix && total > 0 && !editing && <p className="note live-fix-tip">Click any words to correct them by typing. You can keep speaking while you type.</p>}
+      {paras.map((pieces, k) => {
+        if (editing && k > editingPara && pieces.every(x => x.seg === editing.seg)) { n += pieces.reduce((a, x) => a + x.to - x.from, 0); return null; }
+        const fixedHere = pieces.some(p => segs[p.seg].fixed);
+        return <div key={k} className={'para' + (markers[k] ? ' list-point' : '') + (fixedHere ? ' typed-fix' : '')} title={fixedHere ? 'Corrected by you' : undefined}>
+          {markers[k] && <span className="list-marker" aria-hidden="true">{markers[k]}</span>}
+          {pieces.map((p, j) => {
+            if (editing && p.seg === editing.seg) {
+              n += p.to - p.from;
+              if (k !== editingPara || pieces.findIndex(x => x.seg === editing.seg) !== j) return null;
+              return <div key={'e' + j} className="live-fix">
+                <textarea aria-label="Correct the text" autoFocus rows={Math.min(10, Math.max(3, Math.ceil(editing.text.length / 70)))} value={editing.text}
+                  onChange={e => setEditing({ ...editing, text: e.target.value })}
+                  onKeyDown={e => { if (e.key === 'Escape') setEditing(null); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); } }} />
+                <div className="actions"><button className="primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save correction'}</button>
+                  <button disabled={saving} onClick={() => setEditing(null)}>Cancel</button>
+                  <span className="note">Ctrl + Enter saves, Esc cancels. Words you say meanwhile are added after it.</span></div>
+                {fixError && <div className="error">{fixError}</div>}
+              </div>;
+            }
+            return words[p.seg].slice(p.from, p.to).map((w, i) => {
+              const pend = n++ >= firm;
+              return <span key={j + '-' + i} className={(pend ? 'pending' : '') + (onFix && !pend ? ' fixable' : '')} onClick={pend ? undefined : () => open(p.seg)}>{j || i ? ' ' : ''}{w}</span>;
+            });
+          })}
+        </div>;
+      })}
     </article>
   );
 }

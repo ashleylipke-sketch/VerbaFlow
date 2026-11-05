@@ -63,6 +63,37 @@ public class SpeechModeTests
     }
 
     [Fact]
+    public async Task A_correction_typed_while_speaking_stays_as_more_is_heard_and_is_saved_as_the_persons_tracked_change()
+    {
+        using var env = new Env();
+        var sessions = new LiveSessions(env.Stores, new StandInLiveSpeech(), env.Clock);
+        var (s, _) = await sessions.StartAsync(env.Alice, "en-GB");
+        await SpeakAsync(sessions, s, 0, 8, end: false); // first phrase finished: "stand-in live text, the speech service is not"
+        var first = s.Snapshot().Text[0];
+        var original = string.Join(" ", first.Text.Split(' ').Take(3)); // "stand-in live text,"
+
+        var (shown, fixd) = sessions.Fix(env.Alice, s.Id, first.StartMs, original, "Stand-in spoken words,");
+        Assert.StartsWith("Stand-in spoken words, the speech", shown[0].Text);
+        Assert.Contains(0, fixd);
+        // Someone else cannot correct it; words that are no longer there are refused with a plain sentence.
+        Assert.ThrowsAny<Exception>(() => sessions.Fix(env.Bob, s.Id, first.StartMs, original, "x"));
+        var gone = Assert.Throws<DomainException>(() => sessions.Fix(env.Alice, s.Id, first.StartMs, "words never said", "x"));
+        Assert.Contains("changed since", gone.Message);
+
+        await SpeakAsync(sessions, s, s.Snapshot().HeardToMs, 4, end: true); // more is heard after it
+        var text = string.Join(" ", s.Snapshot().Text.Select(x => x.Text));
+        Assert.StartsWith("Stand-in spoken words, the speech service", text);
+
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, Speech(env, new LiveUpload(sessions.Take(env.Alice, s.Id, Guid.Empty)), 12 * 400));
+        await env.Processing.ProcessAsync(id);
+        var t = (await env.Stores.Transcripts.GetAsync(id))!;
+        Assert.StartsWith("Stand-in spoken words,", t.Render()[0].Segment.Text);
+        Assert.Equal(VersionKind.HumanEdit, t.Current.Kind); // shown as the person's change against what was heard
+        Assert.Contains("stand-in live text,", t.Segments[t.Versions[0].SegmentIds[0]].Text);
+        Assert.Contains("\"typedWhileSpeaking\":1", (await env.Stores.Audit.ListAsync(id)).Last().Details);
+    }
+
+    [Fact]
     public async Task A_lost_connection_sends_the_audio_again_from_the_last_finished_phrase_so_nothing_is_missed_or_doubled()
     {
         using var env = new Env();

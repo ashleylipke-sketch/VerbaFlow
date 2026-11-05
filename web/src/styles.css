@@ -248,3 +248,10 @@ th.tick, td.tick { width:28px; } tr.ticked td { background:var(--saved); }
 button.due-set { font-size:14px; }
 @media (max-width:700px) { .item-head-side { justify-content:flex-start; width:100%; } }
 .due-soon { color:var(--warn); font-weight:600; }
+.live-page .fixable { cursor:text; }
+.live-page .fixable:hover { background:var(--hover, rgba(37,99,235,.08)); border-radius:2px; }
+.live-page .typed-fix { text-decoration:underline dotted rgba(37,99,235,.6); text-underline-offset:3px; }
+.live-fix { margin:4px 0 8px; }
+.live-fix textarea { width:100%; box-sizing:border-box; font:inherit; }
+.live-fix .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:4px; }
+.live-fix-tip { margin-top:0; }

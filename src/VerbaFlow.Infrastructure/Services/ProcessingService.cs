@@ -49,6 +49,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             string? speechModel = request.Enhanced ? "newer (LLM Speech)" : null;
             // A dictation in one language goes word for word, so spoken commands reach VerbaFlow; the fast service is the fallback.
             string? dictationService = null, liveText = null;
+            IReadOnlyList<LiveFix>? liveFixes = null; int? typedFixes = null;
             TranscriptionResult? result = null;
             // Speech mode: the first conversion uses the text heard live, if it covers the whole recording. Running it
             // again (or a changed recording) works the text out from the recording, like a dictation.
@@ -60,6 +61,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 {
                     result = new TranscriptionResult(live!.Engine, [new Speaker(Guid.NewGuid(), "Speaker 1")], AzureSpeechService.MergeTurns(live.Phrases));
                     dictationService = "live";
+                    liveFixes = live.Fixes;
                     liveText = $"used ({live.Phrases.Count} phrase{(live.Phrases.Count == 1 ? "" : "s")})";
                 }
                 else liveText = $"not used: {problem}, so the text was worked out from the recording";
@@ -235,6 +237,21 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 foreach (var s in result.Segments)
                     if (RestartedSentences.Remove(s) is { } r) { tidied[s.Id] = r.Segment; stumbles += r.Removed; }
                 transcript.AddMachineTidy(tidied, clock.GetUtcNow());
+                // Corrections typed into the live text while speaking: put in as the speaker's own edits, so they show as
+                // tracked changes against what was heard.
+                if (liveFixes is { Count: > 0 })
+                {
+                    typedFixes = 0;
+                    var (fixedText, which) = LiveFixes.Apply(result.Segments, liveFixes);
+                    foreach (var i in which.Order())
+                    {
+                        if (i >= transcript.Current.SegmentIds.Count) continue;
+                        var segId = transcript.Current.SegmentIds[i];
+                        if (transcript.Segments[segId].Text == Transcript.Tidy(fixedText[i].Text, out _)) continue;
+                        transcript.EditSegment(segId, fixedText[i].Text, item.OwnerId, "owner", clock.GetUtcNow(), "Typed while speaking");
+                        typedFixes++;
+                    }
+                }
             }
             await stores.Transcripts.UpsertAsync(itemId, transcript);
             AiOutputs? outputs = null;
@@ -259,7 +276,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames), ("personAudio", personAudio), ("introductions", introductions),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : item.NoiseChoice switch { NoiseReduction.Light => "prepared, background noise reduced a little", NoiseReduction.Strong => "prepared, background noise reduced a lot", _ => "prepared" }), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
-                    ("vocabularyTerms", phrases.Count), ("speechModel", speechModel), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
+                    ("vocabularyTerms", phrases.Count), ("speechModel", speechModel), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("typedWhileSpeaking", typedFixes), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

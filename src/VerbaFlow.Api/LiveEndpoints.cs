@@ -17,7 +17,8 @@ namespace VerbaFlow.Api;
 public static class LiveEndpoints
 {
     public sealed record StartBody(string? SpokenLanguages, Guid? CarryOn = null);
-    private sealed record Para(string Text, bool? NewParagraph, string? List);
+    private sealed record Para(string Text, bool? NewParagraph, string? List, int StartMs, bool Fixed);
+    public sealed record FixBody(int StartMs, string? Original, string? Text);
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
@@ -37,8 +38,14 @@ public static class LiveEndpoints
             if (item.Mode != ItemMode.Speech || item.Status != ItemStatus.Draft) throw new DomainException("This item cannot be carried on.");
             var saved = await stores.LiveText.GetAsync(itemId);
             var (c, t) = await l.StartAsync(user, item.SpokenLanguages, saved ?? new LiveTranscript(itemId, l.EngineName, [], true, 0, 0, null), item.LengthMs);
-            var (text, heardTo) = c.Snapshot();
-            return Results.Ok(new { id = c.Id, ticket = t, engine = l.EngineName, segments = Shown(text), finalToMs = heardTo, spokenLanguages = item.SpokenLanguages });
+            var (text, heardTo, fixd) = c.Snapshot();
+            return Results.Ok(new { id = c.Id, ticket = t, engine = l.EngineName, segments = Shown(text, fixd), finalToMs = heardTo, spokenLanguages = item.SpokenLanguages });
+        });
+        // A correction typed into the live text while speaking; the text comes back with it put in.
+        api.MapPost("/live/{id:guid}/fix", (HttpContext h, LiveSessions l, Guid id, FixBody b) =>
+        {
+            var (segs, fixd) = l.Fix(h.Current(), id, b.StartMs, b.Original, b.Text);
+            return Results.Ok(new { segments = Shown(segs, fixd) });
         });
         api.MapPost("/live/{id:guid}/resume", (HttpContext h, LiveSessions l, Guid id) => { l.Resume(h.Current(), id); return Results.NoContent(); });
         api.MapPost("/live/{id:guid}/ticket", (HttpContext h, LiveSessions l, Guid id) => Results.Ok(new { ticket = l.NewTicket(h.Current(), id) }));
@@ -67,9 +74,9 @@ public static class LiveEndpoints
         }
         await using var recognition = rec;
 
-        var (finals, finalTo) = session.Snapshot();
+        var (finals, finalTo, fixd) = session.Snapshot();
         var finalWords = Words(finals);
-        await SendAsync(ws, new { type = "ready", segments = Shown(finals), finalToMs = finalTo, engine = sessions.EngineName }, cts.Token);
+        await SendAsync(ws, new { type = "ready", segments = Shown(finals, fixd), finalToMs = finalTo, engine = sessions.EngineName }, cts.Token);
         var receive = ReceiveAsync(ws, rec, session, gen, cts);
         try
         {
@@ -84,17 +91,17 @@ public static class LiveEndpoints
                 if (e.Kind == LiveEventKind.Final && e.Phrase is { } p)
                 {
                     if (!session.AddFinal(gen, Shift(p, offset))) break; // a newer connection has taken over
-                    (finals, finalTo) = session.Snapshot();
+                    (finals, finalTo, fixd) = session.Snapshot();
                     finalWords = Words(finals);
-                    await SendAsync(ws, new { type = "text", segments = Shown(finals), pendingWords = 0, finalToMs = finalTo, heardToMs = offset + e.EndMs, startsWithBreak = StartsWithBreak(session.PhrasesSoFar()) }, cts.Token);
+                    await SendAsync(ws, new { type = "text", segments = Shown(finals, fixd), pendingWords = 0, finalToMs = finalTo, heardToMs = offset + e.EndMs, startsWithBreak = StartsWithBreak(session.PhrasesSoFar()) }, cts.Token);
                 }
                 else if (e.Kind == LiveEventKind.Partial && !string.IsNullOrWhiteSpace(e.Text))
                 {
                     // The words still being heard go through the same commands, so "comma" shows as "," straight away.
                     var partial = new Segment(Guid.Empty, Guid.Empty, "", offset + e.StartMs, offset + e.EndMs, e.Text.Trim(), 1, false);
                     List<Segment> with = [.. session.PhrasesSoFar(), partial];
-                    var shown = DictationContext.Apply(with, session.Saved, session.Phrases);
-                    await SendAsync(ws, new { type = "text", segments = Shown(shown), pendingWords = Math.Max(0, Words(shown) - finalWords), finalToMs = finalTo, heardToMs = offset + e.EndMs, startsWithBreak = StartsWithBreak(with) }, cts.Token);
+                    var (shown, shownFixed) = session.Show(with);
+                    await SendAsync(ws, new { type = "text", segments = Shown(shown, shownFixed), pendingWords = Math.Max(0, Words(shown) - finalWords), finalToMs = finalTo, heardToMs = offset + e.EndMs, startsWithBreak = StartsWithBreak(with) }, cts.Token);
                 }
             }
         }
@@ -105,10 +112,10 @@ public static class LiveEndpoints
         if (ended && !session.Failed && ws.State == WebSocketState.Open)
         {
             session.Finish(gen);
-            (finals, finalTo) = session.Snapshot();
+            (finals, finalTo, fixd) = session.Snapshot();
             try
             {
-                await SendAsync(ws, new { type = "done", segments = Shown(finals), finalToMs = finalTo, startsWithBreak = StartsWithBreak(session.PhrasesSoFar()) }, CancellationToken.None);
+                await SendAsync(ws, new { type = "done", segments = Shown(finals, fixd), finalToMs = finalTo, startsWithBreak = StartsWithBreak(session.PhrasesSoFar()) }, CancellationToken.None);
                 await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
             }
             catch (WebSocketException) { /* gone already */ }
@@ -168,7 +175,8 @@ public static class LiveEndpoints
         Words = p.Words?.Select(w => w with { StartMs = w.StartMs + offset, EndMs = w.EndMs + offset }).ToList(),
     };
 
-    private static List<Para> Shown(IEnumerable<Segment> segments) => segments.Select(s => new Para(s.Text, s.NewParagraph, s.List)).ToList();
+    private static List<Para> Shown(IEnumerable<Segment> segments, HashSet<int> fixd) =>
+        segments.Select((s, i) => new Para(s.Text, s.NewParagraph, s.List, s.StartMs, fixd.Contains(i))).ToList();
     /// <summary>Whether the person began with "new paragraph": the Widget then breaks after text already in the box.</summary>
     private static bool StartsWithBreak(IEnumerable<Segment> phrases) => DictationCommands.StartsWithBreak(phrases.OrderBy(p => p.StartMs).Select(p => p.Text));
     private static int Words(IEnumerable<Segment> segments) => segments.Sum(s => s.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length);

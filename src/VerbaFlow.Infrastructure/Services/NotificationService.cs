@@ -107,6 +107,13 @@ public sealed class NotificationService(Stores stores, IEmailSender email, TimeP
         {
             case "item.assigned" when GuidOf(d, "to") is { } to && item is not null && to != item.OwnerId:
                 return To([to], NotificationGroups.Work, $"{c.Who(actor)} assigned {c.Title(item.Id)} to you.", item.Id, ItemLink(item.Id));
+            case "note.added" when item is not null:
+            {
+                // The owner, the person it is assigned to, and everyone who already wrote a note on it.
+                var writers = (await stores.Notes.ListAsync()).Where(n => n.ChainId == item.ChainId).Select(n => (Guid?)n.AuthorId);
+                return To([item.OwnerId, item.AssignedUserId, .. writers], NotificationGroups.Notes,
+                    $"{c.Who(actor)} left a note on {c.Title(item.Id)}.", item.Id, ItemLink(item.Id) + "?notes=1");
+            }
             case "item.returned_to_owner" when item is not null:
                 return To([item.OwnerId], NotificationGroups.Work, $"{c.Who(actor)} returned {c.Title(item.Id)} to you.", item.Id, ItemLink(item.Id));
             case "item.approved" when item is not null:

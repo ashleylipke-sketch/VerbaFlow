@@ -563,6 +563,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             stuckFiles += failed;
         }
         var attachments = await AttachmentService.DeleteForChainAsync(stores, chain[0].ChainId);
+        var notesRemoved = await NoteService.DeleteForChainAsync(stores, chain[0].ChainId);
         foreach (var i in chain)
         {
             i.Purge(actor?.Id ?? RetentionActor, reason, now);
@@ -576,7 +577,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
                 ("reason", reason), ("requestId", requestId),
                 ("agreedBy", string.Join(", ", agreedBy.Select(a => users.GetValueOrDefault(a, "?")))), ("versions", chain.Count),
                 ("audioFilesRemoved", removedFiles), ("audioFilesNotRemoved", stuckFiles == 0 ? null : stuckFiles),
-                ("attachedFilesRemoved", attachments == 0 ? null : attachments),
+                ("attachedFilesRemoved", attachments == 0 ? null : attachments), ("notesRemoved", notesRemoved == 0 ? null : notesRemoved),
                 ("by", actor is null ? "retention rules" : null)));
         }
     }
@@ -848,6 +849,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id);
         var superseded = all.Where(i => i.SupersedesItemId is not null).Select(i => i.SupersedesItemId!.Value).ToHashSet();
         var files = await AttachedCountsAsync();
+        var notes = await NoteService.OpenCountsAsync(stores);
         var rows = new List<ItemRow>();
         foreach (var i in all.Where(i => PermissionEvaluator.CanSee(actor, i)))
         {
@@ -856,7 +858,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             if (q.SelfAssigned is { } sa && i.IsSelfAssigned != sa) continue;
             if (!string.IsNullOrWhiteSpace(q.Search) &&
                 !$"{i.Name} {i.ClientReference} {i.Description}".Contains(q.Search, StringComparison.OrdinalIgnoreCase)) continue;
-            rows.Add(ToRow(actor, i, users, superseded.Contains(i.Id), files));
+            rows.Add(ToRow(actor, i, users, superseded.Contains(i.Id), files, notes));
         }
         return rows.OrderByDescending(r => r.CreatedOn).ToList();
     }
@@ -873,7 +875,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var role = PermissionEvaluator.RoleOn(actor, item);
         var ownerRole = item.Source == SourceKind.Imported ? "Importer" : "Author";
         var removed = await RecordingRemovedAsync(item);
-        var row = ToRow(actor, item, users, superseded, await AttachedCountsAsync());
+        var row = ToRow(actor, item, users, superseded, await AttachedCountsAsync(), await NoteService.OpenCountsAsync(stores));
         if (removed is not null) row = row with { Actions = row.Actions.Where(a => a is not ("rerun" or "change-recording" or "retry")).ToList() };
         return new ItemDetail(row, users.GetValueOrDefault(item.OwnerId)?.Name ?? "?", ownerRole,
             item.Processing == ProcessingState.Running ? "Processing" : null, item.FailureReason, item.OriginalFileName,
@@ -920,7 +922,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     private async Task<Dictionary<Guid, int>> AttachedCountsAsync() =>
         (await stores.Attachments.ListAsync()).GroupBy(a => a.ChainId).ToDictionary(g => g.Key, g => g.Count());
 
-    private ItemRow ToRow(User actor, Item i, Dictionary<Guid, User> users, bool superseded, Dictionary<Guid, int> files)
+    private ItemRow ToRow(User actor, Item i, Dictionary<Guid, User> users, bool superseded, Dictionary<Guid, int> files, Dictionary<Guid, int> notes)
     {
         var tags = new List<string>();
         if (i.IsSelfAssigned && i.Status == i.Home) tags.Add("Self-assigned");
@@ -934,7 +936,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             i.ClientReference, i.Description, i.AssignedUserId is { } a ? users.GetValueOrDefault(a)?.Name : null,
             users.GetValueOrDefault(i.OwnerId)?.Name, i.CreatedAt,
             i.DueDate, overdue, tags, ActionsFor(actor, i, superseded), i.VersionNo, i.FailureReason, IsOutstanding(actor, i, superseded),
-            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId), PermissionEvaluator.RoleOn(actor, i) is ItemRole.Colleague or ItemRole.DepartmentAdmin, i.OwnerId);
+            i.Status == ItemStatus.Purged ? 0 : files.GetValueOrDefault(i.ChainId), PermissionEvaluator.RoleOn(actor, i) is ItemRole.Colleague or ItemRole.DepartmentAdmin, i.OwnerId,
+            i.Status is ItemStatus.Purged or ItemStatus.Completed || superseded ? 0 : notes.GetValueOrDefault(i.ChainId));
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ import { AssignOptions } from '../assignOptions';
 import DueDate, { todayIso } from '../DueDate';
 import { scrollIntoClearView } from '../clearView';
 import AttachmentsCard from '../AttachmentsCard';
+import NotesCard from '../NotesCard';
 import RetentionLine from '../RetentionLine';
 import type { RefObject } from 'react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -293,6 +294,7 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
       </div>
 
       {!d.deletedAt && <AttachmentsCard id={id} onChange={() => api.audit(id).then(setAudit).catch(() => {})} />}
+      {!d.deletedAt && <NotesCard id={id} onChange={() => api.audit(id).then(setAudit).catch(() => {})} />}
 
       <div className="withPlayer">
       {audioUrl && <div ref={playerBox} className={d.video ? 'player video' : 'player'}>{d.video

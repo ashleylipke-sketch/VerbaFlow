@@ -150,6 +150,7 @@ builder.Services.AddSingleton<RetentionService>();
 builder.Services.AddSingleton<WorkloadService>();
 builder.Services.AddSingleton<BulkActions>();
 builder.Services.AddSingleton<AttachmentService>();
+builder.Services.AddSingleton<NoteService>();
 // Where VerbaFlow can be opened, for the link in notification emails.
 var siteAddress = builder.Configuration["Notifications:SiteAddress"] is { Length: > 0 } site ? site : "http://localhost:5044";
 builder.Services.AddSingleton(sp => new NotificationService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<IEmailSender>(),
@@ -264,6 +265,7 @@ api.MapRetentionEndpoints();
 api.MapNotificationEndpoints();
 api.MapWorkloadEndpoints();
 api.MapAttachmentEndpoints();
+api.MapNoteEndpoints();
 app.MapLiveSocket();
 app.MapPlayback();
 app.MapFallbackToFile("index.html");

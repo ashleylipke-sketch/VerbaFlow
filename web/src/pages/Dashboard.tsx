@@ -167,7 +167,8 @@ export default function Dashboard({ mode }: { mode: Mode }) {
                 <td data-label="Length">{fmtLen(r.lengthMs)}</td>
                 <td data-label="Client Reference">{r.clientReference ?? ''}</td>
                 <td data-label="Description" className="wrap"><a href={r.actions.includes('continue') ? carryOnLink(mode, r.id) : `#/items/${r.id}`}>{r.name}</a>{!!r.attachments && <> <span className="clip" title={`${r.attachments} attached file${r.attachments === 1 ? '' : 's'}`}
-                  aria-label={`${r.attachments} attached file${r.attachments === 1 ? '' : 's'}`}>📎{r.attachments}</span></>}{r.description ? ` — ${r.description}` : ''}</td>
+                  aria-label={`${r.attachments} attached file${r.attachments === 1 ? '' : 's'}`}>📎{r.attachments}</span></>}{!!r.openNotes && <> <a className="clip" href={`#/items/${r.id}?notes=1`} title={`${r.openNotes} open note${r.openNotes === 1 ? '' : 's'}`}
+                  aria-label={`${r.openNotes} open note${r.openNotes === 1 ? '' : 's'}`}>🗒️{r.openNotes}</a></>}{r.description ? ` — ${r.description}` : ''}</td>
                 <td data-label="Author">{r.author ?? ''}</td>
                 <td data-label="Assigned to">{r.assignedTo ?? ''}</td>
                 <td data-label="Created on">{fmtDate(r.createdOn)}</td>

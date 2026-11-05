@@ -60,3 +60,17 @@ public static class AttachmentEndpoints
         api.MapDelete("/items/{id:guid}/attachments/{aid:guid}", (HttpContext h, AttachmentService a, Guid id, Guid aid) => a.RemoveAsync(h.Current(), id, aid));
     }
 }
+
+public static class NoteEndpoints
+{
+    public sealed record NoteBody(string? Text);
+    public sealed record DoneBody(bool Done);
+
+    public static void MapNoteEndpoints(this RouteGroupBuilder api)
+    {
+        api.MapGet("/items/{id:guid}/notes", (HttpContext h, NoteService n, Guid id) => n.ListAsync(h.Current(), id));
+        api.MapPost("/items/{id:guid}/notes", (HttpContext h, NoteService n, Guid id, NoteBody b) => n.AddAsync(h.Current(), id, b.Text));
+        api.MapPut("/items/{id:guid}/notes/{nid:guid}/done", (HttpContext h, NoteService n, Guid id, Guid nid, DoneBody b) => n.SetDoneAsync(h.Current(), id, nid, b.Done));
+        api.MapDelete("/items/{id:guid}/notes/{nid:guid}", (HttpContext h, NoteService n, Guid id, Guid nid) => n.RemoveAsync(h.Current(), id, nid));
+    }
+}

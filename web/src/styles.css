@@ -255,3 +255,13 @@ button.due-set { font-size:14px; }
 .live-fix textarea { width:100%; box-sizing:border-box; font:inherit; }
 .live-fix .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:4px; }
 .live-fix-tip { margin-top:0; }
+.card.notes { padding-top:10px; padding-bottom:10px; }
+.notes .note-row { display:flex; gap:10px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--line); }
+.notes .note-row input { margin-top:3px; }
+.notes .note-row.done .note-text { color:var(--muted); text-decoration:line-through; }
+.notes .note-text { white-space:pre-wrap; overflow-wrap:anywhere; }
+.notes .note-body { flex:1; min-width:0; }
+.notes .note-tick { width:16px; text-align:center; color:var(--muted); }
+.notes .note-add { display:flex; gap:8px; align-items:flex-end; margin-top:8px; }
+.notes .note-add textarea { flex:1; min-width:0; font:inherit; box-sizing:border-box; }
+@media (max-width:700px) { .notes .note-add { flex-direction:column; align-items:stretch; } }

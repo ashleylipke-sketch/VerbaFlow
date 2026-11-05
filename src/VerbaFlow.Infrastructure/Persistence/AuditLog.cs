@@ -54,13 +54,29 @@ public sealed class AuditLog(Database db, TimeProvider clock)
         finally { _gate.Release(); }
     }
 
-    public async Task<IReadOnlyList<AuditEvent>> ListAsync(Guid? itemId = null)
+    /// <summary>The newest entry's number (0 when the history is empty).</summary>
+    public async Task<long> LastSeqAsync()
+    {
+        await using var c = db.Open();
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT COALESCE(MAX(seq), 0) FROM audit_events";
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync());
+    }
+
+    /// <summary>Entries after a given number, oldest first, at most <paramref name="limit"/>.</summary>
+    public Task<IReadOnlyList<AuditEvent>> ListAfterAsync(long seq, int limit) => ReadAsync(null, seq, limit);
+
+    public Task<IReadOnlyList<AuditEvent>> ListAsync(Guid? itemId = null) => ReadAsync(itemId, null, null);
+
+    private async Task<IReadOnlyList<AuditEvent>> ReadAsync(Guid? itemId, long? after, int? limit)
     {
         await using var c = db.Open();
         await using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT seq, at, actor_id, capacity, product, item_id, type, details, prev_hash, hash FROM audit_events"
-            + (itemId is null ? "" : " WHERE item_id = @item") + " ORDER BY seq";
+            + (itemId is null ? "" : " WHERE item_id = @item") + (after is null ? "" : " WHERE seq > @after") + " ORDER BY seq"
+            + (limit is null ? "" : $" LIMIT {limit.Value}");
         if (itemId is not null) cmd.Add("@item", itemId.ToString());
+        if (after is not null) cmd.Add("@after", after.Value);
         var list = new List<AuditEvent>();
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())

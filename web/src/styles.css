@@ -207,3 +207,24 @@ header.top .more-list a { padding:8px 10px; }
 .template-sections .note { min-width:110px; }
 .template-form input[type=color] { width:48px; height:34px; padding:2px; flex:none; }
 .template-form .row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+
+/* Notifications: the bell at the top and its list */
+.bell { position:relative; }
+.bell > button { position:relative; background:none; border:1px solid var(--line); border-radius:8px; padding:4px 10px; font-size:16px; line-height:1.2; cursor:pointer; }
+.bell .count { position:absolute; top:-7px; right:-8px; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:#d93025; color:#fff; font-size:11px; font-weight:600; line-height:18px; text-align:center; }
+.bell-panel { position:absolute; right:0; top:calc(100% + 6px); width:min(380px, calc(100vw - 32px)); max-height:70vh; overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.15); z-index:30; }
+.bell-head, .bell-foot { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; }
+.bell-head { border-bottom:1px solid var(--line); } .bell-foot { border-top:1px solid var(--line); }
+.bell-panel > .note { padding:12px; margin:0; }
+.bell-panel ul, .notice-list { list-style:none; margin:0; padding:0; }
+.bell-panel li + li, .notice-list li + li { border-top:1px solid var(--line); }
+.bell-item { display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; text-align:left; background:none; border:0; border-radius:0; padding:10px 12px; cursor:pointer; color:var(--ink); font:inherit; }
+.bell-item:hover { background:var(--soft, rgba(0,0,0,.04)); }
+li.unread .bell-item { font-weight:600; } li.unread .bell-item .note { font-weight:normal; }
+li.unread .bell-item::before { content:''; }
+.card > .check { display:flex; align-items:center; gap:6px; margin:6px 0; }
+@media (max-width: 700px) {
+  header.top .bell { order:1; margin-left:auto; } header.top .menu-button { order:2; margin-left:0; }
+  header.top nav { order:3; } header.top .signin { order:4; }
+  .bell-panel { position:fixed; left:16px; right:16px; top:56px; width:auto; }
+}

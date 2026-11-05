@@ -14,6 +14,8 @@ import LetterheadPage from './pages/Letterhead';
 import RetentionPage from './pages/Retention';
 import DepartmentsPage from './pages/Departments';
 import MinutesTemplatesPage from './pages/MinutesTemplates';
+import NotificationsPage from './pages/Notifications';
+import { Bell } from './Bell';
 import SearchPage from './pages/Search';
 import WidgetPage from './pages/Widget';
 import Meet from './pages/Meet';
@@ -76,6 +78,7 @@ export default function App() {
           <a href="#/search" className={path.startsWith('/search') ? 'on' : ''}>Search</a>
           {me && <MoreMenu path={path} admin={!!admin} support={!!support} />}
         </nav>
+        {me && <Bell path={path} />}
         <span className="note signin">
           {way === 'microsoft'
             ? <>Signed in as {me?.name || microsoftName()}{me?.isAdmin ? ' (admin)' : ''} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>Sign out</a></>
@@ -117,6 +120,7 @@ export default function App() {
           : path === '/saved-text' ? <SavedTextPage />
           : path === '/letterhead' ? <LetterheadPage />
           : path === '/minutes-templates' ? <MinutesTemplatesPage />
+          : path === '/notifications' ? <NotificationsPage />
           : path === '/sign-off' ? <SignOffCard />
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />

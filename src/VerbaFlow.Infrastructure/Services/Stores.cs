@@ -50,6 +50,9 @@ public sealed class Stores
 
     /// <summary>Minutes templates (how exported meeting minutes look) and the folder their logos are kept in.</summary>
     public DocTable<MinutesTemplate> MinutesTemplates { get; }
+    public DocTable<Notification> Notifications { get; }
+    public DocTable<NotificationSettings> NotificationSettings { get; }
+    public DocTable<NotificationState> NotificationState { get; }
     public string TemplateLogoRoot { get; }
     public DocTable<RetentionPolicy> Retention { get; }
     /// <summary>Recordings administrators have put on hold, by chain id: the retention rules never delete them.</summary>
@@ -88,6 +91,9 @@ public sealed class Stores
         CalendarChoices = new(db, "doc_calendar_choices");
         Departments = new(db, "doc_departments");
         MinutesTemplates = new(db, "doc_minutes_templates");
+        Notifications = new(db, "doc_notifications");
+        NotificationSettings = new(db, "doc_notification_settings");
+        NotificationState = new(db, "doc_notification_state");
         TemplateLogoRoot = Path.Combine(mediaRoot, "template-logos");
         Retention = new(db, "doc_retention");
         RetentionHolds = new(db, "doc_retention_holds");

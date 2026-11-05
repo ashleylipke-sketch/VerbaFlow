@@ -1,6 +1,9 @@
 # Workload overview
 
-**Settings ▾ → Workload** (`#/workload`). Only administrators can open it.
+**Settings ▾ → Workload** (`#/workload`). Administrators and department admins can open it.
+
+- **Department admins** find it under **More ▾ → Workload**. They see only the recordings of the people in the departments they run, and whoever is working on those (for example a typist from another team). If they run more than one department, **Department** picks one.
+- **Administrators** see everyone, or pick one department under **Department**.
 
 - **Show**: all recordings, or only meetings, dictations or Speech. **Done in the**: last 7 days, 30 days, 3 months or year. Both choices are remembered in the browser.
 - **Tiles**:
@@ -27,4 +30,4 @@
 Unfinished dictations, approved, deleted and older (reopened) versions are not counted.
 
 ## For technical staff
-Nothing new is recorded. "Now" comes from the recordings. "In the period" and the times are read from the History (`item.assigned`, `item.opened_by_assignee`, `item.returned_to_owner`, `processing.completed`, `item.approved`) each time the page loads. `GET /api/workload?mode=all|meeting|dictate|speech&days=7|30|90|365`, `WorkloadService`.
+Nothing new is recorded. "Now" comes from the recordings. "In the period" and the times are read from the History (`item.assigned`, `item.opened_by_assignee`, `item.returned_to_owner`, `processing.completed`, `item.approved`) each time the page loads. `GET /api/workload?mode=all|meeting|dictate|speech&days=7|30|90|365&department=<id>`, `WorkloadService`. A department's recordings are those whose owner is in it now.

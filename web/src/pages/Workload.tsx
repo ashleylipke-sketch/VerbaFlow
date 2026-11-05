@@ -27,23 +27,32 @@ const remember = (key: string, value: unknown) => { try { localStorage.setItem(k
 export default function WorkloadPage() {
   const [mode, setMode] = useState<string>(() => remembered('verbaflow.workload.mode', 'all'));
   const [days, setDays] = useState<number>(() => remembered('verbaflow.workload.days', 30));
+  const [department, setDepartment] = useState<string>(() => remembered('verbaflow.workload.department', ''));
   const [data, setData] = useState<Workload | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    remember('verbaflow.workload.mode', mode); remember('verbaflow.workload.days', days);
+    remember('verbaflow.workload.mode', mode); remember('verbaflow.workload.days', days); remember('verbaflow.workload.department', department);
     setError('');
-    api.workload(mode, days).then(setData).catch(e => setError(e.message));
-  }, [mode, days]);
+    api.workload(mode, days, department).then(setData).catch(e => {
+      if (department) setDepartment(''); else setError(e.message); // a remembered department that is gone, or no longer theirs: show all they may see
+    });
+  }, [mode, days, department]);
 
   const period = periods.find(([d]) => d === days)?.[1].toLowerCase() ?? `last ${days} days`;
 
   return (
     <div className="card workload">
       <h2>Workload</h2>
-      <p className="note">Who has which recordings now, what is overdue, and how long each step has taken. Only administrators see this page.</p>
+      <p className="note">Who has which recordings now, what is overdue, and how long each step has taken.
+        {data && !data.canSeeAll ? ` You see the recordings of the people in ${data.departments.length === 1 ? 'the department' : 'the departments'} you are department admin of, and who is working on them.`
+          : ' Only administrators and department admins see this page; department admins see only their departments.'}</p>
       <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
         <label>Show <select value={mode} onChange={e => setMode(e.target.value)}>{kinds.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+        {data && (data.canSeeAll ? data.departments.length > 0 : data.departments.length > 1) &&
+          <label>Department <select value={department} onChange={e => setDepartment(e.target.value)}>
+            <option value="">{data.canSeeAll ? 'Everyone' : 'All of mine'}</option>
+            {data.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>}
         <label>Done in the <select value={days} onChange={e => setDays(Number(e.target.value))}>{periods.map(([d, l]) => <option key={d} value={d}>{l.toLowerCase()}</option>)}</select></label>
       </div>
       {error && <div className="error" role="alert">{error}</div>}

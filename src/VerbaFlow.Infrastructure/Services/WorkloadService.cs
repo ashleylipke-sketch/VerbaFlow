@@ -16,11 +16,13 @@ public sealed record WorkloadItem(Guid ItemId, string Name, string Mode, string 
 
 public sealed record WorkloadView(int Days, string Mode,
     int Open, int Overdue, int DueToday, int ApprovedInPeriod, double? DaysToApprove,
-    IReadOnlyList<WorkloadPerson> People, IReadOnlyList<WorkloadItem> OverdueItems, IReadOnlyList<WorkloadItem> WaitingLongest);
+    IReadOnlyList<WorkloadPerson> People, IReadOnlyList<WorkloadItem> OverdueItems, IReadOnlyList<WorkloadItem> WaitingLongest,
+    Guid? Department, IReadOnlyList<PersonOption> Departments, bool CanSeeAll);
 
 /// <summary>
 /// The administrators' overview of who has what. What people have now comes from the recordings themselves; what was done in the
 /// period and how long each step took comes from the History (assigned, accepted, returned, approved), so nothing new is recorded.
+/// Administrators see everyone, or one department; a department admin sees only the recordings of their departments' members.
 /// </summary>
 public sealed class WorkloadService(Stores stores, TimeProvider clock)
 {
@@ -30,9 +32,14 @@ public sealed class WorkloadService(Stores stores, TimeProvider clock)
     private static readonly HashSet<string> Steps = ["item.created", "item.imported", "processing.completed", "processing.failed",
         "item.assigned", "item.opened_by_assignee", "item.returned_to_owner", "item.reopened_version_created", "draft.finished", "recording.changed"];
 
-    public async Task<WorkloadView> OverviewAsync(User actor, string? mode, int? days)
+    public async Task<WorkloadView> OverviewAsync(User actor, string? mode, int? days, Guid? department = null)
     {
-        if (!actor.IsAdmin) throw new ForbiddenException("Only administrators can see the workload overview.");
+        var departments = await stores.Departments.ListAsync();
+        var mine = actor.IsAdmin ? departments : actor.IsSupport ? [] : departments.Where(d => d.Leads.Contains(actor.Id)).ToList();
+        if (!actor.IsAdmin && mine.Count == 0)
+            throw new ForbiddenException("Only administrators and department admins can see the workload overview.");
+        var chosen = department is { } dep ? mine.FirstOrDefault(d => d.Id == dep) ?? throw new NotFoundException("That department does not exist, or you are not its department admin.") : null;
+        var shown = chosen is not null ? [chosen] : actor.IsAdmin ? null : mine;
         var period = days is { } d && Periods.Contains(d) ? d : 30;
         ItemMode? only = mode?.ToLowerInvariant() switch
         {
@@ -43,9 +50,11 @@ public sealed class WorkloadService(Stores stores, TimeProvider clock)
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, TimeZoneInfo.Local).Date);
 
         var users = (await stores.Users.ListAsync()).Where(u => !u.IsSupport).ToDictionary(u => u.Id);
+        // Whose recordings count: everyone's, or only those of the shown departments' members.
+        var owners = shown?.SelectMany(d => users.Values.Where(d.Has)).Select(u => u.Id).ToHashSet();
         var allItems = await stores.Items.ListAsync();
         var superseded = allItems.Where(i => i.SupersedesItemId is not null).Select(i => i.SupersedesItemId!.Value).ToHashSet();
-        var items = allItems.Where(i => only is null || i.Mode == only).ToDictionary(i => i.Id);
+        var items = allItems.Where(i => (only is null || i.Mode == only) && (owners is null || owners.Contains(i.OwnerId))).ToDictionary(i => i.Id);
         var events = await AllEventsAsync();
         var lastEvent = new Dictionary<Guid, DateTimeOffset>();
         foreach (var e in events) if (e.ItemId is { } iid && Steps.Contains(e.Type)) lastEvent[iid] = e.At;
@@ -127,7 +136,8 @@ public sealed class WorkloadService(Stores stores, TimeProvider clock)
 
         return new(period, only?.ToString().ToLowerInvariant() ?? "all", open.Count,
             open.Count(o => o.Item.DueDate is { } due && due < today), open.Count(o => o.Item.DueDate == today),
-            toApprove.Count, Median(toApprove), people, overdue, longest);
+            toApprove.Count, Median(toApprove), people, overdue, longest, chosen?.Id,
+            mine.OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).Select(d => new PersonOption(d.Id, d.Name)).ToList(), actor.IsAdmin);
     }
 
     private sealed class Counts

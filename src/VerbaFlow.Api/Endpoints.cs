@@ -66,7 +66,11 @@ public static class Endpoints
 
     public static void MapMeetingEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/me", (HttpContext h) => h.Current());
+        api.MapGet("/me", (HttpContext h) => h.Current() is var u ? new
+        {
+            u.Id, u.Name, u.Email, u.IsAdmin, u.Grants, u.Department, u.IsSupport, u.EntraObjectId, u.GroupIds,
+            RunsDepartment = u.Leads.Count > 0, // a department admin: they see the Workload page for their departments
+        } : null);
         api.MapGet("/languages", () => new { max = SpokenLanguageCatalogue.MaxPerRecording, languages = SpokenLanguageCatalogue.All });
         // Technical error detail for VerbaFlow support and developers only. Customers, including their administrators, are refused.
         api.MapGet("/support/errors", async (HttpContext h, Stores stores, string? reference) =>

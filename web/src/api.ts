@@ -53,7 +53,7 @@ export type NotificationRow = { id: string; text: string; group: string; itemId:
 export type NotificationList = { unread: number; items: NotificationRow[] };
 export type NotificationSettings = { hasEmail: boolean; email: string | null; emailReal: boolean; groups: { key: string; label: string; email: boolean }[] };
 export type BulkResult = { id: string; name: string; done: boolean; problem: string | null };
-export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean };
+export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean; runsDepartment?: boolean };
 export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
 export type AuditEvent = { seq: number; at: string; actorId: string | null; capacity: string; type: string; details: string; hash: string };
 
@@ -115,6 +115,7 @@ export type WorkloadItem = { itemId: string; name: string; mode: string; holder:
 export type Workload = {
   days: number; mode: string; open: number; overdue: number; dueToday: number; approvedInPeriod: number; daysToApprove: number | null;
   people: WorkloadPerson[]; overdueItems: WorkloadItem[]; waitingLongest: WorkloadItem[];
+  department: string | null; departments: { id: string; name: string }[]; canSeeAll: boolean;
 };
 
 export const api = {
@@ -216,7 +217,8 @@ export const api = {
   },
   emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[], template?: string) =>
     call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(','), template: template || null }),
-  workload: (mode: string, days: number) => call<Workload>('GET', `/workload?mode=${mode}&days=${days}`),
+  workload: (mode: string, days: number, department: string) =>
+    call<Workload>('GET', `/workload?mode=${mode}&days=${days}${department ? `&department=${encodeURIComponent(department)}` : ''}`),
   notifications: () => call<NotificationList>('GET', '/notifications'),
   markRead: (id?: string) => call<NotificationList>('POST', '/notifications/read', { id: id ?? null }),
   notificationSettings: () => call<NotificationSettings>('GET', '/notifications/settings'),

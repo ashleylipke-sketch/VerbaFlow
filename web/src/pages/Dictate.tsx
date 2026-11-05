@@ -10,6 +10,8 @@ import { layout, textWords, type Take, type TextWord } from '../takeMap';
 import { keepAwake, lostMessage, tapWord } from '../keepAwake';
 
 type Phase = 'setup' | 'loading' | 'ready' | 'recording' | 'paused' | 'adding';
+const MaxImportBytes = 200 * 1024 * 1024;
+const MaxDictationMs = 3 * 60 * 60 * 1000;
 
 /**
  * A dictation, recorded like a dictaphone: record, listen back, then add more at the end, put more in at a point, or
@@ -214,20 +216,51 @@ export default function Dictate({ draftId }: { draftId?: string }) {
   const stop = () => { setPhase('adding'); rec.current?.stop(); stopMic(); setQuiet(false); };
 
   const addTake = async (blob: Blob) => {
-    try {
-      const take = await decode(blob);
-      // The cursor ends up just after the new recording, ready to play on from there or add more.
-      const mode = takeMode_.current;
-      // Recording over a marked part: the part comes out and the new recording goes in its place, whatever its length.
-      const next = mode === 'replace'
-        ? splice(cut(track.current, takeAt.current, takeAt.current + replaceLen.current), take, takeAt.current, 'insert')
-        : splice(track.current, take, takeAt.current, mode);
-      show(next, true, msOf((mode === 'end' ? track.current.length : takeAt.current) + take.length));
-      setTakes(t => [...t, { at: msOf(takeAt.current), mode, len: msOf(take.length), cut: mode === 'replace' ? msOf(replaceLen.current) : undefined }]);
-      const at = fmtLen(msOf(takeAt.current));
-      setMessage(`${mode === 'insert' ? `Put in at ${at}` : mode === 'overwrite' ? `Recorded over from ${at}` : mode === 'replace' ? `Marked part replaced from ${at}` : 'Added'}. Not saved yet.`);
-    } catch { setError('That recording could not be added. Try recording it again.'); }
+    try { place(await decode(blob)); }
+    catch { setError('That recording could not be added. Try recording it again.'); }
     setPhase('ready');
+  };
+
+  /** Puts a new recording (or an imported file) into the dictation where takeMode_ and takeAt say. */
+  const place = (take: Float32Array, file?: string) => {
+    // The cursor ends up just after the new recording, ready to play on from there or add more.
+    const mode = takeMode_.current;
+    const first = track.current.length === 0;
+    // Recording over a marked part: the part comes out and the new recording goes in its place, whatever its length.
+    const next = mode === 'replace'
+      ? splice(cut(track.current, takeAt.current, takeAt.current + replaceLen.current), take, takeAt.current, 'insert')
+      : splice(track.current, take, takeAt.current, mode);
+    show(next, true, msOf((mode === 'end' ? track.current.length : takeAt.current) + take.length));
+    setTakes(t => [...t, { at: msOf(takeAt.current), mode, len: msOf(take.length), cut: mode === 'replace' ? msOf(replaceLen.current) : undefined, file }]);
+    const at = fmtLen(msOf(takeAt.current));
+    const what = file ? `${file} (${fmtLen(msOf(take.length))})` : '';
+    setMessage(file
+      ? `${what} ${mode === 'insert' ? `put in at ${at}` : mode === 'overwrite' ? `put over what was there from ${at}` : mode === 'replace' ? `put in place of the marked part at ${at}` : first ? 'added' : 'added at the end'}. Not saved yet.`
+      : `${mode === 'insert' ? `Put in at ${at}` : mode === 'overwrite' ? `Recorded over from ${at}` : mode === 'replace' ? `Marked part replaced from ${at}` : 'Added'}. Not saved yet.`);
+  };
+
+  // Importing a sound file into the dictation: at the cursor, at the end, or in place of the marked part.
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importWhere, setImportWhere] = useState<'insert' | 'end' | 'replace'>('insert');
+  const chooseFile = (where: 'insert' | 'end' | 'replace') => { setImportWhere(where); setError(''); setMessage(''); fileInput.current?.click(); };
+  const importFile = async (f: File | undefined) => {
+    if (fileInput.current) fileInput.current.value = '';
+    if (!f) return;
+    if (f.size > MaxImportBytes) { setError('That file is too big to add here (the limit is 200 MB). Import it as a dictation of its own instead.'); return; }
+    const p = player.current; if (p && !p.paused) p.pause();
+    const where = track.current.length === 0 ? 'end' : importWhere === 'replace' && !selection ? 'insert' : importWhere;
+    takeMode_.current = where;
+    takeAt.current = where === 'end' ? track.current.length : samplesAt(where === 'replace' ? selection!.from : posMs);
+    replaceLen.current = where === 'replace' ? samplesAt(selection!.to) - samplesAt(selection!.from) : 0;
+    setPhase('adding');
+    try {
+      const take = await decode(f);
+      if (take.length > samplesAt(MaxDictationMs) || track.current.length + take.length > samplesAt(MaxDictationMs))
+        setError('That would make the dictation longer than 3 hours, so it was not added.');
+      else { place(take, f.name); setImportOpen(false); }
+    } catch { setError('That file could not be read as sound. Try an MP3, M4A, WAV or WebM recording.'); }
+    setPhase(track.current.length || draftId ? 'ready' : 'setup');
   };
 
   const form = (finish: boolean) => {
@@ -338,13 +371,18 @@ export default function Dictate({ draftId }: { draftId?: string }) {
       {changing && phase === 'ready' && <p className="note">Put the cursor where you want to make a change, then put more in, record over, or mark a part and delete it.
         When you are done, the dictation is converted to text again. The recording as it was is kept in the history.</p>}
       {phase === 'loading' && <p>Opening the dictation…</p>}
+      <input ref={fileInput} type="file" accept="audio/*,video/*,.mp3,.m4a,.wav,.webm,.ogg,.aac,.flac,.mp4" style={{ display: 'none' }}
+        aria-label="Sound file to add" onChange={e => importFile(e.target.files?.[0])} />
 
       {phase === 'setup' && !draftId && <>
         <DocumentTypePicker value={docType} onChange={setDocType} />
         <div className="pair"><div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Letter to Mr Smith" /></label></div>
           <div className="field"><label>Client reference (optional)<br /><input value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="e.g. ACME-042" /></label></div></div>
         <LanguagePicker value={spoken} onChange={setSpoken} />
-        <button className="primary" disabled={!!dictateNeeds} onClick={() => start()}>Start dictating</button>
+        <div className="actions">
+          <button className="primary" disabled={!!dictateNeeds} onClick={() => start()}>Start dictating</button>
+          <button disabled={!!dictateNeeds} onClick={() => chooseFile('end')}>Start from a sound file…</button>
+        </div>
         {dictateNeeds && <p className="need">{dictateNeeds}</p>}
       </>}
 
@@ -364,7 +402,7 @@ export default function Dictate({ draftId }: { draftId?: string }) {
           <button className="danger" onClick={stop}>Stop</button>
         </div>
       </>}
-      {phase === 'adding' && <p>Adding the recording…</p>}
+      {phase === 'adding' && <p>Adding the recording… A long file can take a moment.</p>}
 
       {phase === 'ready' && <>
         <p className="note">Length {fmtLen(trackMs)}.{changing ? (dirty ? ' Changed, not sent yet.' : '') : dirty ? ' Not saved yet.' : ' Saved.'}</p>
@@ -388,18 +426,29 @@ export default function Dictate({ draftId }: { draftId?: string }) {
         {shown.length > 0 && <div className="take-text">
           <p className="note">The text as it was converted. A click on a word puts the cursor just before it.{takes.length ? ' Words deleted or recorded over are crossed out; new recordings are marked and will be converted when you send them.' : ''}</p>
           {paras.map((p, k) => <p key={k} className="words">{p.map((x, i) => x.kind === 'new'
-            ? <span key={i} className="tag new-take" role="button" tabIndex={0} onClick={() => { setSelection(null); seek(x.startMs); }} onKeyDown={e => e.key === 'Enter' && seek(x.startMs)}>New recording {x.take} ({fmtLen(x.endMs - x.startMs)})</span>
+            ? <span key={i} className="tag new-take" role="button" tabIndex={0} onClick={() => { setSelection(null); seek(x.startMs); }} onKeyDown={e => e.key === 'Enter' && seek(x.startMs)}>{x.file ? `Imported: ${x.file}` : `New recording ${x.take}`} ({fmtLen(x.endMs - x.startMs)})</span>
             : x.gone ? <del key={i}>{x.text} </del>
             : <span key={i}><span className={'w' + (shown.indexOf(x) === nowIndex ? ' now' : '') + (marked(x) ? ' marked' : '')} role="button" tabIndex={0}
                 onClick={e => clickWord(e, x.startMs, x.endMs)} onKeyDown={e => e.key === 'Enter' && clickWord(e, x.startMs, x.endMs)}>{x.text}</span> </span>)}</p>)}
         </div>}
         <div className="actions" style={{ margin: '12px 0' }}>
           {!hasAudio && <button className="primary" disabled={busy} onClick={() => start()}>Record</button>}
+          {!hasAudio && <button disabled={busy} onClick={() => chooseFile('end')}>Add a sound file…</button>}
           {hasAudio && <>
             <button className="primary" disabled={busy} onClick={() => start('insert')}>Insert at {fmtFine(posMs)}</button>
             <button disabled={busy} onClick={() => start('end')}>Add to the end</button>
+            <button disabled={busy} aria-expanded={importOpen} onClick={() => setImportOpen(!importOpen)}>Add a sound file…</button>
           </>}
         </div>
+        {hasAudio && importOpen && <div className="inline-form">
+          <p className="note">Adds a recording made elsewhere (MP3, M4A, WAV, WebM and others, up to 200 MB). It becomes part of this dictation and is converted with the rest.</p>
+          <div className="actions">
+            <button className="primary" disabled={busy} onClick={() => chooseFile('insert')}>Put it in at {fmtFine(posMs)}</button>
+            <button disabled={busy} onClick={() => chooseFile('end')}>Add it to the end</button>
+            {selection && <button disabled={busy} onClick={() => chooseFile('replace')}>Put it in place of the marked part</button>}
+            <button onClick={() => setImportOpen(false)}>Cancel</button>
+          </div>
+        </div>}
         {hasAudio && <div className="actions" style={{ margin: '0 0 12px' }}>
           {selection
             ? <>

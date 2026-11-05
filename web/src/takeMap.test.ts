@@ -18,6 +18,10 @@ describe('text on the recorder', () => {
     expect(view(layout(words, [{ at: 400, mode: 'overwrite', len: 700 }, { at: 0, mode: 'end', len: 500 }], 2000)))
       .toBe('Dear@0 [new 400] -John thank@1000 you@1500 [new 2000]');
   });
+  it('keeps the name of an imported file on its place in the text', () => {
+    const shown = layout(words, [{ at: 1000, mode: 'insert', len: 3000, file: 'call.mp3' }, { at: 0, mode: 'end', len: 500 }], 2000);
+    expect(shown.filter(x => x.kind === 'new').map(x => x.kind === 'new' && [x.take, x.file])).toEqual([[1, 'call.mp3'], [2, undefined]]);
+  });
   it('takes deleted words out and moves the rest back', () => {
     expect(view(layout(words, [{ at: 400, mode: 'delete', len: 1000 }, { at: 0, mode: 'end', len: 500 }], 2000)))
       .toBe('Dear@0 -John -thank you@500 [new 1000]');

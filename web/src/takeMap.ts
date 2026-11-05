@@ -2,7 +2,8 @@ import { paragraphPieces, breaksBefore } from './paragraphs';
 import type { TakeMode } from './takes';
 
 /** One change made to the recording on the recorder page, in milliseconds of the recording as it was at the time. A delete takes `len` out from `at`; a replace takes `cut` out from `at` and puts `len` of new recording there. */
-export type Take = { at: number; mode: TakeMode | 'delete' | 'replace'; len: number; cut?: number };
+/** A change to the recording; `file` is the name of an imported file (a recording made on this page has none). */
+export type Take = { at: number; mode: TakeMode | 'delete' | 'replace'; len: number; cut?: number; file?: string };
 
 /** A word of the converted text, at its time in the recording the text was made from. */
 export type TextWord = { text: string; startMs: number; endMs: number; paraStart: boolean };
@@ -10,7 +11,7 @@ export type TextWord = { text: string; startMs: number; endMs: number; paraStart
 /** What the page shows: the words where they now are, and the new recordings (not converted yet) between them. */
 export type Shown =
   | { kind: 'word'; text: string; startMs: number; endMs: number; paraStart: boolean; gone: boolean }
-  | { kind: 'new'; startMs: number; endMs: number; take: number };
+  | { kind: 'new'; startMs: number; endMs: number; take: number; file?: string };
 
 type Seg = { text: string; startMs: number; endMs: number; words: { startMs: number; endMs: number }[] | null; newParagraph: boolean | null };
 
@@ -62,7 +63,7 @@ export function layout(words: TextWord[], takes: Take[], originalMs: number): Sh
     }
     if (t.mode === 'delete') { length -= t.len; return; }
     const at = t.mode === 'end' ? length : t.at;
-    items.push({ kind: 'new', startMs: at, endMs: at + t.len, take: takes.slice(0, k + 1).filter(x => x.mode !== 'delete').length });
+    items.push({ kind: 'new', startMs: at, endMs: at + t.len, take: takes.slice(0, k + 1).filter(x => x.mode !== 'delete').length, file: t.file });
     length = t.mode === 'replace' ? length - (t.cut ?? 0) + t.len : t.mode === 'insert' || t.mode === 'end' ? length + t.len : Math.max(length, t.at + t.len);
   });
   return items

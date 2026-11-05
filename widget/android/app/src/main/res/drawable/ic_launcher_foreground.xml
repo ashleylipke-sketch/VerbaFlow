@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- VerbaFlow logo: five sound bars in a V over a wave (web/public/logo.svg), scaled into the icon's safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <group android:scaleX="2" android:scaleY="2" android:translateX="30" android:translateY="30">
-        <path android:fillColor="#FFFFFF"
-            android:pathData="M12,14c1.66,0 2.99,-1.34 2.99,-3L15,5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3zM17.3,11c0,3 -2.54,5.1 -5.3,5.1S6.7,14 6.7,11L5,11c0,3.41 2.72,6.23 6,6.72L11,21h2v-3.28c3.28,-0.48 6,-3.3 6,-6.72h-1.7z" />
+    <group android:scaleX="1.05" android:scaleY="1.05" android:translateX="20.4" android:translateY="18.3">
+        <path android:strokeColor="#FFFFFF" android:strokeWidth="5" android:strokeLineCap="round"
+            android:pathData="M16,17.5V28.5M24,23.5V34.5M32,30.5V43.5M40,23.5V34.5M48,17.5V28.5" />
+        <path android:strokeColor="#9FD0FF" android:strokeWidth="3.2" android:strokeLineCap="round"
+            android:pathData="M12,51c6,-5 11,-5 16,0s11,5 16,0 8,-4 12,-1" />
     </group>
 </vector>

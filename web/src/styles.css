@@ -233,3 +233,7 @@ li.unread .bell-item::before { content:''; }
 .workload .tile strong { font-size:26px; font-variant-numeric:tabular-nums; } .workload .tile span { color:var(--muted); font-size:13px; }
 .workload .tile.bad { border-color:var(--bad); } .workload .tile.bad strong { color:var(--bad); }
 .workload td .tag { margin-left:6px; }
+.bulk-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; margin-bottom:10px; border:1px solid var(--brand); border-radius:8px; background:var(--saved); }
+.bulk-bar .inline-group { display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.bulk-results { padding:8px 10px; margin-bottom:10px; border:1px solid var(--line); border-radius:8px; } .bulk-results ul { margin:4px 0; }
+th.tick, td.tick { width:28px; } tr.ticked td { background:var(--saved); }

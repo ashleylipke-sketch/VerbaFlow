@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, fmtDate, fmtLen, type Mode, type Row } from '../api';
+import { api, fmtDate, fmtLen, type BulkResult, type Mode, type Row, type UserView } from '../api';
 
 const VIEWS: Record<Mode, [string, string][]> = {
   meeting: [
@@ -34,6 +34,9 @@ function remember(mode: Mode, v: Saved) { try { localStorage.setItem(KEY(mode), 
 /** Where "Carry on" goes for an unfinished item. */
 export const carryOnLink = (mode: Mode, id: string) => mode === 'speech' ? `#/speech/live/${id}` : `#/dictate/record/${id}`;
 // Only these show in the list. Others (run again, delete) need choices or a reason, so they live on the item page.
+// What can be done to several ticked recordings at once (each still gets the usual checks).
+const BULK = ['assign', 'accept', 'return', 'approve'] as const;
+const canBulk = (r: Row, a: string) => a === 'assign' ? r.actions.includes('assign') || r.actions.includes('reassign') : r.actions.includes(a);
 const ACTION_LABEL: Record<string, string> = { continue: 'Carry on', open: 'Open', retry: 'Retry', approve: 'Approve', assign: 'Assign', reassign: 'Reassign', accept: 'Accept', return: 'Return', 'request-reopen': 'Reopen' };
 
 export default function Dashboard({ mode }: { mode: Mode }) {
@@ -50,6 +53,14 @@ export default function Dashboard({ mode }: { mode: Mode }) {
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
 
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [users, setUsers] = useState<UserView[]>([]);
+  const [assignTo, setAssignTo] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<{ what: string; list: BulkResult[] } | null>(null);
+  useEffect(() => { api.users().then(u => setUsers(u.filter(x => !x.isSupport))).catch(() => {}); }, []);
+
   const load = () => api.items(mode).then(setRows).catch(e => setError(e.message));
   useEffect(() => { load(); const t = setInterval(load, 4000); return () => clearInterval(t); }, []);
 
@@ -57,6 +68,27 @@ export default function Dashboard({ mode }: { mode: Mode }) {
   const anyDepartment = (rows ?? []).some(r => r.fromDepartment);
   const shown = (rows ?? []).filter(r => (department || !r.fromDepartment) && (outstanding ? !!r.outstanding : on.has(r.statusCode)) && (!selfOnly || r.tags.includes('Self-assigned')) &&
     (!search || `${r.name} ${r.clientReference ?? ''} ${r.description ?? ''}`.toLowerCase().includes(search.toLowerCase())));
+  const tickable = shown.filter(r => BULK.some(a => canBulk(r, a)));
+  const chosen = tickable.filter(r => ticked.has(r.id));
+  const tick = (id: string) => setTicked(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allTicked = tickable.length > 0 && chosen.length === tickable.length;
+  // A reason is needed only when taking a recording away from someone else who has it (as on the item page).
+  const target = assignTo === 'none' ? null : users.find(u => u.id === assignTo)?.name ?? null;
+  const needsReason = chosen.some(r => r.actions.includes('reassign') && !!r.assignedTo && r.assignedTo !== target && r.assignedTo !== r.author);
+  const bulk = async (a: typeof BULK[number]) => {
+    const rowsFor = chosen.filter(r => canBulk(r, a));
+    if (a === 'approve' && !confirm(`Approving locks ${rowsFor.length === 1 ? 'this recording' : `these ${rowsFor.length} recordings`}. Continue?`)) return;
+    setBusy(true); setError(''); setResults(null);
+    try {
+      const list = await api.bulk(a, rowsFor.map(r => r.id), a === 'assign' ? (assignTo === 'none' ? null : assignTo) : null, a === 'assign' ? reason : null);
+      const what = a === 'assign' ? (assignTo === 'none' ? 'Taken back' : `Assigned to ${users.find(u => u.id === assignTo)?.name ?? 'them'}`)
+        : a === 'accept' ? 'Accepted' : a === 'return' ? 'Returned' : 'Approved';
+      setResults({ what, list });
+      setTicked(new Set(list.filter(x => !x.done).map(x => x.id)));
+      if (a === 'assign') { setAssignTo(''); setReason(''); }
+      load();
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
   const count = (k: string) => (rows ?? []).filter(r => r.statusCode === k).length;
 
   const act = async (r: Row, a: string) => {
@@ -92,14 +124,40 @@ export default function Dashboard({ mode }: { mode: Mode }) {
         <input placeholder="Search name, reference, description" value={search} onChange={e => setSearch(e.target.value)} />
       </div>
       {error && <div className="error">{error}</div>}
+      {chosen.length > 0 && <div className="bulk-bar" role="group" aria-label="Ticked recordings">
+        <strong>{chosen.length} ticked</strong>
+        {BULK.filter(a => a !== 'assign').map(a => {
+          const n = chosen.filter(r => canBulk(r, a)).length;
+          return n > 0 && <button key={a} className={a === 'approve' ? 'primary' : ''} disabled={busy} onClick={() => bulk(a)}>
+            {a === 'accept' ? 'Accept' : a === 'return' ? 'Return to owner' : 'Approve'}{n < chosen.length ? ` (${n})` : ''}</button>;
+        })}
+        {chosen.some(r => canBulk(r, 'assign')) && <span className="inline-group">
+          <select aria-label="Assign the ticked recordings to" value={assignTo} onChange={e => setAssignTo(e.target.value)}>
+            <option value="">Assign to…</option><option value="none">Nobody (take back)</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+          {assignTo && needsReason && <input placeholder="Reason (some are with someone else)" value={reason} onChange={e => setReason(e.target.value)} />}
+          {assignTo && <button disabled={busy || (needsReason && !reason.trim())} onClick={() => bulk('assign')}>
+            Apply{chosen.filter(r => canBulk(r, 'assign')).length < chosen.length ? ` (${chosen.filter(r => canBulk(r, 'assign')).length})` : ''}</button>}
+        </span>}
+        <button className="link" disabled={busy} onClick={() => setTicked(new Set())}>Clear ticks</button>
+        {busy && <span className="note">Working…</span>}
+      </div>}
+      {results && <div className="bulk-results" role="status">
+        <span className="ok">{results.what}: {results.list.filter(x => x.done).length} of {results.list.length}.</span>
+        {results.list.some(x => !x.done) && <> Not done (still ticked):<ul>{results.list.filter(x => !x.done).map(x => <li key={x.id}><b>{x.name}</b>: {x.problem}</li>)}</ul></>}
+        {" "}<button className="link" onClick={() => setResults(null)}>Close</button>
+      </div>}
       <div className="scroll">
         <table className="list">
-          <thead><tr><th>Priority</th><th>Status</th><th>Length</th><th>Client Reference</th><th>Description</th><th>Author</th><th>Assigned to</th><th>Created on</th><th>Due date</th><th>Actions</th></tr></thead>
+          <thead><tr><th className="tick">{tickable.length > 0 && <input type="checkbox" aria-label="Tick all shown" checked={allTicked}
+            onChange={() => setTicked(allTicked ? new Set() : new Set(tickable.map(r => r.id)))} />}</th><th>Priority</th><th>Status</th><th>Length</th><th>Client Reference</th><th>Description</th><th>Author</th><th>Assigned to</th><th>Created on</th><th>Due date</th><th>Actions</th></tr></thead>
           <tbody>
-            {rows === null && <tr><td colSpan={10}>Loading…</td></tr>}
-            {rows !== null && shown.length === 0 && <tr><td colSpan={10} className="note">{speech ? 'Nothing to show with these views. Choose Start speaking to get started.' : dictate ? 'Nothing to show with these views. Start a new dictation or import one to get started.' : 'Nothing to show with these views. Record or import a meeting to get started.'}</td></tr>}
+            {rows === null && <tr><td colSpan={11}>Loading…</td></tr>}
+            {rows !== null && shown.length === 0 && <tr><td colSpan={11} className="note">{speech ? 'Nothing to show with these views. Choose Start speaking to get started.' : dictate ? 'Nothing to show with these views. Start a new dictation or import one to get started.' : 'Nothing to show with these views. Record or import a meeting to get started.'}</td></tr>}
             {shown.map(r => (
-              <tr key={r.id}>
+              <tr key={r.id} className={ticked.has(r.id) ? 'ticked' : ''}>
+                <td data-label="Tick" className="tick">{BULK.some(a => canBulk(r, a)) && <input type="checkbox" aria-label={`Tick ${r.name}`} checked={ticked.has(r.id)} onChange={() => tick(r.id)} />}</td>
                 <td data-label="Priority">{r.priority}</td>
                 <td data-label="Status"><span className="pill" title={r.statusCode === 'ConversionFailed' && r.failureReason ? r.failureReason : undefined}>{r.status}</span> {r.tags.map(t => <span key={t} className={'tag' + (t === 'Objection logged' ? ' warn' : '')}>{t}</span>)}</td>
                 <td data-label="Length">{fmtLen(r.lengthMs)}</td>

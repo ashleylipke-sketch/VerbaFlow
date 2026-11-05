@@ -148,6 +148,7 @@ builder.Services.AddSingleton<ICalendarReader>(_ => new VerbaFlow.Infrastructure
 builder.Services.AddSingleton<CalendarService>();
 builder.Services.AddSingleton<RetentionService>();
 builder.Services.AddSingleton<WorkloadService>();
+builder.Services.AddSingleton<BulkActions>();
 builder.Services.AddSingleton<AttachmentService>();
 // Where VerbaFlow can be opened, for the link in notification emails.
 var siteAddress = builder.Configuration["Notifications:SiteAddress"] is { Length: > 0 } site ? site : "http://localhost:5044";

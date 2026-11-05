@@ -52,6 +52,7 @@ export type MinutesTemplates = { templates: MinutesTemplate[]; canChange: boolea
 export type NotificationRow = { id: string; text: string; group: string; itemId: string | null; link: string; at: string; read: boolean };
 export type NotificationList = { unread: number; items: NotificationRow[] };
 export type NotificationSettings = { hasEmail: boolean; email: string | null; emailReal: boolean; groups: { key: string; label: string; email: boolean }[] };
+export type BulkResult = { id: string; name: string; done: boolean; problem: string | null };
 export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean };
 export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
 export type AuditEvent = { seq: number; at: string; actorId: string | null; capacity: string; type: string; details: string; hash: string };
@@ -129,6 +130,8 @@ export const api = {
   verify: () => call<{ ok: boolean; count: number; problem: string | null }>('GET', '/audit/verify'),
   get: <T,>(path: string) => call<T>('GET', path),
   del: (path: string) => call<void>('DELETE', path),
+  bulk: (action: string, ids: string[], userId?: string | null, reason?: string | null) =>
+    call<BulkResult[]>('POST', '/items/bulk', { action, ids, userId: userId ?? null, reason: reason || null }),
   post: (path: string, body?: unknown) => call<any>('POST', path, body ?? {}),
   put: (path: string, body: unknown) => call<void>('PUT', path, body),
   form: (path: string, f: FormData) => call<{ id: string }>('POST', path, f),

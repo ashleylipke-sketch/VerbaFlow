@@ -116,3 +116,17 @@ public sealed class StandInGrammarChecker : IGrammarChecker
         return Task.FromResult<IReadOnlyList<GrammarFix>>(fixes);
     }
 }
+
+/// <summary>
+/// STAND-IN translator, for trying the page without Azure OpenAI: each piece comes back with the language code in front
+/// ("[fr] Hello"), line breaks kept. Real translation needs the AI service connected.
+/// </summary>
+public sealed class StandInTranslator : ITranslator
+{
+    public string Name => "stand-in-translation-v0";
+
+    public Task<IReadOnlyList<TextPiece>> TranslateAsync(IReadOnlyList<TextPiece> pieces, string language, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<TextPiece>>(pieces
+            .Select(p => new TextPiece(p.Id, string.Join("\n", p.Text.Split('\n').Select(l => l.Length == 0 ? l : $"[{language}] {l}"))))
+            .ToList());
+}

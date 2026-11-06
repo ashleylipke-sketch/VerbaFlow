@@ -281,3 +281,12 @@ button.due-set { font-size:14px; }
 .comments .note-add { display:block; margin-top:6px; }
 .comments .note-add textarea { width:100%; box-sizing:border-box; font:inherit; }
 @media (prefers-color-scheme: dark) { .commented { background:#78591a; } .comments .quote { background:#78591a88; } }
+
+/* Translations: original beside the translation, one above the other on a phone. */
+.translation-row { border-top:1px solid var(--line); padding:8px 0; } .translation-row:first-of-type { border-top:none; }
+.warn-text { color:var(--warn); }
+.tr-pair { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:16px; white-space:pre-wrap; margin:4px 0 8px; }
+.tr-pair .tr-original { color:var(--muted); }
+.tr-head { font-weight:600; border-bottom:1px solid var(--line); padding-bottom:4px; white-space:normal; margin-top:12px; }
+.tr-line { border-top:1px solid var(--line); padding-top:6px; }
+@media (max-width:700px) { .tr-pair { grid-template-columns:minmax(0, 1fr); gap:4px; } .tr-head { display:none; } }

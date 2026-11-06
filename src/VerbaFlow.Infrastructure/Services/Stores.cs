@@ -65,6 +65,8 @@ public sealed class Stores
     public DocTable<ItemNote> Notes { get; }
     /// <summary>Comments on words of a transcript or dictation, by comment id.</summary>
     public DocTable<TextComment> Comments { get; }
+    /// <summary>Machine translations of a recording's text, by translation id.</summary>
+    public DocTable<Translation> Translations { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -105,6 +107,7 @@ public sealed class Stores
         Attachments = new(db, "doc_attachments");
         Notes = new(db, "doc_item_notes");
         Comments = new(db, "doc_text_comments");
+        Translations = new(db, "doc_translations");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

@@ -153,6 +153,20 @@ public interface IGrammarChecker
     Task<IReadOnlyList<GrammarFix>> CheckAsync(IReadOnlyList<GrammarPassage> passages, string language, CancellationToken ct);
 }
 
+/// <summary>One piece of text to translate, with a short id the translator gives back.</summary>
+public sealed record TextPiece(string Id, string Text);
+
+/// <summary>
+/// Translates pieces of a recording's text into another language (Azure OpenAI in production). The text is untrusted:
+/// it is translated, never followed. Pieces the translator leaves out are simply missing from the answer.
+/// </summary>
+public interface ITranslator
+{
+    string Name { get; }
+    /// <param name="language">The language to translate into, as a code such as "fr" or "zh".</param>
+    Task<IReadOnlyList<TextPiece>> TranslateAsync(IReadOnlyList<TextPiece> pieces, string language, CancellationToken ct);
+}
+
 /// <param name="Announcement">Posted in the meeting chat when the note-taker joins, so everyone knows it is recording.</param>
 /// <param name="Reference">VerbaFlow's own id, kept with the note-taker so it can be found again.</param>
 public sealed record NoteTakerRequest(string MeetingUrl, string DisplayName, DateTimeOffset? JoinAt, string Announcement, Guid Reference);

@@ -107,7 +107,8 @@ export function saveFile(f: File) {
   setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
 }
 
-const tpl = (t?: string) => t ? `&template=${encodeURIComponent(t)}` : '';
+const tpl = (t?: string, translation?: string) => (t ? `&template=${encodeURIComponent(t)}` : '') +
+  (translation ? `&translation=${encodeURIComponent(translation)}` : '');
 
 export type WorkloadPerson = {
   userId: string; name: string; asAuthor: number; toAccept: number; beingTyped: number; overdue: number; dueToday: number;
@@ -198,9 +199,9 @@ export const api = {
   checkExport: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return call<ExportCheck>('POST', `/items/${id}/export/check`, f); },
   /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
   /** Fetches an export (the file itself, or an unsent email with it attached) with the name the server gives. */
-  async exportFile(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' | 'share' = 'export', template?: string): Promise<File> {
+  async exportFile(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' | 'share' = 'export', template?: string, translation?: string): Promise<File> {
     const path = kind === 'draft' ? 'export/draft' : 'export';
-    const res = await fetch(`/api/items/${id}/${path}?format=${format}&parts=${parts.join(',')}${kind === 'share' ? '&purpose=share' : ''}${tpl(template)}`, { headers: await authHeaders() });
+    const res = await fetch(`/api/items/${id}/${path}?format=${format}&parts=${parts.join(',')}${kind === 'share' ? '&purpose=share' : ''}${tpl(template, translation)}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     const cd = res.headers.get('Content-Disposition') ?? '';
     const name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? /filename="?([^";]+)"?/i.exec(cd)?.[1] ?? `meeting.${format}`;
@@ -208,17 +209,18 @@ export const api = {
     return new File([blob], decodeURIComponent(name), { type: blob.type });
   },
   /** Downloads the minutes as Word or PDF and saves them under the name the server gives. */
-  async exportMinutes(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' = 'export', template?: string): Promise<void> {
-    saveFile(await api.exportFile(id, format, parts, kind, template));
+  async exportMinutes(id: string, format: 'docx' | 'pdf', parts: string[], kind: 'export' | 'draft' = 'export', template?: string, translation?: string): Promise<void> {
+    saveFile(await api.exportFile(id, format, parts, kind, template, translation));
   },
   /** The PDF as the person would download it, for showing in a browser tab. */
-  async previewMinutes(id: string, parts: string[], template?: string): Promise<Blob> {
-    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true&parts=${parts.join(',')}${tpl(template)}`, { headers: await authHeaders() });
+  async previewMinutes(id: string, parts: string[], template?: string, translation?: string): Promise<Blob> {
+    const res = await fetch(`/api/items/${id}/export?format=pdf&preview=true&parts=${parts.join(',')}${tpl(template, translation)}`, { headers: await authHeaders() });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
     return res.blob();
   },
-  emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[], template?: string) =>
-    call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(','), template: template || null }),
+  emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[], template?: string, translation?: string) =>
+    call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(','), template: template || null,
+      translation: translation || null }),
   workload: (mode: string, days: number, department: string) =>
     call<Workload>('GET', `/workload?mode=${mode}&days=${days}${department ? `&department=${encodeURIComponent(department)}` : ''}`),
   notifications: () => call<NotificationList>('GET', '/notifications'),
@@ -264,3 +266,13 @@ export const fmtLen = (ms: number) => {
   return h ? `${h}:${p(m)}:${p(x)}` : `${m}:${p(x)}`;
 };
 export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+export type TranslationLanguage = { code: string; name: string };
+export type TranslationRow = { language: string; name: string; madeBy: string; madeAt: string; upToDate: boolean; untranslated: number };
+export type Translations = { canTranslate: boolean; languages: TranslationLanguage[]; translations: TranslationRow[]; whyNot: string | null };
+export type TranslatedLine = { time: string | null; speaker: string | null; original: string; translated: string; marker: string | null };
+export type TranslationPage = {
+  itemName: string; dictation: boolean; row: TranslationRow; canTranslate: boolean; engine: string;
+  summary: string | null; summaryTranslated: string | null; actions: string[]; actionsTranslated: string[];
+  minutes: string | null; minutesTranslated: string | null; tone: string | null; toneTranslated: string | null; lines: TranslatedLine[];
+};

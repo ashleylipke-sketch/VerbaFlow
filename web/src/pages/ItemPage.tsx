@@ -10,6 +10,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import LanguagePicker from '../LanguagePicker';
 import { ExportMenu } from '../ExportMenu';
 import GrammarCard from '../GrammarCard';
+import TranslationCard from '../TranslationCard';
 import { docLabel } from '../DocumentType';
 import { paragraphMarkers, paragraphPieces, type Piece } from '../paragraphs';
 import { api, describeAudit, fmtDate, fmtLen, type AuditEvent, type Detail, type Outputs, type Transcript, type UserView } from '../api';
@@ -356,6 +357,7 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
           {t && <CommentsCard id={id} list={comments} setList={setComments} focus={commentFocus} onShow={showComment}
             onChange={() => api.audit(id).then(setAudit).catch(() => {})} />}
           {t && d.canEditTranscript && d.processingState !== 'Processing' && <GrammarCard itemId={id} onSaved={load} />}
+          {t && !d.deletedAt && <TranslationCard key={t.versionNo} id={id} onChange={() => api.audit(id).then(setAudit).catch(() => {})} />}
           {t && !dictate && (o || d.canEditTranscript) && <div className="card"><h2>Summary</h2>
             {!o && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No summary yet.'}</p>}
             {o && <>

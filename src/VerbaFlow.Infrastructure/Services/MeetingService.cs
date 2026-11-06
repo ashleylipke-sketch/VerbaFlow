@@ -565,6 +565,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var attachments = await AttachmentService.DeleteForChainAsync(stores, chain[0].ChainId);
         var notesRemoved = await NoteService.DeleteForChainAsync(stores, chain[0].ChainId);
         var commentsRemoved = await CommentService.DeleteForChainAsync(stores, chain[0].ChainId);
+        var translationsRemoved = await TranslationService.DeleteForItemsAsync(stores, chain.Select(i => i.Id).ToList());
         foreach (var i in chain)
         {
             i.Purge(actor?.Id ?? RetentionActor, reason, now);
@@ -580,6 +581,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
                 ("audioFilesRemoved", removedFiles), ("audioFilesNotRemoved", stuckFiles == 0 ? null : stuckFiles),
                 ("attachedFilesRemoved", attachments == 0 ? null : attachments), ("notesRemoved", notesRemoved == 0 ? null : notesRemoved),
                 ("commentsRemoved", commentsRemoved == 0 ? null : commentsRemoved),
+                ("translationsRemoved", translationsRemoved == 0 ? null : translationsRemoved),
                 ("by", actor is null ? "retention rules" : null)));
         }
     }

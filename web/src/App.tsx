@@ -7,6 +7,7 @@ import Dictate from './pages/Dictate';
 import Speech from './pages/Speech';
 import Import from './pages/Import';
 import ItemPage from './pages/ItemPage';
+import TranslationPage from './pages/TranslationPage';
 import Reopen from './pages/Reopen';
 import Vocabulary from './pages/Vocabulary';
 import SavedTextPage from './pages/SavedText';
@@ -61,6 +62,7 @@ export default function App() {
   const path = hash.replace(/^#/, '');
   const item = path.match(/^\/items\/([0-9a-f-]{36})(?:\?(.*))?$/);
   const itemQuery = new URLSearchParams(item?.[2] ?? '');
+  const translation = path.match(/^\/items\/([0-9a-f-]{36})\/translation\/([a-z]{2})$/);
   const draft = path.match(/^\/dictate\/record\/([0-9a-f-]{36})$/);
   const carryOn = /^\/speech\/live\/([0-9a-f-]{36})$/.exec(path);
   const admin = me?.isAdmin;
@@ -106,6 +108,7 @@ export default function App() {
           {!way && info.testUsers && <p className="note">{info.microsoft ? 'Or, on this computer only, pick a test user at the top right.' : 'Pick a test user at the top right. (Microsoft sign-in is not set up yet.)'}</p>}
           {!way && !info.microsoft && !info.testUsers && !problem && <p className="note">Sign-in is not set up yet. Your administrator needs to finish setting up VerbaFlow.</p>}
         </div>
+          : translation ? <TranslationPage key={translation[1] + translation[2]} id={translation[1]} lang={translation[2]} />
           : item ? <ItemPage id={item[1]} at={itemQuery.get('at') ? Number(itemQuery.get('at')) : undefined} seg={itemQuery.get('seg') ?? undefined} />
           : path === '/record' ? <Record mode="meeting" />
           : path === '/import' ? <Import mode="meeting" />

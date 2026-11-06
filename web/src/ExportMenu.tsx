@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, saveFile, type ExportCheck, type Letterhead, type MinutesTemplates } from './api';
+import { api, saveFile, type ExportCheck, type Letterhead, type MinutesTemplates, type Translations } from './api';
 import { letterheadNote } from './letterheadNote';
 
 /** The parts a person can tick. The title, Approved/Draft marker and details are always in the file. */
@@ -14,8 +14,8 @@ export const exportParts = [
 type Format = 'docx' | 'pdf';
 
 /** The Export button at the top of a meeting: opens a menu to pick what goes in, then download, preview or email it. */
-export function ExportMenu({ id, approved, dictate = false, documentType = null, onDone }:
-  { id: string; approved: boolean; dictate?: boolean; documentType?: string | null; onDone: () => void }) {
+export function ExportMenu({ id, approved, dictate = false, documentType = null, onDone, language: startLanguage = '' }:
+  { id: string; approved: boolean; dictate?: boolean; documentType?: string | null; onDone: () => void; language?: string }) {
   const [open, setOpen] = useState(false);
   const [parts, setParts] = useState<string[]>(exportParts.map(p => p.key));
   const [busy, setBusy] = useState(false);
@@ -34,6 +34,14 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
   const letter = dictate && documentType === 'letter';
   const [templates, setTemplates] = useState<MinutesTemplates | null>(null);
   const [template, setTemplate] = useState('');
+  // Machine translations that match the text as it is now can be exported instead of the original.
+  const [translations, setTranslations] = useState<Translations | null>(null);
+  const [language, setLanguage] = useState(startLanguage);
+  useEffect(() => {
+    if (open) api.get<Translations>(`/items/${id}/translations`).then(setTranslations).catch(() => setTranslations(null));
+  }, [open, id]);
+  const ready = translations?.translations.filter(t => t.upToDate) ?? [];
+  const tr = ready.some(t => t.language === language) ? language : undefined;
   // Meetings: the minutes templates admins have made; the default one is chosen, with its ticked parts.
   useEffect(() => {
     if (!open || dictate || templates) return;
@@ -77,7 +85,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
     const tab = window.open('', '_blank');
     act(async () => {
       try {
-        const url = URL.createObjectURL(await api.previewMinutes(id, parts, tid));
+        const url = URL.createObjectURL(await api.previewMinutes(id, parts, tid, tr));
         if (tab) tab.location.href = url; else window.open(url, '_blank');
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
       } catch (e) { tab?.close(); throw e; }
@@ -100,7 +108,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
   };
   const startShare = () => act(async () => {
     setInfo(''); setPending(null);
-    const file = await api.exportFile(id, format, parts, 'share', tid);
+    const file = await api.exportFile(id, format, parts, 'share', tid, tr);
     if (!navigator.canShare?.({ files: [file] })) {
       saveFile(file);
       setInfo('This browser cannot pass files to other apps, so the file has been downloaded instead. Attach it in WhatsApp from your Downloads folder.');
@@ -128,10 +136,15 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
             <input type="checkbox" checked={parts.includes(p.key)} onChange={() => toggle(p.key)} /> {p.label}</label>)}
         </fieldset>
         <p className="note">The title, details and {approved ? 'Approved' : 'Draft'} marker are always included. Each file's fingerprint is recorded, so a copy can be checked later.</p></>}
+        {ready.length > 0 && <div className="field"><label>Language<br />
+          <select aria-label="Language" value={tr ?? ''} onChange={e => setLanguage(e.target.value)}>
+            <option value="">Original</option>
+            {ready.map(t => <option key={t.language} value={t.language}>{t.name} (machine translation)</option>)}
+          </select></label></div>}
         {none && <p className="error">Tick at least one part.</p>}
         <div className="menu-items">
-          <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'docx', parts, 'export', tid))}>Download Word</button>
-          <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'pdf', parts, 'export', tid))}>Download PDF</button>
+          <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'docx', parts, 'export', tid, tr))}>Download Word</button>
+          <button disabled={busy || none} onClick={() => act(() => api.exportMinutes(id, 'pdf', parts, 'export', tid, tr))}>Download PDF</button>
           <button disabled={busy || none} onClick={preview}>Preview PDF</button>
           <button disabled={none} aria-expanded={panel === 'email'} onClick={() => { setInfo(''); setPanel(p => p === 'email' ? '' : 'email'); }}>Email…</button>
           <button disabled={none} aria-expanded={panel === 'share'} onClick={() => { setInfo(''); setPending(null); setPanel(p => p === 'share' ? '' : 'share'); }}>Share… (WhatsApp, Teams and more)</button>
@@ -141,7 +154,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
           <p className="note">Opens a new email in your own email program, from your own account, with the {dictate ? 'dictation' : 'minutes'} attached. Choose the people there.</p>
           <div className="actions">{formatPicker}
             <button disabled={busy || none} onClick={() => act(async () => {
-              saveFile(await api.exportFile(id, format, parts, 'draft', tid));
+              saveFile(await api.exportFile(id, format, parts, 'draft', tid, tr));
               setInfo('An email file has been downloaded. Open it (click it in your browser\'s downloads) and it appears as a new email in Outlook.');
             })}>Open a new email</button></div>
           {info && <p className="ok" role="status">{info}</p>}
@@ -155,7 +168,7 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
           <div className="actions">{formatPicker}
             <button disabled={busy || none || !mailTo.trim()} onClick={() => act(async () => {
               setMailSent('');
-              const r = await api.emailMinutes(id, format, mailTo, mailNote, parts, tid);
+              const r = await api.emailMinutes(id, format, mailTo, mailNote, parts, tid, tr);
               setMailSent(r.message); setMailTo(''); setMailNote('');
             })}>{busy ? 'Sending…' : 'Send email'}</button></div>
           <p className="note">Sent by VerbaFlow as an attachment; the history records who it went to. Replies go to you.</p>

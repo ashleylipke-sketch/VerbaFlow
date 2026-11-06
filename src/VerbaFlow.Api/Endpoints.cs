@@ -35,7 +35,8 @@ public static class Endpoints
     internal static ItemMode ModeOf(string? mode) => string.IsNullOrWhiteSpace(mode) ? ItemMode.Meeting
         : mode.Trim().ToLowerInvariant() switch { "dictate" => ItemMode.Dictate, "speech" => ItemMode.Speech, "meeting" => ItemMode.Meeting, _ => throw new DomainException("Unknown mode.") };
 
-    public sealed record EmailBody(string? Format, string? To, string? Note, string? Parts = null, string? Template = null);
+    public sealed record EmailBody(string? Format, string? To, string? Note, string? Parts = null, string? Template = null, string? Translation = null);
+    public sealed record TranslateBody(string? Language);
     public sealed record NameBody(string Name);
     public sealed record TermBody(string Text, string? Note);
     public sealed record SavedTextBody(string? Code, string? Text);
@@ -329,6 +330,13 @@ public static class Endpoints
             var (segmentId, text) = await g.ApplyAsync(h.Current(), id, b.SegmentId, b.Expected ?? "", b.Text ?? "");
             return Results.Ok(new { segmentId, text });
         });
+        // Machine translations: a copy to read and export; the recording itself never changes.
+        api.MapGet("/items/{id:guid}/translations", (HttpContext h, TranslationService t, Guid id) => t.ListAsync(h.Current(), id));
+        api.MapPost("/items/{id:guid}/translations", (HttpContext h, TranslationService t, Guid id, TranslateBody b, CancellationToken ct) =>
+            t.TranslateAsync(h.Current(), id, b.Language, ct));
+        api.MapGet("/items/{id:guid}/translations/{lang}", (HttpContext h, TranslationService t, Guid id, string lang) => t.GetAsync(h.Current(), id, lang));
+        api.MapDelete("/items/{id:guid}/translations/{lang}", async (HttpContext h, TranslationService t, Guid id, string lang) =>
+        { await t.RemoveAsync(h.Current(), id, lang); return Results.NoContent(); });
         api.MapPut("/items/{id:guid}/speakers/{spId:guid}", async (HttpContext h, MeetingService s, Guid id, Guid spId, NameBody b) =>
         { await s.RenameSpeakerAsync(h.Current(), id, spId, b.Name); return Results.NoContent(); });
         api.MapPost("/items/{id:guid}/versions/{no:int}/restore", async (HttpContext h, MeetingService s, Guid id, int no) =>
@@ -351,20 +359,20 @@ public static class Endpoints
 
         // Minutes as Word or PDF. The file's fingerprint is recorded, so a copy can be checked later for changes.
         // preview=true shows the file in the browser instead of saving it; parts=summary,minutes,actions,transcript,tone picks what goes in.
-        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format, bool? preview, string? parts, string? purpose, string? template) =>
+        api.MapGet("/items/{id:guid}/export", async (HttpContext h, ExportService s, Guid id, string? format, bool? preview, string? parts, string? purpose, string? template, string? translation) =>
         {
             var why = preview == true ? "preview" : purpose == "share" ? "share" : "download";
-            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf", why, parts, template);
+            var file = await s.ExportAsync(h.Current(), id, format ?? "pdf", why, parts, template, translation);
             return preview == true ? Results.File(file.Content, file.ContentType) : Results.File(file.Content, file.ContentType, file.FileName);
         });
         // A new, unsent email (.eml) with the file attached, to open in the person's own email program.
-        api.MapGet("/items/{id:guid}/export/draft", async (HttpContext h, ExportService s, Guid id, string? format, string? parts, string? template) =>
+        api.MapGet("/items/{id:guid}/export/draft", async (HttpContext h, ExportService s, Guid id, string? format, string? parts, string? template, string? translation) =>
         {
-            var file = await s.DraftAsync(h.Current(), id, format ?? "pdf", parts, template);
+            var file = await s.DraftAsync(h.Current(), id, format ?? "pdf", parts, template, translation);
             return Results.File(file.Content, file.ContentType, file.FileName);
         });
         api.MapPost("/items/{id:guid}/export/email", async (HttpContext h, ExportService s, Guid id, EmailBody b, CancellationToken ct) =>
-            new { message = await s.EmailAsync(h.Current(), id, b.Format ?? "pdf", b.To ?? "", b.Note, ct, b.Parts, b.Template) });
+            new { message = await s.EmailAsync(h.Current(), id, b.Format ?? "pdf", b.To ?? "", b.Note, ct, b.Parts, b.Template, b.Translation) });
         api.MapPost("/items/{id:guid}/export/check", async (HttpContext h, ExportService s, Guid id, CancellationToken ct) =>
         {
             var f = await h.Request.ReadFormAsync(ct);

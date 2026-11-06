@@ -11,7 +11,7 @@ namespace VerbaFlow.Infrastructure.Export;
 
 /// <summary>One file that was exported: its fingerprint, so a copy can later be checked for changes.</summary>
 public sealed record ExportRecord(Guid Id, Guid ItemId, int VersionNo, int TranscriptVersionNo, string Format, string Marker,
-    string Sha256, long SizeBytes, Guid ExportedBy, DateTimeOffset ExportedAt, string? Parts = null, string? Signature = null, string? Template = null);
+    string Sha256, long SizeBytes, Guid ExportedBy, DateTimeOffset ExportedAt, string? Parts = null, string? Signature = null, string? Template = null, string? Translation = null);
 
 public sealed record ExportFile(byte[] Content, string ContentType, string FileName);
 
@@ -35,21 +35,23 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     /// <param name="purpose">"download" or "preview"; written to the audit trail.</param>
     /// <param name="parts">Which parts to include (see <see cref="ExportParts"/>); null means the template's usual parts.</param>
     /// <param name="template">A minutes template's id; null means the default template, "standard" VerbaFlow's own layout.</param>
-    public async Task<ExportFile> ExportAsync(User actor, Guid id, string format, string purpose = "download", string? parts = null, string? template = null) =>
-        (await CreateAsync(actor, id, format, purpose, ExportParts.Parse(parts), template)).File;
+    /// <param name="translation">A language code: export that machine translation instead of the original text.</param>
+    public async Task<ExportFile> ExportAsync(User actor, Guid id, string format, string purpose = "download", string? parts = null, string? template = null,
+        string? translation = null) =>
+        (await CreateAsync(actor, id, format, purpose, ExportParts.Parse(parts), template, translation)).File;
 
     /// <summary>
     /// Emails the exported file as an attachment. The addresses are checked first; nothing is sent if one is not a valid
     /// address. The recipients, the file's fingerprint and the mail service's reference go into the audit trail.
     /// </summary>
     public async Task<string> EmailAsync(User actor, Guid id, string format, string recipients, string? note, CancellationToken ct = default,
-        string? parts = null, string? template = null)
+        string? parts = null, string? template = null, string? translation = null)
     {
         if (email is null) throw new DomainException("Email is not available.");
         var to = ParseRecipients(recipients);
         var chosen = ExportParts.Parse(parts);
         if (note is { Length: > 2000 }) throw new DomainException("The message is too long. Keep it under 2,000 characters.");
-        var (file, record, item) = await CreateAsync(actor, id, format, "email", chosen, template);
+        var (file, record, item) = await CreateAsync(actor, id, format, "email", chosen, template, translation);
         var text = $"Please find attached {What(item)} \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
             + $"Sent by {actor.Name} using VerbaFlow.\r\n"
             + (string.IsNullOrWhiteSpace(note) ? "" : $"\r\nMessage from {actor.Name}:\r\n{note.Trim()}\r\n")
@@ -80,9 +82,9 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     /// opens it as a draft from their account). They choose the addressees there, so VerbaFlow does not know who it goes to;
     /// the file's fingerprint is still recorded, so a recipient's copy can be checked.
     /// </summary>
-    public async Task<ExportFile> DraftAsync(User actor, Guid id, string format, string? parts = null, string? template = null)
+    public async Task<ExportFile> DraftAsync(User actor, Guid id, string format, string? parts = null, string? template = null, string? translation = null)
     {
-        var (file, record, item) = await CreateAsync(actor, id, format, "email-draft", ExportParts.Parse(parts), template);
+        var (file, record, item) = await CreateAsync(actor, id, format, "email-draft", ExportParts.Parse(parts), template, translation);
         var text = $"Please find attached {What(item)} \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
             + "\r\nTo confirm the file has not been changed, it can be checked with \"Check an exported file\" in VerbaFlow.\r\n";
         var eml = EmlWriter.Write(new EmailMessage([], Subject(item, record), text, [new EmailAttachment(file.FileName, file.ContentType, file.Content)]), draft: true);
@@ -91,11 +93,13 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
 
     /// <summary>The heading over a dictation's text: what the person said it was for.</summary>
     /// <summary>A dictation's paragraphs, with "•" or "1." in front of list points.</summary>
-    public static List<MinutesPassage> DictationText(Transcript transcript)
+    /// <param name="textOf">The text to print for a passage (a translation); its own text when left out.</param>
+    public static List<MinutesPassage> DictationText(Transcript transcript, Func<Segment, string>? textOf = null)
     {
+        textOf ??= s => s.Text;
         var pieces = DictationCommands.Paragraphs(transcript.Render(), r => r.Segment)
             // A line break typed while editing is a paragraph break too; only the first piece is the list point.
-            .SelectMany(p => string.Join(" ", p.Select(r => r.Segment.Text)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SelectMany(p => string.Join(" ", p.Select(r => textOf(r.Segment)).Where(x => x.Length > 0)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select((text, k) => (text, list: k == 0 ? p[0].Segment.List : null)))
             .ToList();
         var markers = DictationCommands.ListMarkers(pieces.Select(x => x.list));
@@ -123,7 +127,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     }
 
     private async Task<(ExportFile File, ExportRecord Record, Item Item)> CreateAsync(User actor, Guid id, string format, string purpose,
-        IReadOnlyList<string>? parts, string? templateId = null)
+        IReadOnlyList<string>? parts, string? templateId = null, string? translationLanguage = null)
     {
         format = format.ToLowerInvariant() switch { "docx" or "word" => ExportFormats.Word, "pdf" => ExportFormats.Pdf,
             _ => throw new DomainException("Choose Word or PDF.") };
@@ -145,13 +149,21 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         if (item.Status == ItemStatus.Purged) throw new NotFoundException("This recording has been deleted.");
         var transcript = await stores.Transcripts.GetAsync(id) ?? throw new DomainException("There is no transcript to export yet.");
         var outputs = (await stores.Outputs.GetAsync(id))?.Outputs;
+        // A translation replaces the words, never the facts: details, marker and approval stay those of the recording.
+        var translation = string.IsNullOrWhiteSpace(translationLanguage) ? null
+            : await TranslationService.ForExportAsync(stores, item, transcript, dictation ? null : outputs, translationLanguage);
+        var translated = translation?.Passages.ToDictionary(p => p.SegmentId, p => p.Text);
+        string TextOf(Segment s) => translated is null ? s.Text : translated.GetValueOrDefault(s.Id, s.Text);
+        if (translation is not null && outputs is not null)
+            outputs = outputs with { Summary = translation.Summary ?? "", ActionPoints = translation.ActionPoints, Minutes = translation.Minutes ?? "",
+                ToneOfMeeting = translation.Tone ?? "" };
         var all = await stores.Items.ListAsync();
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
         var superseded = all.Any(i => i.SupersedesItemId == id);
         var now = clock.GetUtcNow();
 
         // Headings, labels and dates are printed in the language the summary is written in.
-        var w = ExportWords.For(item.OutputLanguage);
+        var w = ExportWords.For(translation?.Language ?? item.OutputLanguage);
         string When(DateTimeOffset at) => WhenIn(at, w);
         var marker = superseded ? "Superseded" : item.Status == ItemStatus.Completed ? "Approved" : "Draft";
         var markerLine = marker switch
@@ -174,6 +186,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         if (attached.Count > 0) details.Add((w.AttachedFiles, string.Join(", ", attached) + " " + w.KeptInVerbaFlow));
         details.Add((w.Version, string.Format(w.VersionValue, item.VersionNo, transcript.Current.No)));
         details.Add((w.Exported, string.Format(w.ExportedValue, When(now), actor.Name)));
+        if (translation is not null) details.Add((w.Translation, w.MachineTranslated));
         var everything = parts.Count == ExportParts.All.Count;
         if (!everything && !dictation) // in the template's order, under its headings
             details.Add((w.Contains, string.Join(w.Code is "zh" or "ja" ? "、" : ", ",
@@ -191,8 +204,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             Has(ExportParts.Tone) ? outputs?.ToneOfMeeting : null,
             Has(ExportParts.Transcript)
                 ? dictation
-                    ? DictationText(transcript)
-                    : transcript.Render().Where(r => r.Segment.Text.Length > 0).Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
+                    ? DictationText(transcript, TextOf)
+                    : transcript.Render().Where(r => r.Segment.Text.Length > 0).Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, TextOf(r.Segment))).ToList()
                 : [],
             template is null ? $"VerbaFlow · {item.Name} · {w.Marker(marker)} · {w.Reference} {shortRef}" : MinutesTemplateService.Footer(template, item.Name, marker, shortRef, w),
             dictation ? w.DocumentHeading(item.DocumentType) : w.Transcript,
@@ -211,7 +224,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             var letter = new LetterDocument(item.Name,
                 kind == "letter" ? w.Date(TimeZoneInfo.ConvertTime(letterDate, TimeZoneInfo.Local)) : null,
                 reference,
-                marker switch { "Approved" => null, "Superseded" => w.LetterSuperseded, _ => w.LetterDraft },
+                Joined(marker switch { "Approved" => null, "Superseded" => w.LetterSuperseded, _ => w.LetterDraft },
+                    translation is null ? null : w.MachineTranslated),
                 doc.Transcript.Select(t => t.Text).ToList(), doc.Transcript.Select(t => t.Marker).ToList(),
                 Heading: kind switch { "document" => item.Name, "email" => w.Subject + " " + item.Name, _ => null },
                 RefLabel: kind == "letter" ? w.OurRef : w.RefLabel,
@@ -221,8 +235,23 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 // The author's sign-off goes under the letter or email; their signature picture only once it is approved.
                 var signOffs = new SignOffService(stores, clock);
                 var authorSignOff = await signOffs.ForAsync(item.OwnerId);
-                var fitted = SignOffLayout.Fit(letter.Paragraphs, letter.Markers, authorSignOff,
-                    authorSignOff is null ? null : await signOffs.PictureAsync(authorSignOff), marker == "Approved");
+                var picture = authorSignOff is null ? null : await signOffs.PictureAsync(authorSignOff);
+                SignOffLayout.Fitted fitted;
+                if (translation is null) fitted = SignOffLayout.Fit(letter.Paragraphs, letter.Markers, authorSignOff, picture, marker == "Approved");
+                else
+                {
+                    // The dictated closing is found in the original wording, then the translated paragraphs are cut at the same place.
+                    var original = DictationText(transcript).Select(p => p.Text).ToList();
+                    if (authorSignOff is not null && translation.ClosingFrom == authorSignOff.Closing && translation.ClosingTo is { } closing)
+                        authorSignOff = authorSignOff with { Closing = closing };
+                    var onOriginal = SignOffLayout.Fit(original, null, authorSignOff, picture, marker == "Approved");
+                    var cut = onOriginal.Paragraphs.Count;
+                    fitted = original.Count != letter.Paragraphs.Count
+                        ? SignOffLayout.Fit(letter.Paragraphs, letter.Markers, authorSignOff, picture, marker == "Approved")
+                        : new SignOffLayout.Fitted(letter.Paragraphs.Take(cut).ToList(), letter.Markers?.Take(cut).ToList(),
+                            onOriginal.SignOff is { } so && cut < original.Count ? so with { Closing = letter.Paragraphs[cut].Trim() } : onOriginal.SignOff,
+                            onOriginal.Note);
+                }
                 letter = letter with { Paragraphs = fitted.Paragraphs, Markers = fitted.Markers, SignOff = fitted.SignOff };
                 signOffUsed = fitted.Note;
             }
@@ -256,11 +285,12 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         }
         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         var record = new ExportRecord(Guid.NewGuid(), id, item.VersionNo, transcript.Current.No, format, marker, sha, bytes.LongLength, actor.Id, now,
-            string.Join(",", parts), signature, template?.Name);
+            string.Join(",", parts), signature, template?.Name, translation?.Language);
         await stores.Exports.UpsertAsync(record.Id, record);
         (string, object?)[] audit = [("format", format), ("marker", marker), ("purpose", purpose), ("parts", string.Join(",", parts)),
             ("transcriptVersion", transcript.Current.No), ("sha256", sha), ("bytes", bytes.LongLength)];
         if (template is not null) audit = [.. audit, ("template", template.Name)];
+        if (translation is not null) audit = [.. audit, ("translation", translation.Language), ("translationEngine", translation.Engine)];
         if (letterheadUsed is not null) audit = [.. audit, ("letterhead", letterheadUsed)];
         if (signOffUsed is not null) audit = [.. audit, ("signOff", signOffUsed)];
         if (signature is not null || signatureNote is not null) audit = [.. audit, ("signature", signature ?? signatureNote)];
@@ -269,7 +299,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         var safeName = SafeFileName(item.Name);
         if (safeName.Length == 0) safeName = "meeting";
         if (safeName.Length > 80) safeName = safeName[..80];
-        return (new ExportFile(bytes, ExportFormats.ContentType(format), $"{safeName} ({marker.ToLowerInvariant()}).{format}"), record, item);
+        return (new ExportFile(bytes, ExportFormats.ContentType(format), $"{safeName} ({marker.ToLowerInvariant()}{(translation is null ? "" : ", " + translation.Language)}).{format}"), record, item);
     }
 
     /// <summary>Checks whether a file is exactly one that was exported from this meeting.</summary>
@@ -293,6 +323,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 + (match.Signature is null ? "" : " It carries VerbaFlow's digital signature."),
             sha, match.ExportedAt, by, match.Marker, match.Format);
     }
+
+    private static string? Joined(string? a, string? b) => a is null ? b : b is null ? a : a + " " + b;
 
     private static string Name(Dictionary<Guid, string> users, Guid? id) => id is { } x ? users.GetValueOrDefault(x, "someone") : "someone";
 

@@ -36,6 +36,8 @@ public sealed record ExportWords
     /// <summary>{0} the certificate's name.</summary>
     public required string SignedBy;
     public required string SignedTest;
+    /// <summary>The details row of a translated export: its label, and the warning that a machine made it.</summary>
+    public required string Translation, MachineTranslated;
 
     /// <summary>The marker as printed ("Approved" → "Approuvé").</summary>
     public string Marker(string marker) => marker switch { "Approved" => Approved, "Superseded" => Superseded, _ => Draft };
@@ -75,6 +77,7 @@ public sealed record ExportWords
         OurRef = "Our ref:", RefLabel = "Reference:", Subject = "Subject:",
         LetterDraft = "Draft: not approved yet.", LetterSuperseded = "Superseded: a newer version exists.",
         SignedBy = "Digitally signed by {0}.", SignedTest = "Digitally signed by VerbaFlow (test certificate, not yet trusted).",
+        Translation = "Translation", MachineTranslated = "Translated by machine and not checked by a person. The original is the official record.",
     };
 
     private static CultureInfo Make(string name, bool gregorian = false)
@@ -108,6 +111,7 @@ public sealed record ExportWords
             OurRef = "N/Réf. :", RefLabel = "Référence :", Subject = "Objet :",
             LetterDraft = "Brouillon : pas encore approuvé.", LetterSuperseded = "Remplacé : une version plus récente existe.",
             SignedBy = "Signé numériquement par {0}.", SignedTest = "Signé numériquement par VerbaFlow (certificat de test, pas encore reconnu).",
+            Translation = "Traduction", MachineTranslated = "Traduction automatique, non vérifiée par une personne. L'original fait foi.",
         },
         ["es"] = () => English with
         {
@@ -127,6 +131,7 @@ public sealed record ExportWords
             OurRef = "N/Ref.:", RefLabel = "Referencia:", Subject = "Asunto:",
             LetterDraft = "Borrador: aún no aprobado.", LetterSuperseded = "Sustituido: existe una versión más reciente.",
             SignedBy = "Firmado digitalmente por {0}.", SignedTest = "Firmado digitalmente por VerbaFlow (certificado de prueba, aún no reconocido).",
+            Translation = "Traducción", MachineTranslated = "Traducción automática, no revisada por una persona. El original es el documento oficial.",
         },
         ["de"] = () => English with
         {
@@ -146,6 +151,7 @@ public sealed record ExportWords
             OurRef = "Unser Zeichen:", RefLabel = "Referenz:", Subject = "Betreff:",
             LetterDraft = "Entwurf: noch nicht genehmigt.", LetterSuperseded = "Ersetzt: Es gibt eine neuere Version.",
             SignedBy = "Digital signiert von {0}.", SignedTest = "Digital signiert von VerbaFlow (Testzertifikat, noch nicht vertrauenswürdig).",
+            Translation = "Übersetzung", MachineTranslated = "Maschinelle Übersetzung, nicht von einer Person geprüft. Maßgeblich ist das Original.",
         },
         ["it"] = () => English with
         {
@@ -165,6 +171,7 @@ public sealed record ExportWords
             OurRef = "Ns. rif.:", RefLabel = "Riferimento:", Subject = "Oggetto:",
             LetterDraft = "Bozza: non ancora approvata.", LetterSuperseded = "Sostituito: esiste una versione più recente.",
             SignedBy = "Firmato digitalmente da {0}.", SignedTest = "Firmato digitalmente da VerbaFlow (certificato di prova, non ancora attendibile).",
+            Translation = "Traduzione", MachineTranslated = "Traduzione automatica, non verificata da una persona. Fa fede l'originale.",
         },
         ["nl"] = () => English with
         {
@@ -184,6 +191,7 @@ public sealed record ExportWords
             OurRef = "Ons kenmerk:", RefLabel = "Kenmerk:", Subject = "Onderwerp:",
             LetterDraft = "Concept: nog niet goedgekeurd.", LetterSuperseded = "Vervangen: er bestaat een nieuwere versie.",
             SignedBy = "Digitaal ondertekend door {0}.", SignedTest = "Digitaal ondertekend door VerbaFlow (testcertificaat, nog niet vertrouwd).",
+            Translation = "Vertaling", MachineTranslated = "Automatische vertaling, niet door een persoon gecontroleerd. Het origineel is leidend.",
         },
         ["pl"] = () => English with
         {
@@ -204,6 +212,7 @@ public sealed record ExportWords
             OurRef = "Nasz znak:", RefLabel = "Sygnatura:", Subject = "Temat:",
             LetterDraft = "Wersja robocza: jeszcze niezatwierdzona.", LetterSuperseded = "Zastąpiono: istnieje nowsza wersja.",
             SignedBy = "Podpisano cyfrowo przez {0}.", SignedTest = "Podpisano cyfrowo przez VerbaFlow (certyfikat testowy, jeszcze niezaufany).",
+            Translation = "Tłumaczenie", MachineTranslated = "Tłumaczenie maszynowe, niesprawdzone przez człowieka. Wiążący jest oryginał.",
         },
         ["ru"] = () => English with
         {
@@ -224,6 +233,7 @@ public sealed record ExportWords
             OurRef = "Наш исх. №:", RefLabel = "Номер:", Subject = "Тема:",
             LetterDraft = "Черновик: ещё не утверждено.", LetterSuperseded = "Заменено: существует более новая версия.",
             SignedBy = "Подписано цифровой подписью: {0}.", SignedTest = "Подписано цифровой подписью VerbaFlow (тестовый сертификат, ещё не доверенный).",
+            Translation = "Перевод", MachineTranslated = "Машинный перевод, не проверенный человеком. Официальным является оригинал.",
         },
         ["uk"] = () => English with
         {
@@ -244,6 +254,7 @@ public sealed record ExportWords
             OurRef = "Наш вих. №:", RefLabel = "Номер:", Subject = "Тема:",
             LetterDraft = "Чернетка: ще не затверджено.", LetterSuperseded = "Замінено: існує новіша версія.",
             SignedBy = "Підписано цифровим підписом: {0}.", SignedTest = "Підписано цифровим підписом VerbaFlow (тестовий сертифікат, ще не довірений).",
+            Translation = "Переклад", MachineTranslated = "Машинний переклад, не перевірений людиною. Офіційним є оригінал.",
         },
         ["af"] = () => English with
         {
@@ -263,6 +274,7 @@ public sealed record ExportWords
             OurRef = "Ons verw.:", RefLabel = "Verwysing:", Subject = "Onderwerp:",
             LetterDraft = "Konsep: nog nie goedgekeur nie.", LetterSuperseded = "Vervang: 'n nuwer weergawe bestaan.",
             SignedBy = "Digitaal onderteken deur {0}.", SignedTest = "Digitaal onderteken deur VerbaFlow (toetssertifikaat, nog nie vertrou nie).",
+            Translation = "Vertaling", MachineTranslated = "Masjienvertaling, nie deur 'n persoon nagegaan nie. Die oorspronklike is die amptelike rekord.",
         },
         ["zh"] = () => English with
         {
@@ -283,6 +295,7 @@ public sealed record ExportWords
             OurRef = "我方编号：", RefLabel = "参考号：", Subject = "主题：",
             LetterDraft = "草稿：尚未批准。", LetterSuperseded = "已被取代：已有更新版本。",
             SignedBy = "由 {0} 进行数字签名。", SignedTest = "由 VerbaFlow 进行数字签名（测试证书，尚未受信任）。",
+            Translation = "翻译", MachineTranslated = "机器翻译，未经人工核对。以原文为准。",
         },
         ["ja"] = () => English with
         {
@@ -303,6 +316,7 @@ public sealed record ExportWords
             OurRef = "当方参照番号：", RefLabel = "参照番号：", Subject = "件名：",
             LetterDraft = "下書き：まだ承認されていません。", LetterSuperseded = "置き換え済み：新しいバージョンがあります。",
             SignedBy = "{0} によるデジタル署名。", SignedTest = "VerbaFlow によるデジタル署名（テスト証明書、まだ信頼されていません）。",
+            Translation = "翻訳", MachineTranslated = "機械翻訳です。人による確認はしていません。原文が正式な記録です。",
         },
         ["ar"] = () => English with
         {
@@ -323,6 +337,7 @@ public sealed record ExportWords
             OurRef = "مرجعنا:", RefLabel = "المرجع:", Subject = "الموضوع:",
             LetterDraft = "مسودة: لم تعتمد بعد.", LetterSuperseded = "مستبدل: توجد نسخة أحدث.",
             SignedBy = "موقع رقميا من {0}.", SignedTest = "موقع رقميا من VerbaFlow (شهادة تجريبية، غير موثوقة بعد).",
+            Translation = "الترجمة", MachineTranslated = "ترجمة آلية لم يراجعها أحد. النص الأصلي هو السجل الرسمي.",
         },
     };
 

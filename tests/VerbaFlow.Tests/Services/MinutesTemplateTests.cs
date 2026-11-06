@@ -9,7 +9,7 @@ namespace VerbaFlow.Tests.Services;
 
 public class MinutesTemplateTests
 {
-    private static MinutesTemplateInput Input(string name = "House style", bool onLetterhead = false, bool times = true,
+    internal static MinutesTemplateInput Input(string name = "House style", bool onLetterhead = false, bool times = true,
         IReadOnlyList<TemplateSection>? sections = null, string font = "Times New Roman", bool isDefault = false) =>
         new(name, "Minutes: {name}", font, "#1F4FD1", "right", onLetterhead,
             sections ?? [new("minutes", "Discussion", true), new("actions", "Next steps", true), new("summary", "Overview", true),

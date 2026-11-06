@@ -21,7 +21,8 @@ public sealed record MinutesDocument(
     IReadOnlyList<MinutesPassage> Transcript,
     string Footer,
     string TranscriptHeading = "Transcript",
-    MinutesStyle? Style = null);
+    MinutesStyle? Style = null,
+    ApprovalStamp? Approval = null);
 
 /// <summary>How the minutes look (from a minutes template): font, title and heading colour, a logo, and the order and
 /// headings of the parts. The transcript's heading is <see cref="MinutesDocument.TranscriptHeading"/>.</summary>

@@ -18,7 +18,7 @@ namespace VerbaFlow.Infrastructure.Export;
 /// <param name="RefLabel">What goes in front of the reference: "Our ref:" on letters, "Reference:" otherwise.</param>
 public sealed record LetterDocument(string Title, string? Date, string? OurRef, string? Note, IReadOnlyList<string> Paragraphs,
     IReadOnlyList<string?>? Markers = null, LetterSignOff? SignOff = null, string? Heading = null, string RefLabel = "Our ref:",
-    bool LargeHeading = false);
+    bool LargeHeading = false, ApprovalStamp? Approval = null);
 
 /// <summary>The space a PDF letterhead leaves for the letter, in millimetres from the edges of the page.</summary>
 /// <param name="RepeatFirstPage">With a one-page PDF letterhead: true prints it behind every page, false behind the first page only.</param>
@@ -284,9 +284,16 @@ public static class LetterWriter
             name.Format.KeepWithNext = so.Title is not null;
             if (so.Title is not null) section.AddParagraph(PdfMinutesWriter.Clean(so.Title)).Format.SpaceAfter = 0;
         }
+        MigraDoc.DocumentObjectModel.Tables.Table? box = null;
+        if (letter.Approval is { } stamp)
+        {
+            section.AddParagraph().Format.SpaceAfter = Unit.FromPoint(10);
+            box = ApprovalBox.Add(section, stamp, right: false);
+        }
 
         var renderer = new PdfDocumentRenderer { Document = doc };
         renderer.RenderDocument();
+        if (box is not null) ApprovalBox.Mark(renderer, box);
         var pdf = renderer.PdfDocument;
         if (form is not null) DrawLetterhead(pdf, form, space);
         using var ms = new MemoryStream();

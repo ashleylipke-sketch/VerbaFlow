@@ -80,14 +80,19 @@ public sealed class PdfSigner
         {
             using var input = new MemoryStream(pdf, writable: false);
             using var document = PdfReader.Open(input, PdfDocumentOpenMode.Modify);
-            var options = new DigitalSignatureOptions
-            {
-                Reason = reason,
-                Location = "VerbaFlow",
-                AppName = "VerbaFlow",
-                ContactInfo = "",
-                PageIndex = 0,
-            };
+            // An approved PDF has a box with a line left for the signature: the signature is shown there.
+            var place = ApprovalBox.Take(document);
+            var options = place is not { } p
+                ? new DigitalSignatureOptions { Reason = reason, Location = "VerbaFlow", AppName = "VerbaFlow", ContactInfo = "", PageIndex = 0 }
+                : new DigitalSignatureOptions
+                {
+                    Reason = reason, Location = "VerbaFlow", AppName = "VerbaFlow", ContactInfo = "",
+                    PageIndex = p.Page,
+                    Rectangle = p.Rect,
+                    AppearanceHandler = new ApprovalBox.SignatureLine(Signature.TestCertificate
+                        ? "Digitally signed by VerbaFlow (test certificate, not yet trusted)."
+                        : $"Digitally signed by {Signature.SignedBy}."),
+                };
             DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256, null), options);
             using var output = new MemoryStream();
             await document.SaveAsync(output, false);

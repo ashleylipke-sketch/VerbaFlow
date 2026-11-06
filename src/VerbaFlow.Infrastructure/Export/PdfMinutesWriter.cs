@@ -76,6 +76,12 @@ public static class PdfMinutesWriter
             row.Cells[0].AddParagraph().AddFormattedText(Clean(label), TextFormat.Bold);
             row.Cells[1].AddParagraph(Clean(value));
         }
+        MigraDoc.DocumentObjectModel.Tables.Table? box = null;
+        if (d.Approval is { } stamp)
+        {
+            section.AddParagraph().Format.SpaceAfter = Unit.FromPoint(4);
+            box = ApprovalBox.Add(section, stamp, right: false);
+        }
 
         var earlier = false; // whether a part was printed before the transcript, which then starts on a new page
         foreach (var (part, heading) in style.Order)
@@ -127,6 +133,7 @@ public static class PdfMinutesWriter
 
         var renderer = new PdfDocumentRenderer { Document = doc };
         renderer.RenderDocument();
+        if (box is not null) ApprovalBox.Mark(renderer, box);
         if (form is not null) LetterWriter.DrawLetterhead(renderer.PdfDocument, form, space ?? new LetterSpace(55, 25, 30, 25));
         using var ms = new MemoryStream();
         renderer.PdfDocument.Save(ms, false);

@@ -2,6 +2,7 @@ using System.Security.Cryptography.Pkcs;
 using System.Text;
 using System.Text.RegularExpressions;
 using VerbaFlow.Infrastructure.Export;
+using VerbaFlow.Infrastructure.Services;
 
 namespace VerbaFlow.Tests.Services;
 
@@ -95,5 +96,86 @@ public class SigningTests
         Assert.False(signer.Signature.TestCertificate);
         Assert.Equal("Example Org", signer.Signature.SignedBy);
         Assert.False(File.Exists(Path.Combine(env.Dir, "keys", "test-signing.pfx")));
+    }
+}
+
+public class ApprovalBoxTests
+{
+    private static PdfSigner TestSigner(Env env) => PdfSigner.Create(null, null, Path.Combine(env.Dir, "keys"));
+
+    /// <summary>The rectangle of the signature field, in PDF points.</summary>
+    private static double[] SignatureRect(byte[] pdf)
+    {
+        var text = Encoding.Latin1.GetString(pdf);
+        var field = Regex.Match(text, @"/FT\s*/Sig", RegexOptions.Singleline);
+        Assert.True(field.Success, "no signature field");
+        var start = text.LastIndexOf("obj", field.Index, StringComparison.Ordinal);
+        var end = text.IndexOf("endobj", field.Index, StringComparison.Ordinal);
+        var rect = Regex.Match(text[start..end], @"/Rect\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]");
+        Assert.True(rect.Success, "no /Rect on the signature field");
+        return rect.Groups.Values.Skip(1).Select(g => double.Parse(g.Value, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+    }
+
+    [Fact]
+    public async Task An_approved_meeting_PDF_shows_the_approval_box_with_a_visible_valid_signature()
+    {
+        using var env = new Env();
+        var id = await env.ProcessedRecordingAsync();
+        await env.Meeting.ApproveAsync(env.Alice, id);
+        var exports = new ExportService(env.Stores, env.Clock, null, env.Reporter, TestSigner(env));
+        var file = await exports.ExportAsync(env.Alice, id, "pdf");
+        SigningTests.VerifySignature(file.Content);
+        var r = SignatureRect(file.Content);
+        Assert.True(r[2] - r[0] > 100 && r[3] - r[1] > 5, $"signature box too small: {string.Join(' ', r)}");
+        Assert.DoesNotContain("/VerbaFlowApprovalBox", Encoding.Latin1.GetString(file.Content));
+        File.WriteAllBytes(Path.Combine(Path.GetTempPath(), "vf-approved-minutes.pdf"), file.Content);
+    }
+
+    [Fact]
+    public async Task An_approved_letter_PDF_shows_the_box_and_a_draft_has_none()
+    {
+        using var env = new Env();
+        env.Speech.Heard = "Please call me back full stop";
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await env.Processing.ProcessAsync(id);
+        var exports = new ExportService(env.Stores, env.Clock, null, env.Reporter, TestSigner(env));
+
+        var draft = await exports.ExportAsync(env.Alice, id, "pdf");
+        SigningTests.VerifySignature(draft.Content);
+        var d = SignatureRect(draft.Content);
+        Assert.True(d[2] - d[0] == 0 && d[3] - d[1] == 0, "a draft's signature should be invisible");
+
+        await env.Meeting.ApproveAsync(env.Alice, id);
+        var file = await exports.ExportAsync(env.Alice, id, "pdf");
+        SigningTests.VerifySignature(file.Content);
+        var r = SignatureRect(file.Content);
+        Assert.True(r[2] - r[0] > 100, "signature box missing on the approved letter");
+        File.WriteAllBytes(Path.Combine(Path.GetTempPath(), "vf-approved-letter.pdf"), file.Content);
+    }
+
+    [Fact]
+    public async Task On_a_PDF_letterhead_the_box_and_signature_land_on_the_letterhead_sized_page()
+    {
+        using var env = new Env();
+        var letterheads = new LetterheadService(env.Stores, env.Clock);
+        await letterheads.UploadAsync(env.Carol, "pdf", new MemoryStream(LetterheadTests.PdfLetterhead()), "acme.pdf");
+        await new MinutesTemplateService(env.Stores, env.Clock).CreateAsync(env.Carol, MinutesTemplateTests.Input(onLetterhead: true));
+        var exports = new ExportService(env.Stores, env.Clock, null, env.Reporter, TestSigner(env));
+
+        env.Speech.Heard = "Dear Mr Smith comma new paragraph thank you for your letter full stop";
+        var letter = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await env.Processing.ProcessAsync(letter);
+        await env.Meeting.ApproveAsync(env.Alice, letter);
+        var meeting = await env.ProcessedRecordingAsync();
+        await env.Meeting.ApproveAsync(env.Alice, meeting);
+
+        foreach (var (id, name) in new[] { (letter, "letter"), (meeting, "minutes") })
+        {
+            var file = await exports.ExportAsync(env.Alice, id, "pdf");
+            SigningTests.VerifySignature(file.Content);
+            var r = SignatureRect(file.Content);
+            Assert.True(r[0] > 0 && r[2] < 612 && r[1] > 0 && r[3] < 792 - 120, $"{name}: box off the page or under the letterhead band: {string.Join(' ', r)}");
+            File.WriteAllBytes(Path.Combine(Path.GetTempPath(), $"vf-letterhead-{name}.pdf"), file.Content);
+        }
     }
 }

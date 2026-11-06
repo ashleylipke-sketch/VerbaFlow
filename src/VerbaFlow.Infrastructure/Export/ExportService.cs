@@ -177,6 +177,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         bool Has(string part) => parts.Contains(part);
 
         var shortRef = item.Id.ToString("N")[..8].ToUpperInvariant();
+        // Approved PDFs carry a box saying who approved them and when, with the visible digital signature in it.
+        var approval = marker == "Approved" && format == ExportFormats.Pdf ? new ApprovalStamp(Name(users, item.ApprovedBy), When(item.ApprovedAt!.Value)) : null;
         var doc = new MinutesDocument(
             template is null ? item.Name : MinutesTemplateService.TitleFor(template, item.Name, item.CreatedAt), marker, markerLine, details,
             Has(ExportParts.Summary) ? outputs?.Summary : null,
@@ -189,7 +191,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                     : transcript.Render().Where(r => r.Segment.Text.Length > 0).Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
                 : [],
             template is null ? $"VerbaFlow · {item.Name} · {marker} · reference {shortRef}" : MinutesTemplateService.Footer(template, item.Name, marker, shortRef),
-            dictation ? DocumentHeading(item.DocumentType) : "Transcript");
+            dictation ? DocumentHeading(item.DocumentType) : "Transcript",
+            Approval: approval);
 
         byte[] bytes;
         // Recorded in History so a plain letter can be explained: which letterhead was used, or why none.
@@ -209,7 +212,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 doc.Transcript.Select(t => t.Text).ToList(), doc.Transcript.Select(t => t.Marker).ToList(),
                 Heading: kind switch { "document" => item.Name, "email" => "Subject: " + item.Name, _ => null },
                 RefLabel: kind == "letter" ? "Our ref:" : "Reference:",
-                LargeHeading: kind == "document");
+                LargeHeading: kind == "document", Approval: approval);
             if (kind is "letter" or "email")
             {
                 // The author's sign-off goes under the letter or email; their signature picture only once it is approved.

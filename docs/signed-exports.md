@@ -26,6 +26,10 @@ Type the password into the command yourself; do not paste it into a chat. Restar
 
 To switch signing off: `dotnet user-secrets set "Signing:Enabled" "false"`.
 
+## The approval box on approved PDFs
+
+An approved PDF shows a small green box: **APPROVED**, who approved it and when, and a last line where the digital signature sits, for example "Digitally signed by VerbaFlow (test certificate, not yet trusted)." On minutes it is under the details table; on a letter, Word document or email it is after the text and the sign-off. In Adobe Reader, clicking that line should open the signature details (not yet checked). Drafts and superseded copies have no box (their signature stays invisible). Word files have no box and no signature.
+
 ## Where it shows in VerbaFlow
 
 - History: each `item.exported` of a PDF has `signature` (the certificate's name and the first 8 characters of its fingerprint), or `not signed (VF-…)` if signing failed. A failed signing never stops the export; the file goes out unsigned and the problem goes to Support: errors.
@@ -35,4 +39,3 @@ To switch signing off: `dotnet user-secrets set "Signing:Enabled" "false"`.
 
 - Keeping the certificate in Azure Key Vault (decision 13): planned for when VerbaFlow runs online.
 - A trusted timestamp, which keeps the signature checkable after the certificate expires.
-- A visible signature box on the page.

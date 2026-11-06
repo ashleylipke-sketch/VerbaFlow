@@ -15,10 +15,12 @@ COPY VerbaFlow.sln ./
 COPY src/ src/
 RUN dotnet publish src/VerbaFlow.Api/VerbaFlow.Api.csproj -c Release -r linux-x64 --self-contained false -o /app
 
-# 3. What runs: the server, the web pages, ffmpeg (audio clean-up) and what the Speech SDK needs on Linux.
+# 3. What runs: the server, the web pages, ffmpeg (audio clean-up), what the Speech SDK needs on Linux, and fonts for
+#    PDF exports (Latin, Arabic, Chinese and Japanese; the PDF embeds them, so readers do not need them).
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg ca-certificates libssl3t64 libasound2t64 curl \
+    fonts-liberation fonts-dejavu-core fonts-wqy-zenhei fonts-ipafont-gothic \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=server /app ./

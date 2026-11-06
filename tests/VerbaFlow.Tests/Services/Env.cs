@@ -19,10 +19,13 @@ public sealed class FakeAi : IAiOutputService
     public bool Fail { get; set; }
     public int Calls { get; private set; }
     public IReadOnlyList<VerbaFlow.Core.Transcripts.RenderedSegment>? LastTranscript { get; private set; }
+    /// <summary>When set, returned instead of the made-up summary.</summary>
+    public AiOutputs? Reply { get; set; }
     public Task<AiOutputs> GenerateAsync(IReadOnlyList<VerbaFlow.Core.Transcripts.RenderedSegment> transcript, string outputLanguage, CancellationToken ct)
     {
         Calls++; LastTranscript = transcript;
         if (Fail) throw new InvalidOperationException("ai service unavailable");
+        if (Reply is not null) return Task.FromResult(Reply);
         var names = string.Join(", ", transcript.Select(t => t.SpeakerName).Distinct().Order());
         return Task.FromResult(new AiOutputs("fake-ai", outputLanguage, $"Summary for {names} (call {Calls})", ["A: do it"], "Minutes", "Calm"));
     }

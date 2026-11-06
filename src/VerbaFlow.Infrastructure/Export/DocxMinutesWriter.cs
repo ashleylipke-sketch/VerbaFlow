@@ -12,7 +12,7 @@ public static class DocxMinutesWriter
     {
         var style = d.Style ?? MinutesStyle.Standard;
         if (letterhead is not null)
-            return LetterWriter.IntoLetterhead(letterhead, main => Content(d, style, main).Append(Para(d.Footer, size: 16, color: "666666", font: style.Font)));
+            return LetterWriter.IntoLetterhead(letterhead, main => Content(d, style, main).Select(DocxScripts.Mark).Append(Para(d.Footer, size: 16, color: "666666", font: style.Font)));
         using var ms = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(ms, WordprocessingDocumentType.Document))
         {
@@ -23,7 +23,7 @@ public static class DocxMinutesWriter
             var footerPart = main.AddNewPart<FooterPart>();
             footerPart.Footer = new Footer(Para(d.Footer, size: 16, color: "666666", font: style.Font));
             var footerId = main.GetIdOfPart(footerPart);
-            foreach (var e in Content(d, style, main)) body.Append(e);
+            foreach (var e in Content(d, style, main)) body.Append(DocxScripts.Mark(e));
 
             body.Append(new SectionProperties(
                 new FooterReference { Type = HeaderFooterValues.Default, Id = footerId },
@@ -42,7 +42,7 @@ public static class DocxMinutesWriter
             yield return LetterWriter.PictureParagraph(main, logo, LetterWriter.Fit(logo, MinutesStyle.LogoHeightMm, MinutesStyle.LogoMaxWidthMm),
                 "Logo", style.LogoPlace == "right");
         yield return Para(d.Title, bold: true, size: 36, color: style.Hex, font: f);
-        yield return Para(d.Marker.ToUpperInvariant(), bold: true, size: 24, color: d.Marker == "Approved" ? "1E7B34" : "B3261E", font: f);
+        yield return Para(d.W.Marker(d.Marker).ToUpper(d.W.Culture), bold: true, size: 24, color: d.Marker == "Approved" ? "1E7B34" : "B3261E", font: f);
         yield return Para(d.MarkerLine, size: 20, color: "444444", font: f);
 
         var table = new Table(new TableProperties(
@@ -123,7 +123,7 @@ public static class DocxMinutesWriter
     private static Run Run(string text, bool bold = false, int size = 22, string? color = null, string? font = null)
     {
         var rp = new RunProperties();
-        if (font is not null) rp.Append(new RunFonts { Ascii = font, HighAnsi = font, ComplexScript = font, EastAsia = font });
+        if (font is not null) rp.Append(new RunFonts { Ascii = font, HighAnsi = font, ComplexScript = font } /* Chinese and Japanese: Word picks its own East Asian font */);
         if (bold) rp.Append(new Bold());
         if (color is not null) rp.Append(new Color { Val = color });
         rp.Append(new FontSize { Val = size.ToString() });

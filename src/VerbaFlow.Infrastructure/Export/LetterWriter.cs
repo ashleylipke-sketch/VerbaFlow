@@ -18,7 +18,10 @@ namespace VerbaFlow.Infrastructure.Export;
 /// <param name="RefLabel">What goes in front of the reference: "Our ref:" on letters, "Reference:" otherwise.</param>
 public sealed record LetterDocument(string Title, string? Date, string? OurRef, string? Note, IReadOnlyList<string> Paragraphs,
     IReadOnlyList<string?>? Markers = null, LetterSignOff? SignOff = null, string? Heading = null, string RefLabel = "Our ref:",
-    bool LargeHeading = false, ApprovalStamp? Approval = null);
+    bool LargeHeading = false, ApprovalStamp? Approval = null, ExportWords? Words = null)
+{
+    public ExportWords W => Words ?? ExportWords.English;
+}
 
 /// <summary>The space a PDF letterhead leaves for the letter, in millimetres from the edges of the page.</summary>
 /// <param name="RepeatFirstPage">With a one-page PDF letterhead: true prints it behind every page, false behind the first page only.</param>
@@ -45,7 +48,7 @@ public static class LetterWriter
                 var main = doc.AddMainDocumentPart();
                 var body = new Body();
                 main.Document = new W.Document(body);
-                foreach (var p in Paragraphs(letter, plain: true, main)) body.Append(p);
+                foreach (var p in Paragraphs(letter, plain: true, main)) body.Append(DocxScripts.Mark(p));
                 body.Append(new SectionProperties(
                     new W.PageSize { Width = 11906, Height = 16838 }, // A4
                     new PageMargin { Top = 1418, Bottom = 1418, Left = 1418, Right = 1418, Header = 709, Footer = 709 }));
@@ -54,7 +57,7 @@ public static class LetterWriter
             return ms.ToArray(); // only complete once the document is closed
         }
 
-        return IntoLetterhead(letterhead, main => Paragraphs(letter, plain: false, main));
+        return IntoLetterhead(letterhead, main => Paragraphs(letter, plain: false, main).Select(DocxScripts.Mark));
     }
 
     /// <summary>
@@ -291,6 +294,7 @@ public static class LetterWriter
             box = ApprovalBox.Add(section, stamp, right: false);
         }
 
+        PdfScripts.Apply(doc, letter.W.Code);
         var renderer = new PdfDocumentRenderer { Document = doc };
         renderer.RenderDocument();
         if (box is not null) ApprovalBox.Mark(renderer, box);

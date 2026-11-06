@@ -22,7 +22,12 @@ public sealed record MinutesDocument(
     string Footer,
     string TranscriptHeading = "Transcript",
     MinutesStyle? Style = null,
-    ApprovalStamp? Approval = null);
+    ApprovalStamp? Approval = null,
+    ExportWords? Words = null)
+{
+    /// <summary>The fixed words in the document's language (English when none is given).</summary>
+    public ExportWords W => Words ?? ExportWords.English;
+}
 
 /// <summary>How the minutes look (from a minutes template): font, title and heading colour, a logo, and the order and
 /// headings of the parts. The transcript's heading is <see cref="MinutesDocument.TranscriptHeading"/>.</summary>

@@ -102,7 +102,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         return pieces.Select((x, i) => new MinutesPassage("", "", x.text, markers[i])).ToList();
     }
 
-    public static string DocumentHeading(string? type) => type switch { "letter" => "Letter", "document" => "Document", "email" => "Email", _ => "Text" };
+    public static string DocumentHeading(string? type) => ExportWords.English.DocumentHeading(type);
 
     private static string What(Item item) => item.IsDictation ? "the dictation" : "the minutes of";
 
@@ -150,37 +150,41 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         var superseded = all.Any(i => i.SupersedesItemId == id);
         var now = clock.GetUtcNow();
 
+        // Headings, labels and dates are printed in the language the summary is written in.
+        var w = ExportWords.For(item.OutputLanguage);
+        string When(DateTimeOffset at) => WhenIn(at, w);
         var marker = superseded ? "Superseded" : item.Status == ItemStatus.Completed ? "Approved" : "Draft";
         var markerLine = marker switch
         {
-            "Approved" => $"Approved by {Name(users, item.ApprovedBy)} on {When(item.ApprovedAt!.Value)}.",
-            "Superseded" => "A newer version of this meeting exists. This copy is kept for the record only.",
-            _ => "Not approved yet. The text may still change.",
+            "Approved" => string.Format(w.ApprovedBy, Name(users, item.ApprovedBy), When(item.ApprovedAt!.Value)),
+            "Superseded" => w.SupersededLine,
+            _ => w.NotApprovedLine,
         };
-        var ownerLabel = item.Source == SourceKind.Imported ? "Imported by" : "Recorded by";
+        var ownerLabel = item.Source == SourceKind.Imported ? w.ImportedBy : w.RecordedBy;
         var details = new List<(string, string)>
         {
-            (item.Source == SourceKind.Imported ? "Imported on" : "Recorded on", When(item.CreatedAt)),
-            ("Length", Length(item.LengthMs)),
+            (item.Source == SourceKind.Imported ? w.ImportedOn : w.RecordedOn, When(item.CreatedAt)),
+            (w.Length, w.LengthOf(item.LengthMs)),
             (ownerLabel, Name(users, item.OwnerId)),
         };
-        if (!string.IsNullOrWhiteSpace(item.ClientReference)) details.Add(("Client reference", item.ClientReference));
-        if (!string.IsNullOrWhiteSpace(item.Description)) details.Add(("Description", item.Description));
-        details.Add(("Languages", Languages(item.SpokenLanguages)));
+        if (!string.IsNullOrWhiteSpace(item.ClientReference)) details.Add((w.ClientReference, item.ClientReference));
+        if (!string.IsNullOrWhiteSpace(item.Description)) details.Add((w.Description, item.Description));
+        details.Add((w.Languages, Languages(item.SpokenLanguages, w)));
         var attached = (await stores.Attachments.ListAsync()).Where(a => a.ChainId == item.ChainId).OrderBy(a => a.AddedAt).Select(a => a.FileName).ToList();
-        if (attached.Count > 0) details.Add(("Attached files", string.Join(", ", attached) + " (kept in VerbaFlow)"));
-        details.Add(("Version", $"{item.VersionNo} (transcript version {transcript.Current.No})"));
-        details.Add(("Exported", $"{When(now)} by {actor.Name}"));
+        if (attached.Count > 0) details.Add((w.AttachedFiles, string.Join(", ", attached) + " " + w.KeptInVerbaFlow));
+        details.Add((w.Version, string.Format(w.VersionValue, item.VersionNo, transcript.Current.No)));
+        details.Add((w.Exported, string.Format(w.ExportedValue, When(now), actor.Name)));
         var everything = parts.Count == ExportParts.All.Count;
         if (!everything && !dictation) // in the template's order, under its headings
-            details.Add(("Contains", string.Join(", ", template!.Sections.Where(s => parts.Contains(s.Part)).Select(s => s.Heading))));
+            details.Add((w.Contains, string.Join(w.Code is "zh" or "ja" ? "、" : ", ",
+                template!.Sections.Where(s => parts.Contains(s.Part)).Select(s => MinutesTemplateService.HeadingIn(s, w)))));
         bool Has(string part) => parts.Contains(part);
 
         var shortRef = item.Id.ToString("N")[..8].ToUpperInvariant();
         // Approved PDFs carry a box saying who approved them and when, with the visible digital signature in it.
-        var approval = marker == "Approved" && format == ExportFormats.Pdf ? new ApprovalStamp(Name(users, item.ApprovedBy), When(item.ApprovedAt!.Value)) : null;
+        var approval = marker == "Approved" && format == ExportFormats.Pdf ? new ApprovalStamp(Name(users, item.ApprovedBy), When(item.ApprovedAt!.Value), w) : null;
         var doc = new MinutesDocument(
-            template is null ? item.Name : MinutesTemplateService.TitleFor(template, item.Name, item.CreatedAt), marker, markerLine, details,
+            template is null ? item.Name : MinutesTemplateService.TitleFor(template, item.Name, item.CreatedAt, w), marker, markerLine, details,
             Has(ExportParts.Summary) ? outputs?.Summary : null,
             Has(ExportParts.Actions) ? outputs?.ActionPoints ?? [] : [],
             Has(ExportParts.Minutes) ? (outputs?.Minutes ?? "").Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0).ToList() : [],
@@ -190,9 +194,9 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                     ? DictationText(transcript)
                     : transcript.Render().Where(r => r.Segment.Text.Length > 0).Select(r => new MinutesPassage(Clock(r.Segment.StartMs), r.SpeakerName, r.Segment.Text)).ToList()
                 : [],
-            template is null ? $"VerbaFlow · {item.Name} · {marker} · reference {shortRef}" : MinutesTemplateService.Footer(template, item.Name, marker, shortRef),
-            dictation ? DocumentHeading(item.DocumentType) : "Transcript",
-            Approval: approval);
+            template is null ? $"VerbaFlow · {item.Name} · {w.Marker(marker)} · {w.Reference} {shortRef}" : MinutesTemplateService.Footer(template, item.Name, marker, shortRef, w),
+            dictation ? w.DocumentHeading(item.DocumentType) : w.Transcript,
+            Approval: approval, Words: w);
 
         byte[] bytes;
         // Recorded in History so a plain letter can be explained: which letterhead was used, or why none.
@@ -204,15 +208,14 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             var kind = item.DocumentType;
             var letterDate = item.ApprovedAt ?? item.CreatedAt;
             var reference = string.IsNullOrWhiteSpace(item.ClientReference) ? null : item.ClientReference.Trim();
-            var what = kind switch { "letter" => "letter", "email" => "email", _ => "document" };
             var letter = new LetterDocument(item.Name,
-                kind == "letter" ? TimeZoneInfo.ConvertTime(letterDate, TimeZoneInfo.Local).ToString("d MMMM yyyy", CultureInfo.InvariantCulture) : null,
+                kind == "letter" ? w.Date(TimeZoneInfo.ConvertTime(letterDate, TimeZoneInfo.Local)) : null,
                 reference,
-                marker switch { "Approved" => null, "Superseded" => $"Superseded: a newer version of this {what} exists.", _ => "Draft: not approved yet." },
+                marker switch { "Approved" => null, "Superseded" => w.LetterSuperseded, _ => w.LetterDraft },
                 doc.Transcript.Select(t => t.Text).ToList(), doc.Transcript.Select(t => t.Marker).ToList(),
-                Heading: kind switch { "document" => item.Name, "email" => "Subject: " + item.Name, _ => null },
-                RefLabel: kind == "letter" ? "Our ref:" : "Reference:",
-                LargeHeading: kind == "document", Approval: approval);
+                Heading: kind switch { "document" => item.Name, "email" => w.Subject + " " + item.Name, _ => null },
+                RefLabel: kind == "letter" ? w.OurRef : w.RefLabel,
+                LargeHeading: kind == "document", Approval: approval, Words: w);
             if (kind is "letter" or "email")
             {
                 // The author's sign-off goes under the letter or email; their signature picture only once it is approved.
@@ -241,7 +244,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         {
             try
             {
-                bytes = await signer.SignAsync(bytes, $"Exported from VerbaFlow ({marker.ToLowerInvariant()})");
+                bytes = await signer.SignAsync(bytes, $"Exported from VerbaFlow ({marker.ToLowerInvariant()})", w);
                 signature = signer.Signature.Describe;
             }
             catch (Exception ex) when (reporter is not null)
@@ -304,20 +307,19 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     };
 
     /// <summary>Dates in the computer's own time zone, with the offset so the time is never ambiguous.</summary>
-    private static string When(DateTimeOffset t)
+    private static string When(DateTimeOffset t) => WhenIn(t, ExportWords.English);
+
+    internal static string WhenIn(DateTimeOffset t, ExportWords w)
     {
         var local = TimeZoneInfo.ConvertTime(t, TimeZoneInfo.Local);
         var offset = local.Offset;
         var zone = offset == TimeSpan.Zero ? "UTC" : $"UTC{(offset < TimeSpan.Zero ? "-" : "+")}{offset:hh\\:mm}";
-        return local.ToString("d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture) + " " + zone;
+        return local.ToString(w.DateTimeFormat, w.Culture) + " " + zone;
     }
-
-    private static string Length(int ms) => ms <= 0 ? "unknown" : TimeSpan.FromMilliseconds(ms) is var t && t.TotalHours >= 1
-        ? $"{(int)t.TotalHours} h {t.Minutes} min" : $"{t.Minutes} min {t.Seconds} s";
 
     private static string Clock(int ms) => TimeSpan.FromMilliseconds(ms) is var t && t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
 
-    private static string Languages(string codes) => codes == "auto" ? "Detected automatically"
+    private static string Languages(string codes, ExportWords w) => codes == "auto" ? w.DetectedAutomatically
         : string.Join(", ", codes.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => SpokenLanguageCatalogue.NameOf(c.Trim())));
 
     /// <summary>

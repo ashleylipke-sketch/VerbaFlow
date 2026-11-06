@@ -9,7 +9,10 @@ using PdfSharp.Pdf.Annotations;
 namespace VerbaFlow.Infrastructure.Export;
 
 /// <summary>Who approved an exported document and when, for the box printed on approved PDFs.</summary>
-public sealed record ApprovalStamp(string ApprovedBy, string ApprovedOn);
+public sealed record ApprovalStamp(string ApprovedBy, string ApprovedOn, ExportWords? Words = null)
+{
+    public ExportWords W => Words ?? ExportWords.English;
+}
 
 /// <summary>
 /// The approval box on an approved PDF: a small framed box saying who approved it and when. Its last line is left empty
@@ -43,14 +46,14 @@ public static class ApprovalBox
             head.KeepWith = 2;
             var hp = head.Cells[0].AddParagraph();
             hp.Format.SpaceAfter = 0;
-            var ht = hp.AddFormattedText("APPROVED", TextFormat.Bold);
+            var ht = hp.AddFormattedText(stamp.W.BoxHeading, TextFormat.Bold);
             ht.Font.Size = 10; ht.Font.Color = Green;
         }
 
         var by = table.AddRow();
         if (heading) by.Borders.Top.Visible = false; else by.TopPadding = Unit.FromPoint(4);
         by.Borders.Bottom.Visible = false;
-        var bp = by.Cells[0].AddParagraph($"Approved by {PdfMinutesWriter.Clean(stamp.ApprovedBy)} on {PdfMinutesWriter.Clean(stamp.ApprovedOn)}.");
+        var bp = by.Cells[0].AddParagraph(PdfMinutesWriter.Clean(string.Format(stamp.W.ApprovedBy, stamp.ApprovedBy, stamp.ApprovedOn)));
         bp.Format.Font.Size = 9; bp.Format.SpaceAfter = 0;
 
         var sig = table.AddRow(); // filled in by the signer
@@ -103,8 +106,8 @@ public static class ApprovalBox
     {
         public void DrawAppearance(XGraphics gfx, XRect rect)
         {
-            var font = new XFont(PdfMinutesWriter.Font, 7.5);
-            gfx.DrawString(text, font, new XSolidBrush(XColor.FromArgb(30, 123, 52)), new XRect(0, 0, rect.Width, rect.Height), XStringFormats.CenterLeft); // the appearance has its own origin at the box
+            // The appearance has its own origin at the box.
+            PdfScripts.DrawLine(gfx, text, 7.5, new XSolidBrush(XColor.FromArgb(30, 123, 52)), new XRect(0, 0, rect.Width, rect.Height));
         }
     }
 }

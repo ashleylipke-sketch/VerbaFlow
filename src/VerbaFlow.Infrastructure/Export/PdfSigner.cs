@@ -73,7 +73,7 @@ public sealed class PdfSigner
     }
 
     /// <summary>The same PDF with the signature added. <paramref name="reason"/> shows in the reader's signature panel.</summary>
-    public async Task<byte[]> SignAsync(byte[] pdf, string reason)
+    public async Task<byte[]> SignAsync(byte[] pdf, string reason, ExportWords? words = null)
     {
         await one.WaitAsync();
         try
@@ -90,8 +90,8 @@ public sealed class PdfSigner
                     PageIndex = p.Page,
                     Rectangle = p.Rect,
                     AppearanceHandler = new ApprovalBox.SignatureLine(Signature.TestCertificate
-                        ? "Digitally signed by VerbaFlow (test certificate, not yet trusted)."
-                        : $"Digitally signed by {Signature.SignedBy}."),
+                        ? (words ?? ExportWords.English).SignedTest
+                        : string.Format((words ?? ExportWords.English).SignedBy, Signature.SignedBy)),
                 };
             DigitalSignatureHandler.ForDocument(document, new PdfSharpDefaultSigner(certificate, PdfMessageDigestType.SHA256, null), options);
             using var output = new MemoryStream();

@@ -43,10 +43,11 @@ public static class PdfMinutesWriter
             var foot = section.Footers.Primary.AddParagraph();
             foot.Format.Font.Size = 7.5;
             foot.Format.Font.Color = Colors.Gray;
-            foot.AddText(Clean(d.Footer) + "   Page ");
+            foot.AddText(Clean(d.Footer) + "   " + d.W.PageBefore);
             foot.AddPageField();
-            foot.AddText(" of ");
+            foot.AddText(d.W.PageMiddle);
             foot.AddNumPagesField();
+            if (d.W.PageAfter.Length > 0) foot.AddText(d.W.PageAfter);
         }
 
         if (style.Logo is { } logo)
@@ -60,7 +61,7 @@ public static class PdfMinutesWriter
             image.Height = Unit.FromMillimeter(hmm);
         }
         Text(section, d.Title, bold: true, size: 18, color: colour);
-        Text(section, d.Marker.ToUpperInvariant(), bold: true, size: 12, color: d.Marker == "Approved" ? new Color(30, 123, 52) : new Color(179, 38, 30));
+        Text(section, d.W.Marker(d.Marker).ToUpper(d.W.Culture), bold: true, size: 12, color: d.Marker == "Approved" ? new Color(30, 123, 52) : new Color(179, 38, 30));
         if (d.Approval is null) Text(section, d.MarkerLine, size: 9, color: Colors.DimGray); // otherwise the approval box says it
 
         var width = section.PageSetup.PageWidth - section.PageSetup.LeftMargin - section.PageSetup.RightMargin;
@@ -131,6 +132,7 @@ public static class PdfMinutesWriter
             t.Font.Size = 7.5; t.Font.Color = Colors.Gray;
         }
 
+        PdfScripts.Apply(doc, d.W.Code);
         var renderer = new PdfDocumentRenderer { Document = doc };
         renderer.RenderDocument();
         if (box is not null) ApprovalBox.Mark(renderer, box);
@@ -190,6 +192,24 @@ public static class PdfMinutesWriter
         }
     }
 
+    private static HashSet<int>? arabicForms;
+
+    /// <summary>Whether the Arabic font found on this computer has a joined letter form (Unicode presentation forms).</summary>
+    internal static bool ArabicFontHas(int c)
+    {
+        if (c < 0xFB50) return true;
+        EnsureFonts();
+        lock (Gate)
+        {
+            if (arabicForms is null)
+            {
+                var font = SystemFontResolver.ScriptFont(PdfScripts.ArabicFont);
+                arabicForms = font is null ? [] : Enumerable.Range(0xFB50, 0xFEFF - 0xFB50).Where(x => FontFiles.Covers(font, [x])).ToHashSet();
+            }
+            return arabicForms.Contains(c);
+        }
+    }
+
     /// <summary>
     /// Finds a plain sans-serif font on the computer: Arial on Windows, Liberation Sans or DejaVu Sans on Linux.
     /// The font is embedded in the PDF, so readers do not need it.
@@ -239,6 +259,52 @@ public static class PdfMinutesWriter
             ],
         };
 
+        private static readonly string[] ScriptDirs =
+        [
+            "/usr/share/fonts/truetype/wqy", "/usr/share/fonts/opentype/ipafont-gothic", "/usr/share/fonts/truetype",
+            "/usr/share/fonts/truetype/droid", "/usr/share/fonts/truetype/freefont", "/usr/share/fonts/truetype/arphic",
+            "/usr/share/fonts/truetype/ipafont-gothic", "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf", "/System/Library/Fonts",
+        ];
+
+        private static readonly string[] Chinese = ["msyh.ttc", "msyh.ttf", "simhei.ttf", "Deng.ttf", "simsun.ttc", "wqy-zenhei.ttc",
+            "wqy-microhei.ttc", "DroidSansFallbackFull.ttf", "DroidSansFallback.ttf", "uming.ttc", "ukai.ttc", "Arial Unicode.ttf"];
+
+        // The files to look for and characters each must have (Arabic needs the joined letter forms).
+        private static readonly Dictionary<string, (string[] Files, int[] Sample)> ScriptSamples = new()
+        {
+            [PdfScripts.ChineseFont] = (Chinese, [0x4E2D, 0x8BAE, 0x8BB0, 0x5F55, 0x3002]),
+            [PdfScripts.JapaneseFont] = (["YuGothM.ttc", "YuGothR.ttc", "meiryo.ttc", "msgothic.ttc", "ipag.ttf", "ipagp.ttf",
+                "fonts-japanese-gothic.ttf", "ipaexg.ttf", .. Chinese], [0x306E, 0x30A2, 0x8B70, 0x4E8B, 0x9332]),
+            [PdfScripts.ArabicFont] = (["arial.ttf", "Arial.ttf", "tahoma.ttf", "segoeui.ttf", "times.ttf", "DejaVuSans.ttf",
+                "FreeSans.ttf", "FreeSerif.ttf"], [0x0627, 0xFE8D, 0xFE8E, 0xFEDF, 0xFEFB, 0xFE91, 0xFEE4]),
+        };
+
+        private static readonly Dictionary<string, byte[]?> ScriptCache = [];
+
+        /// <summary>The first font on the computer that has the script's characters, taken out of a collection if need be.</summary>
+        internal static byte[]? ScriptFont(string family)
+        {
+            lock (ScriptCache)
+            {
+                if (ScriptCache.TryGetValue(family, out var known)) return known;
+                var (files, sample) = ScriptSamples[family];
+                byte[]? found = null;
+                foreach (var name in files)
+                {
+                    foreach (var dir in Dirs.Concat(ScriptDirs).Where(d => !string.IsNullOrEmpty(d)).Distinct())
+                    {
+                        var path = Path.Combine(dir, name);
+                        if (!File.Exists(path)) continue;
+                        try { found = FontFiles.Fonts(File.ReadAllBytes(path)).FirstOrDefault(f => FontFiles.Covers(f, sample)); if (found is not null) found = FontFiles.FlattenNestedParts(found); }
+                        catch (IOException) { }
+                        if (found is not null) break;
+                    }
+                    if (found is not null) break;
+                }
+                return ScriptCache[family] = found;
+            }
+        }
+
         private static readonly Dictionary<string, string> Fallback = new(StringComparer.OrdinalIgnoreCase)
         {
             ["Georgia"] = "Times New Roman", ["Calibri"] = "Arial", ["Verdana"] = "Arial", ["Times New Roman"] = "Arial",
@@ -246,6 +312,8 @@ public static class PdfMinutesWriter
 
         public FontResolverInfo? ResolveTypeface(string familyName, bool bold, bool italic)
         {
+            // Arabic, Chinese and Japanese fonts seldom come in bold or italic, so PDFsharp makes them look bold or slanted.
+            if (ScriptSamples.ContainsKey(familyName)) return new FontResolverInfo(familyName + "|0", bold, italic);
             var family = familyName.StartsWith("VerbaFlow ") ? familyName["VerbaFlow ".Length..] : familyName;
             if (!Families.ContainsKey(family)) family = "Arial"; // "VerbaFlow Sans" and anything unknown
             var style = (bold, italic) switch { (true, true) => 3, (true, false) => 1, (false, true) => 2, _ => 0 };
@@ -256,6 +324,7 @@ public static class PdfMinutesWriter
         {
             var parts = faceName.Split('|');
             var family = parts[0];
+            if (ScriptSamples.ContainsKey(family)) return ScriptFont(family) ?? GetFont("Arial|0"); // without one: empty boxes, not a failed export
             var style = parts.Length > 1 && int.TryParse(parts[1], out var n) ? n : 0;
             for (var f = family; f is not null; f = Fallback.GetValueOrDefault(f))
             {

@@ -150,11 +150,12 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     {
         var transcript = t.Sections.FirstOrDefault(s => s.Part == "transcript");
         var style = new MinutesStyle(t.Font, t.Colour, await LogoAsync(t), t.LogoPlace,
-            t.Sections.Where(s => parts.Contains(s.Part)).Select(s => (s.Part, s.Heading)).ToList());
+            t.Sections.Where(s => parts.Contains(s.Part)).Select(s => (s.Part, HeadingIn(s, doc.W))).ToList());
         doc = doc with
         {
             Style = style,
-            TranscriptHeading = transcript?.Heading ?? doc.TranscriptHeading,
+            // A dictation keeps its own heading (Letter, Document...); a meeting's transcript takes the template's.
+            TranscriptHeading = transcript is null || doc.TranscriptHeading != doc.W.Transcript ? doc.TranscriptHeading : HeadingIn(transcript, doc.W),
             Transcript = t.TranscriptTimes ? doc.Transcript : doc.Transcript.Select(p => p with { Time = "" }).ToList(),
         };
         if (!t.OnLetterhead)
@@ -172,16 +173,24 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     }
 
     /// <summary>The title line: {name} becomes the meeting's name and {date} the day it was recorded.</summary>
-    public static string TitleFor(MinutesTemplate t, string name, DateTimeOffset recorded)
+    public static string TitleFor(MinutesTemplate t, string name, DateTimeOffset recorded, ExportWords? words = null)
     {
-        var day = TimeZoneInfo.ConvertTime(recorded, TimeZoneInfo.Local).ToString("d MMMM yyyy", CultureInfo.InvariantCulture);
+        var day = (words ?? ExportWords.English).Date(TimeZoneInfo.ConvertTime(recorded, TimeZoneInfo.Local));
         var title = Placeholder().Replace(t.Title, m => m.Value.ToLowerInvariant() switch { "{name}" => name, "{date}" => day, _ => m.Value }).Trim();
         return title.Length == 0 ? name : title;
     }
 
     /// <summary>The footer: the template's text, then the meeting's name, marker and reference (always kept, so a printout can be traced).</summary>
-    public static string Footer(MinutesTemplate t, string name, string marker, string reference) =>
-        string.Join(" · ", new[] { t.FooterText, name, marker, "reference " + reference }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    public static string Footer(MinutesTemplate t, string name, string marker, string reference, ExportWords? words = null)
+    {
+        var w = words ?? ExportWords.English;
+        return string.Join(" · ", new[] { t.FooterText, name, w.Marker(marker), w.Reference + " " + reference }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    /// <summary>A part's heading in the export's language: a heading left as VerbaFlow's English default is translated,
+    /// one the admin typed is printed exactly as typed.</summary>
+    public static string HeadingIn(TemplateSection s, ExportWords w) =>
+        MinutesTemplate.StandardSections.Any(d => d.Part == s.Part && d.Heading == s.Heading) ? w.Heading(s.Part) : s.Heading;
 
     [GeneratedRegex(@"\{(name|date)\}", RegexOptions.IgnoreCase)]
     private static partial Regex Placeholder();

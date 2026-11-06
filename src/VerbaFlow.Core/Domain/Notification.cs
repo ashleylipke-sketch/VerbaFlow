@@ -26,7 +26,7 @@ public static class NotificationGroups
     [
         (Work, "Assigned to you, returned to you, approved, reopened or deleted", false),
         (Ready, "A recording is ready, could not be converted, or a note-taker could not record", false),
-        (Notes, "Someone left a note on a recording you work on", false),
+        (Notes, "Someone left a note or a comment on a recording you work on", false),
         (Due, "Due tomorrow, due today or overdue", false),
         (Approvals, "A reopen, delete or retention change needs an administrator to agree", true),
     ];

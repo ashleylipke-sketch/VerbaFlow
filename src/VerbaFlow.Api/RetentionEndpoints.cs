@@ -74,3 +74,19 @@ public static class NoteEndpoints
         api.MapDelete("/items/{id:guid}/notes/{nid:guid}", (HttpContext h, NoteService n, Guid id, Guid nid) => n.RemoveAsync(h.Current(), id, nid));
     }
 }
+
+public static class CommentEndpoints
+{
+    public sealed record CommentBody(Guid SegmentId, int From, int To, string? Text);
+    public sealed record ReplyBody(string? Text);
+    public sealed record ResolvedBody(bool Resolved);
+
+    public static void MapCommentEndpoints(this RouteGroupBuilder api)
+    {
+        api.MapGet("/items/{id:guid}/comments", (HttpContext h, CommentService c, Guid id) => c.ListAsync(h.Current(), id));
+        api.MapPost("/items/{id:guid}/comments", (HttpContext h, CommentService c, Guid id, CommentBody b) => c.AddAsync(h.Current(), id, b.SegmentId, b.From, b.To, b.Text));
+        api.MapPost("/items/{id:guid}/comments/{cid:guid}/replies", (HttpContext h, CommentService c, Guid id, Guid cid, ReplyBody b) => c.ReplyAsync(h.Current(), id, cid, b.Text));
+        api.MapPut("/items/{id:guid}/comments/{cid:guid}/resolved", (HttpContext h, CommentService c, Guid id, Guid cid, ResolvedBody b) => c.SetResolvedAsync(h.Current(), id, cid, b.Resolved));
+        api.MapDelete("/items/{id:guid}/comments/{cid:guid}", (HttpContext h, CommentService c, Guid id, Guid cid) => c.RemoveAsync(h.Current(), id, cid));
+    }
+}

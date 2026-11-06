@@ -114,6 +114,21 @@ public sealed class NotificationService(Stores stores, IEmailSender email, TimeP
                 return To([item.OwnerId, item.AssignedUserId, .. writers], NotificationGroups.Notes,
                     $"{c.Who(actor)} left a note on {c.Title(item.Id)}.", item.Id, ItemLink(item.Id) + "?notes=1");
             }
+            case "comment.added" when item is not null:
+            {
+                // The owner, the person it is assigned to, and everyone who already commented on this recording.
+                var writers = (await stores.Comments.ListAsync()).Where(x => x.ChainId == item.ChainId).Select(x => (Guid?)x.AuthorId);
+                return To([item.OwnerId, item.AssignedUserId, .. writers], NotificationGroups.Notes,
+                    $"{c.Who(actor)} commented on {c.Title(item.Id)}.", item.Id, ItemLink(item.Id) + $"?comment={GuidOf(d, "comment")}");
+            }
+            case "comment.replied" when item is not null && GuidOf(d, "comment") is { } cid:
+            {
+                // Everyone in that comment's conversation, plus the owner and the person it is assigned to.
+                var thread = await stores.Comments.GetAsync(cid);
+                var people = thread is null ? [] : thread.Replies.Select(r => (Guid?)r.AuthorId).Append(thread.AuthorId);
+                return To([item.OwnerId, item.AssignedUserId, .. people], NotificationGroups.Notes,
+                    $"{c.Who(actor)} replied to a comment on {c.Title(item.Id)}.", item.Id, ItemLink(item.Id) + $"?comment={cid}");
+            }
             case "item.returned_to_owner" when item is not null:
                 return To([item.OwnerId], NotificationGroups.Work, $"{c.Who(actor)} returned {c.Title(item.Id)} to you.", item.Id, ItemLink(item.Id));
             case "item.approved" when item is not null:

@@ -3,6 +3,7 @@ import DueDate, { todayIso } from '../DueDate';
 import { scrollIntoClearView } from '../clearView';
 import AttachmentsCard from '../AttachmentsCard';
 import NotesCard from '../NotesCard';
+import CommentsCard, { CommentPicker, commentMarks, type CommentList, type CommentMark, type CommentRow } from '../CommentsCard';
 import RetentionLine from '../RetentionLine';
 import type { RefObject } from 'react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -70,6 +71,11 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
   const [changesChoice, setChangesChoice] = useState<boolean | null>(null);
   // After a correction ("Rhys" to "Reiss"), the same words elsewhere in the transcript, offered for changing in one go.
   const [offers, setOffers] = useState<{ from: string; to: string; count: number }[]>([]);
+  // Comments on words of the text, and the one to bring into view (from a bell notice, or a 💬 mark in the text).
+  const [comments, setComments] = useState<CommentList | null>(null);
+  const [commentFocus, setCommentFocus] = useState<string | null>(() => /[?&]comment=([0-9a-f-]{36})/.exec(location.hash)?.[1] ?? null);
+  const marks = useMemo(() => commentMarks(comments), [comments]);
+  const textArea = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +84,7 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
       api.transcript(id).then(setT).catch(() => setT(null));
       api.outputs(id).then(setO).catch(() => setO(null));
       api.audit(id).then(setAudit).catch(() => setAudit([]));
+      api.get<CommentList>(`/items/${id}/comments`).then(setComments).catch(() => setComments(null));
     } catch (e: any) { setError(e.message); }
   }, [id]);
   useEffect(() => { load(); const i = setInterval(() => { if (d?.processingState === 'Processing') load(); }, 3000); return () => clearInterval(i); }, [load, d?.processingState]);
@@ -189,6 +196,17 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
     setOffers(v => v.filter(x => x.from !== from || x.to !== to));
   });
   const seek = (ms: number) => { const a = player.current; if (!a) return; a.currentTime = ms / 1000; a.play().catch(() => undefined); };
+  // A comment's words in the text: scrolled into view and outlined; the player is put there without playing.
+  const showComment = (c: CommentRow) => {
+    const a = player.current;
+    if (a) a.currentTime = c.atMs / 1000;
+    const word = c.place && document.querySelector<HTMLElement>(`[data-cseg="${CSS.escape(c.place.segmentId)}"][data-ci="${c.place.from}"]`);
+    const el = (word?.closest<HTMLElement>('.seg, .para')) ?? null;
+    if (!el) return;
+    scrollIntoClearView(el);
+    // After the player has moved, which re-draws the passage being read.
+    setTimeout(() => { el.classList.add('found'); setTimeout(() => el.classList.remove('found'), 4000); }, 300);
+  };
   // Opened from Search: show the passage that matched (once), and put the player there without starting it.
   const jumped = useRef('');
   useEffect(() => {
@@ -302,7 +320,7 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
         : <audio ref={player as RefObject<HTMLAudioElement>} controls src={audioUrl} onLoadedMetadata={fixDuration} style={{ width: '100%' }} />}
         <PlayerBar player={player} playing={playing}>{undoButtons}</PlayerBar></div>}
       <div className="split">
-        <div className="card">
+        <div className="card" ref={textArea}>
           <h2>{dictate ? docLabel(d.documentType) : 'Transcript'} {t && <span className="note">version {t.versionNo} · {t.engine}</span>}
             {!audioUrl && undoButtons}</h2>
           {!t && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No transcript.'}</p>}
@@ -320,13 +338,14 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
               <button className="primary" onClick={() => replaceAll(x.from, x.to)}>Change {x.count === 1 ? 'it' : `all ${x.count}`}</button>
               <button onClick={() => setOffers(v => v.filter(y => y !== x))}>Leave them</button>
               <span className="note">Tip: add “{x.to}” on the <a href="#/vocabulary">Vocabulary</a> page so it is heard right next time.</span></div></div>)}
-          {dictate && t && <DocumentView d={d} t={t} timed={timed} pos={pos} playing={playing} canSeek={!!audioUrl} onSeek={seek}
+          {comments?.canAdd && t && <CommentPicker id={id} area={textArea} onAdded={(l, nid) => { setComments(l); setCommentFocus(nid); api.audit(id).then(setAudit).catch(() => {}); }} />}
+          {dictate && t && <DocumentView marks={marks} onMark={setCommentFocus} d={d} t={t} timed={timed} pos={pos} playing={playing} canSeek={!!audioUrl} onSeek={seek}
             editable={d.canEditTranscript} showChanges={showChanges}
             onSave={async edits => { for (const [sid, text] of edits) await api.put(`/items/${id}/segments/${sid}`, { text }); offerSwaps(edits); }} onSaved={load} onError={setError}
             onJoin={sid => run(() => api.post(`/items/${id}/segments/${sid}/join`))} />}
           {!dictate && t?.segments.map((s, i) => (s.text || (showChanges && s.originalText !== null)) && <SegmentRow
             canMerge={d.canEditTranscript && !!s.text && t.segments.slice(0, i).some(x => x.text)}
-            onMerge={() => run(() => api.post(`/items/${id}/segments/${s.id}/merge`))}
+            onMerge={() => run(() => api.post(`/items/${id}/segments/${s.id}/merge`))} marks={marks.get(s.id)} onMark={setCommentFocus}
             speakers={t.speakers} onGive={g => run(() => api.post(`/items/${id}/segments/${s.id}/speaker`, g))} key={s.id} s={s} words={timed[i] ?? []} active={pos.seg === i} activeWord={pos.seg === i ? pos.word : -1}
             playing={playing} canSeek={!!audioUrl} onSeek={seek} editable={d.canEditTranscript} hideSpeaker={dictate}
             showChanges={showChanges}
@@ -334,6 +353,8 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
           {!d.canEditTranscript && t && <p className="note">This transcript is read-only for you right now.</p>}
         </div>
         <div>
+          {t && <CommentsCard id={id} list={comments} setList={setComments} focus={commentFocus} onShow={showComment}
+            onChange={() => api.audit(id).then(setAudit).catch(() => {})} />}
           {t && d.canEditTranscript && d.processingState !== 'Processing' && <GrammarCard itemId={id} onSaved={load} />}
           {t && !dictate && (o || d.canEditTranscript) && <div className="card"><h2>Summary</h2>
             {!o && <p className="note">{d.processingState === 'Processing' ? 'Not ready yet.' : 'No summary yet.'}</p>}
@@ -401,11 +422,12 @@ export default function ItemPage({ id, at, seg }: { id: string; at?: number; seg
 
 type WordT = { text: string; startMs: number; endMs: number };
 
-function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, hideSpeaker, canMerge, onMerge, speakers, onGive }: {
+function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, editable, onSave, showChanges, hideSpeaker, canMerge, onMerge, speakers, onGive, marks, onMark }: {
   s: Transcript['segments'][number]; words: WordT[]; active: boolean; activeWord: number;
   playing: boolean; canSeek: boolean; onSeek: (ms: number) => void; editable: boolean; onSave: (t: string) => void;
   showChanges: boolean; hideSpeaker?: boolean; canMerge?: boolean; onMerge?: () => void;
   speakers?: Transcript['speakers']; onGive?: (g: GiveWords) => void;
+  marks?: CommentMark[]; onMark?: (commentId: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [giving, setGiving] = useState(false);
@@ -425,11 +447,12 @@ function SegmentRow({ s, words, active, activeWord, playing, canSeek, onSeek, ed
   const word = (i: number) => {
     const w = words[i];
     if (!w) return null;
-    return (
-      <span className={'w' + (i === activeWord ? ' now' : '')} role={canSeek ? 'button' : undefined} tabIndex={canSeek ? 0 : undefined}
+    return <>
+      <span className={'w' + (i === activeWord ? ' now' : '') + (inComment(marks, i) ? ' commented' : '')} data-cseg={s.id} data-ci={i}
+        role={canSeek ? 'button' : undefined} tabIndex={canSeek ? 0 : undefined}
         onClick={canSeek ? () => onSeek(w.startMs) : undefined}
         onKeyDown={canSeek ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(w.startMs); } } : undefined}>{w.text}</span>
-    );
+      <CommentEnds marks={marks} i={i} onMark={onMark} /></>;
   };
   const marked = showChanges && s.originalText !== null;
   const ops = marked ? diffWords(s.originalText!, s.text) : null;
@@ -516,7 +539,8 @@ function GiveToSpeaker({ s, speakers, onGive, onCancel }: {
 const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
 /** A dictation shown as the letter, Word document or email the person said it was. */
-function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError, onJoin }: {
+function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError, onJoin, marks, onMark }: {
+  marks: Map<string, CommentMark[]>; onMark: (commentId: string) => void;
   d: Detail; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
   onSeek: (ms: number) => void; editable: boolean; showChanges: boolean;
   onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void; onJoin: (segmentId: string) => void;
@@ -537,7 +561,7 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
           <div><b>Subject</b> {d.row.name}</div>
           {d.clientReference && <div><b>Reference</b> {d.clientReference}</div>}</div>}
         {type === 'document' && <h1 className="page-title">{d.row.name}</h1>}
-        {paras.map((pieces, k) => <Paragraph key={`${t.segments[pieces[0].seg].id}-${pieces[0].from}`} pieces={pieces} marker={markers[k]} t={t} timed={timed} pos={pos} playing={playing}
+        {paras.map((pieces, k) => <Paragraph marks={marks} onMark={onMark} key={`${t.segments[pieces[0].seg].id}-${pieces[0].from}`} pieces={pieces} marker={markers[k]} t={t} timed={timed} pos={pos} playing={playing}
           canSeek={canSeek} onSeek={onSeek} editable={editable} showChanges={showChanges} onSave={onSave} onSaved={onSaved} onError={onError}
           onJoin={k > 0 && pieces[0].from === 0 ? () => onJoin(t.segments[pieces[0].seg].id) : undefined} />)}
       </article>
@@ -545,7 +569,8 @@ function DocumentView({ d, t, timed, pos, playing, canSeek, onSeek, editable, sh
   );
 }
 
-function Paragraph({ pieces, marker, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError, onJoin }: {
+function Paragraph({ pieces, marker, t, timed, pos, playing, canSeek, onSeek, editable, showChanges, onSave, onSaved, onError, onJoin, marks, onMark }: {
+  marks: Map<string, CommentMark[]>; onMark: (commentId: string) => void;
   pieces: Piece[]; marker: string | null; t: Transcript; timed: WordT[][]; pos: { seg: number; word: number }; playing: boolean; canSeek: boolean;
   onSeek: (ms: number) => void; editable: boolean; showChanges: boolean;
   onSave: (edits: [string, string][]) => Promise<void>; onSaved: () => void; onError: (m: string) => void;
@@ -594,7 +619,7 @@ function Paragraph({ pieces, marker, t, timed, pos, playing, canSeek, onSeek, ed
       {pieces.map(p => {
         const s = t.segments[p.seg];
         return <span key={`${s.id}-${p.from}`} className={s.lowConfidence ? 'low-c' : undefined} title={s.lowConfidence ? 'Hard to hear. Please check.' : undefined}>
-          <Words s={s} words={timed[p.seg] ?? []} from={p.from} to={p.to} activeWord={pos.seg === p.seg ? pos.word : -1} canSeek={canSeek} onSeek={onSeek} showChanges={showChanges} />{' '}</span>;
+          <Words s={s} words={timed[p.seg] ?? []} from={p.from} to={p.to} activeWord={pos.seg === p.seg ? pos.word : -1} canSeek={canSeek} onSeek={onSeek} showChanges={showChanges} marks={marks.get(s.id)} onMark={onMark} />{' '}</span>;
       })}
       {editable && <button className="link para-edit" onClick={() => { edit.pause(); setEditing(true); }}>Edit</button>}
       {editable && onJoin && <button className="link para-edit" onClick={onJoin} title="This paragraph carries on the one above, with no break between them">Join to paragraph above</button>}
@@ -602,15 +627,18 @@ function Paragraph({ pieces, marker, t, timed, pos, playing, canSeek, onSeek, ed
 }
 
 /** Words [from, to) of a passage, with tracked changes when shown. Removed words appear with the word that follows them. */
-function Words({ s, words, from, to, activeWord, canSeek, onSeek, showChanges }: {
+function Words({ s, words, from, to, activeWord, canSeek, onSeek, showChanges, marks: cmarks, onMark }: {
   s: Transcript['segments'][number]; words: WordT[]; from: number; to: number; activeWord: number; canSeek: boolean; onSeek: (ms: number) => void; showChanges: boolean;
+  marks?: CommentMark[]; onMark?: (commentId: string) => void;
 }) {
   const word = (i: number) => {
     const w = words[i];
     if (!w) return null;
-    return <span className={'w' + (i === activeWord ? ' now' : '')} role={canSeek ? 'button' : undefined} tabIndex={canSeek ? 0 : undefined}
+    return <><span className={'w' + (i === activeWord ? ' now' : '') + (inComment(cmarks, i) ? ' commented' : '')} data-cseg={s.id} data-ci={i}
+      role={canSeek ? 'button' : undefined} tabIndex={canSeek ? 0 : undefined}
       onClick={canSeek ? () => onSeek(w.startMs) : undefined}
-      onKeyDown={canSeek ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(w.startMs); } } : undefined}>{w.text}</span>;
+      onKeyDown={canSeek ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSeek(w.startMs); } } : undefined}>{w.text}</span>
+      <CommentEnds marks={cmarks} i={i} onMark={onMark} /></>;
   };
   // Saved text put in by "insert" is shaded, with its code shown where it starts.
   const marks = s.savedText ?? [];
@@ -638,4 +666,14 @@ function Words({ s, words, from, to, activeWord, canSeek, onSeek, showChanges }:
 function FitArea({ value, label, onChange }: { value: string; label: string; onChange: (v: string) => void }) {
   const ref = useFit(value);
   return <textarea ref={ref} className="fit" rows={2} value={value} aria-label={label} onChange={e => onChange(e.target.value)} />;
+}
+
+/** Whether word i of a passage is inside an open comment. */
+const inComment = (marks: CommentMark[] | undefined, i: number) => !!marks?.some(m => i >= m.from && i < m.to);
+
+/** A small 💬 after the last word of each open comment, which brings that comment into view. */
+function CommentEnds({ marks, i, onMark }: { marks?: CommentMark[]; i: number; onMark?: (commentId: string) => void }) {
+  const ending = marks?.filter(m => m.to - 1 === i) ?? [];
+  return <>{ending.map(m => <button key={m.id} className="commented-mark" title="Show the comment" aria-label="Show the comment"
+    onClick={e => { e.stopPropagation(); onMark?.(m.id); }}>💬</button>)}</>;
 }

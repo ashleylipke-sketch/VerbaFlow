@@ -6,7 +6,7 @@ When you choose **Export ▾ → Email… → Put it in my Outlook drafts**, Ver
 
 ## What it needs
 - **A Microsoft sign-in.** The button only shows for people signed in with their Microsoft work account, not for the test users (Alice, Bob…).
-- **A Microsoft 365 (Exchange Online) mailbox for that account.** A Microsoft account whose Outlook only shows a Gmail or other account has no mailbox VerbaFlow can reach. In that case VerbaFlow says so in a plain sentence with a VF- reference, and you can use the email file instead.
+- **A Microsoft 365 (Exchange Online) mailbox for that account.** A Microsoft account whose Outlook only shows a Gmail or other account has no mailbox VerbaFlow can reach. In that case VerbaFlow says so in a plain sentence with a VF- reference, and you can use the email file instead. If the whole Microsoft directory has no Exchange Online subscription, Microsoft answers "AADSTS500014 … outlook.office365.com is disabled"; that is shown the same way. A Microsoft 365 plan that includes Exchange Online (for example Business Basic) for the signed-in account fixes it.
 - **VerbaFlow's client secret and one permission**, set up once by an administrator (below).
 
 ## Setting it up (once, by an administrator)

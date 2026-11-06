@@ -97,6 +97,9 @@ public class OutlookDraftTests
     {
         var (drafts, _) = Graph((r, _) => Json(HttpStatusCode.NotFound, """{"error":{"code":"MailboxNotEnabledForRESTAPI","message":"REST API is not yet supported for this mailbox."}}"""));
         await Assert.ThrowsAsync<NoMailboxException>(() => drafts.CreateAsync(Signed, "user-token", new EmailMessage([], "s", "t", []), default));
+        // A directory with no Exchange Online subscription (seen on the owner's own directory, 2026-11-06).
+        var (noExchange, _) = Graph((r, _) => Json(HttpStatusCode.BadRequest, """{"error":{"code":"AuthenticationError","message":"AADSTS500014: The service principal for resource 'https://outlook.office365.com/' is disabled."}}"""));
+        await Assert.ThrowsAsync<NoMailboxException>(() => noExchange.CreateAsync(Signed, "user-token", new EmailMessage([], "s", "t", []), default));
 
         var refusing = new GraphMailDrafts(new HttpClient(new Handler((r, _) =>
             Json(HttpStatusCode.BadRequest, """{"error":"invalid_grant","error_description":"AADSTS65001: The user or administrator has not consented."}"""))), Options, new FixedClock());

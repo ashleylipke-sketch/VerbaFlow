@@ -86,7 +86,9 @@ public sealed class GraphMailDrafts(HttpClient http, GraphOptions options, TimeP
         string? code = null;
         try { code = JsonNode.Parse(body)?["error"]?["code"]?.GetValue<string>(); } catch (System.Text.Json.JsonException) { }
         if (code is "MailboxNotEnabledForRESTAPI" or "MailboxNotHostedInExchangeOnline" or "OrganizationFromTenantGuidNotFound" or "ErrorMailboxNotFound"
-            or "ResourceNotFound" or "ErrorInvalidUser" || status == HttpStatusCode.NotFound)
+            or "ResourceNotFound" or "ErrorInvalidUser" || status == HttpStatusCode.NotFound
+            // AADSTS500014 for Exchange Online: the directory has no (or a lapsed) Exchange Online subscription.
+            || (body.Contains("AADSTS500014") && body.Contains("outlook.office365.com")))
             return new NoMailboxException($"Microsoft Graph found no mailbox ({(int)status} {code}): {detail}");
         return new ProviderException(status switch
         {

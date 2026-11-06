@@ -25,7 +25,7 @@ public static class ApprovalBox
     private static readonly Color Green = new(30, 123, 52);
 
     /// <summary>Adds the box to the section (kept on one page); returns the table so its place can be found after layout.</summary>
-    public static Table Add(Section section, ApprovalStamp stamp, bool right)
+    public static Table Add(Section section, ApprovalStamp stamp, bool right, bool heading = true)
     {
         var table = section.AddTable();
         table.Borders.Width = 0.75;
@@ -35,17 +35,21 @@ public static class ApprovalBox
         table.AddColumn(Unit.FromMillimeter(WidthMm));
         table.Format.KeepWithNext = true;
 
-        var head = table.AddRow();
-        head.Borders.Bottom.Visible = false;
-        head.TopPadding = Unit.FromPoint(4);
-        head.KeepWith = 2;
-        var hp = head.Cells[0].AddParagraph();
-        hp.Format.SpaceAfter = 0;
-        var ht = hp.AddFormattedText("APPROVED", TextFormat.Bold);
-        ht.Font.Size = 10; ht.Font.Color = Green;
+        if (heading) // minutes already say APPROVED at the top, so their box leaves it out
+        {
+            var head = table.AddRow();
+            head.Borders.Bottom.Visible = false;
+            head.TopPadding = Unit.FromPoint(4);
+            head.KeepWith = 2;
+            var hp = head.Cells[0].AddParagraph();
+            hp.Format.SpaceAfter = 0;
+            var ht = hp.AddFormattedText("APPROVED", TextFormat.Bold);
+            ht.Font.Size = 10; ht.Font.Color = Green;
+        }
 
         var by = table.AddRow();
-        by.Borders.Top.Visible = false; by.Borders.Bottom.Visible = false;
+        if (heading) by.Borders.Top.Visible = false; else by.TopPadding = Unit.FromPoint(4);
+        by.Borders.Bottom.Visible = false;
         var bp = by.Cells[0].AddParagraph($"Approved by {PdfMinutesWriter.Clean(stamp.ApprovedBy)} on {PdfMinutesWriter.Clean(stamp.ApprovedOn)}.");
         bp.Format.Font.Size = 9; bp.Format.SpaceAfter = 0;
 

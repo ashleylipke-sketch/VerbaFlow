@@ -61,7 +61,7 @@ public static class PdfMinutesWriter
         }
         Text(section, d.Title, bold: true, size: 18, color: colour);
         Text(section, d.Marker.ToUpperInvariant(), bold: true, size: 12, color: d.Marker == "Approved" ? new Color(30, 123, 52) : new Color(179, 38, 30));
-        Text(section, d.MarkerLine, size: 9, color: Colors.DimGray);
+        if (d.Approval is null) Text(section, d.MarkerLine, size: 9, color: Colors.DimGray); // otherwise the approval box says it
 
         var width = section.PageSetup.PageWidth - section.PageSetup.LeftMargin - section.PageSetup.RightMargin;
         var table = section.AddTable();
@@ -80,7 +80,7 @@ public static class PdfMinutesWriter
         if (d.Approval is { } stamp)
         {
             section.AddParagraph().Format.SpaceAfter = Unit.FromPoint(4);
-            box = ApprovalBox.Add(section, stamp, right: false);
+            box = ApprovalBox.Add(section, stamp, right: false, heading: false);
         }
 
         var earlier = false; // whether a part was printed before the transcript, which then starts on a new page

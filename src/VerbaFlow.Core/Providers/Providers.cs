@@ -172,6 +172,24 @@ public interface IMailDrafts
     Task<MailDraft> CreateAsync(VerbaFlow.Core.Domain.User user, string? userToken, EmailMessage message, CancellationToken ct);
 }
 
+/// <summary>
+/// Puts a draft in the person's own mailbox with a mail permission their own browser got for it: a Microsoft Graph token
+/// for a personal Microsoft account (Outlook.com, Hotmail), or a Google token for Gmail. VerbaFlow keeps no copy of it.
+/// </summary>
+public interface IOwnMailDrafts
+{
+    /// <summary>Whether Gmail drafts can be offered (Google sign-in is set up, so the browser can ask Google for permission).</summary>
+    bool Gmail { get; }
+    /// <param name="service"><see cref="MailServices.Outlook"/> or <see cref="MailServices.Gmail"/>.</param>
+    Task<MailDraft> CreateAsync(string service, string mailToken, EmailMessage message, CancellationToken ct);
+}
+
+public static class MailServices
+{
+    public const string Outlook = "outlook";
+    public const string Gmail = "gmail";
+}
+
 /// <summary>One piece of text to translate, with a short id the translator gives back.</summary>
 public sealed record TextPiece(string Id, string Text);
 

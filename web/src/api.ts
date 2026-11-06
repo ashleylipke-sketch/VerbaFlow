@@ -221,7 +221,10 @@ export const api = {
   emailMinutes: (id: string, format: 'docx' | 'pdf', to: string, note: string, parts: string[], template?: string, translation?: string) =>
     call<{ message: string }>('POST', `/items/${id}/export/email`, { format, to, note: note.trim() || null, parts: parts.join(','), template: template || null,
       translation: translation || null }),
-  mailDrafts: () => call<{ available: boolean }>('GET', '/mail-drafts'),
+  mailDrafts: () => call<{ available: boolean; outlookOwn: boolean; gmail: boolean }>('GET', '/mail-drafts'),
+  ownDraft: (id: string, service: 'outlook' | 'gmail', mailToken: string, format: 'docx' | 'pdf', parts: string[], template?: string, translation?: string) =>
+    call<{ webLink: string | null }>('POST', `/items/${id}/export/own-draft`, { service, mailToken, format, parts: parts.join(','), template: template || null,
+      translation: translation || null }),
   outlookDraft: (id: string, format: 'docx' | 'pdf', parts: string[], template?: string, translation?: string) =>
     call<{ webLink: string | null }>('POST', `/items/${id}/export/outlook`, { format, parts: parts.join(','), template: template || null,
       translation: translation || null }),

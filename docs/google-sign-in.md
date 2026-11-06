@@ -34,9 +34,20 @@ dotnet user-secrets set "Google:ClientId" "123456789-abc.apps.googleusercontent.
 
 Restart `run.cmd`. The start-up line `Sign-in:` now mentions "Google accounts as personal accounts", and the sign-in page has a **Sign in with Google** button.
 
+## 5. Gmail drafts (optional)
+
+With Google set up, **Export ▾ → Email…** also offers **Put it in my Gmail drafts** to everyone (a personal account, or someone at work whose email is Gmail). The first time, Google's window asks the person to allow VerbaFlow to "manage drafts and send emails"; VerbaFlow only ever makes the draft they asked for, and keeps no copy of the permission. To switch it on:
+
+1. In Google Cloud, search for **Gmail API** and click **Enable**.
+2. Open **Google Auth Platform** › **Data access**, click **Add or remove scopes**, tick `.../auth/gmail.compose` (or paste `https://www.googleapis.com/auth/gmail.compose` under **Manually add scopes**), click **Update**, then **Save**.
+3. While the app is in **Testing**, only the test users you added in step 2 can use Gmail drafts (up to 100 people). That is enough to try it.
+
+**Before others outside your test users can use Gmail drafts:** Google counts `gmail.compose` as a *restricted* permission. Publishing an app that uses it needs Google's verification, including a yearly security assessment by an approved assessor (this usually costs money). Signing in with Google does not need any of that. Until then, everyone else can use **Or download it as an email file**, which works with Gmail too.
+
 ## How it works (for whoever looks after VerbaFlow)
 
 - The browser uses Google's own button (Google Identity Services, `https://accounts.google.com/gsi/client`) and gets a Google ID token. `POST /api/sign-in/google` checks it once (Google's signature, issuer `accounts.google.com`, audience = `Google:ClientId`, not expired; `PersonalSignIn.cs`, `GoogleSignIn`) and matches the person on `google:<sub>`.
 - VerbaFlow then gives its own sign-in, a `vf1.` value made with ASP.NET Data Protection (keys in `data/keys/sign-in`, never committed). It lasts 30 days, is kept in the browser (`localStorage` `vfToken`) and is swapped for a fresh one each time VerbaFlow opens (`POST /api/sign-in/renew`), so someone who uses VerbaFlow now and then stays signed in. Sign out removes it.
 - If the keys in `data/keys/sign-in` are lost, everyone signed in with Google simply signs in again.
+- Gmail drafts: the browser asks Google for `gmail.compose` with Google's token client (`gmailMailToken` in `web/src/auth.ts`), sends it once to `POST /api/items/{id}/export/own-draft` {service: gmail, mailToken}, and the server uploads the email (`EmlWriter`) to `gmail/v1/users/me/drafts` (`Mail/OwnMailDrafts.cs`). History `item.gmail_draft` / `gmail_draft.failed`; the permission is never stored or logged.
 - Not yet: the Widgets (browser extension, Windows, phones) sign in with work accounts only.

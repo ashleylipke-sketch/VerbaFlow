@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, saveFile, type ExportCheck, type Letterhead, type MinutesTemplates, type Translations } from './api';
 import { letterheadNote } from './letterheadNote';
+import { askOutlookPermission, gmailMailToken, NeedsPermission, outlookMailToken, prepareGoogle } from './auth';
 
 /** The parts a person can tick. The title, Approved/Draft marker and details are always in the file. */
 export const exportParts = [
@@ -42,9 +43,23 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
   }, [open, id]);
   const ready = translations?.translations.filter(t => t.upToDate) ?? [];
   // Outlook drafts: offered when the person signed in with Microsoft and VerbaFlow can reach their mailbox.
+  // Outlook.com (personal Microsoft accounts) and Gmail: the browser asks for permission and VerbaFlow makes the draft once.
   const [outlook, setOutlook] = useState(false);
-  const [drafted, setDrafted] = useState<{ webLink: string | null } | null>(null);
-  useEffect(() => { if (open) api.mailDrafts().then(r => setOutlook(r.available)).catch(() => setOutlook(false)); }, [open]);
+  const [outlookOwn, setOutlookOwn] = useState(false);
+  const [gmail, setGmail] = useState(false);
+  const [askOutlook, setAskOutlook] = useState(false);
+  const [drafted, setDrafted] = useState<{ webLink: string | null; where: string } | null>(null);
+  useEffect(() => {
+    if (open) api.mailDrafts().then(r => { setOutlook(r.available); setOutlookOwn(!!r.outlookOwn); setGmail(!!r.gmail); if (r.gmail) prepareGoogle(); })
+      .catch(() => { setOutlook(false); setOutlookOwn(false); setGmail(false); });
+  }, [open]);
+  const toOutlookCom = (token: Promise<string>) => act(async () => {
+    setInfo(''); setDrafted(null);
+    let t: string;
+    try { t = await token; } catch (e) { if (e instanceof NeedsPermission) { setAskOutlook(true); throw e; } throw e; }
+    setAskOutlook(false);
+    setDrafted({ ...await api.ownDraft(id, 'outlook', t, format, parts, tid, tr), where: 'Outlook' });
+  });
   const tr = ready.some(t => t.language === language) ? language : undefined;
   // Meetings: the minutes templates admins have made; the default one is chosen, with its ticked parts.
   useEffect(() => {
@@ -155,21 +170,33 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
           <button aria-expanded={panel === 'check'} onClick={() => setPanel(p => p === 'check' ? '' : 'check')}>Check an exported file…</button>
         </div>
         {panel === 'email' && !fromApp && <div className="menu-sub">
-          <p className="note">{outlook
-            ? <>Puts a new email in your Outlook <strong>Drafts</strong> folder with the {dictate ? 'dictation' : 'minutes'} attached. Open it in Outlook, choose the people and send.</>
+          <p className="note">{outlook || outlookOwn || gmail
+            ? <>Puts a new email in your {outlook || outlookOwn ? 'Outlook' : 'Gmail'}{(outlook || outlookOwn) && gmail ? ' or Gmail' : ''} <strong>Drafts</strong> folder with the {dictate ? 'dictation' : 'minutes'} attached. Open it there, choose the people and send.</>
             : <>Opens a new email in your own email program, from your own account, with the {dictate ? 'dictation' : 'minutes'} attached. Choose the people there.</>}</p>
           <div className="actions">{formatPicker}
             {outlook && <button className="primary" disabled={busy || none} onClick={() => act(async () => {
               setInfo(''); setDrafted(null);
-              setDrafted(await api.outlookDraft(id, format, parts, tid, tr));
+              setDrafted({ ...await api.outlookDraft(id, format, parts, tid, tr), where: 'Outlook' });
             })}>{busy ? 'Putting it in your drafts…' : 'Put it in my Outlook drafts'}</button>}
+            {outlookOwn && !askOutlook && <button className="primary" disabled={busy || none} onClick={() => toOutlookCom(outlookMailToken())}>
+              {busy ? 'Putting it in your drafts…' : 'Put it in my Outlook drafts'}</button>}
+            {outlookOwn && askOutlook && <button className="primary" disabled={busy || none} onClick={() => toOutlookCom(askOutlookPermission())}>
+              Allow VerbaFlow to make Outlook drafts…</button>}
+            {gmail && <button className={outlook || outlookOwn ? '' : 'primary'} disabled={busy || none} onClick={() => {
+              const token = gmailMailToken(); // straight from the click, so the browser lets Google's window open
+              act(async () => {
+                setInfo(''); setDrafted(null);
+                setDrafted({ ...await api.ownDraft(id, 'gmail', await token, format, parts, tid, tr), where: 'Gmail' });
+              });
+            }}>{busy ? 'Putting it in your drafts…' : 'Put it in my Gmail drafts'}</button>}
             <button disabled={busy || none} onClick={() => act(async () => {
               setDrafted(null);
               saveFile(await api.exportFile(id, format, parts, 'draft', tid, tr));
               setInfo('An email file has been downloaded. Open it (click it in your browser\'s downloads) and it appears as a new email in Outlook.');
-            })}>{outlook ? 'Or download it as an email file' : 'Open a new email'}</button></div>
-          {drafted && <p className="ok" role="status">It is in your Outlook Drafts folder.{' '}
-            {drafted.webLink && <a href={drafted.webLink} target="_blank" rel="noopener noreferrer">Open it in Outlook on the web</a>}</p>}
+            })}>{outlook || outlookOwn || gmail ? 'Or download it as an email file' : 'Open a new email'}</button></div>
+          {askOutlook && <p className="note">Microsoft asks you once to agree that VerbaFlow may put drafts in your mailbox. VerbaFlow uses it only to make the drafts you ask for.</p>}
+          {drafted && <p className="ok" role="status">It is in your {drafted.where} Drafts folder.{' '}
+            {drafted.webLink && <a href={drafted.webLink} target="_blank" rel="noopener noreferrer">Open it in {drafted.where}{drafted.where === 'Outlook' ? ' on the web' : ''}</a>}</p>}
           {info && <p className="ok" role="status">{info}</p>}
           <p className="note"><button className="link" onClick={() => { setInfo(''); setFromApp(true); }}>Or send it from VerbaFlow instead</button></p>
         </div>}

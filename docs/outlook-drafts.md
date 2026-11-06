@@ -29,3 +29,8 @@ When you choose **Export ▾ → Email… → Put it in my Outlook drafts**, Ver
 - **What is recorded:** the file is recorded like any export (purpose `outlook-draft`, with its fingerprint), so a recipient's copy can still be checked. History shows `item.outlook_draft`, or `outlook_draft.failed` with the kind and a VF- reference. VerbaFlow does not know who the email goes to.
 - **On a computer without Microsoft sign-in** (test users only), a stand-in saves each draft as an `.eml` file in `data/drafts`.
 - **When signing in is set up but there is no client secret,** the button is not shown.
+
+## Personal Microsoft accounts (Outlook.com, Hotmail, Microsoft 365 Family)
+
+When personal accounts are switched on (`entra-sign-in-setup.md` step 13), someone signed in with a personal Microsoft account also sees **Put it in my Outlook drafts**. This route needs no client secret and no administrator: the first time, the button changes to **Allow VerbaFlow to make Outlook drafts…**, Microsoft's window asks the person to agree, and from then on their browser gets the permission (**Mail.ReadWrite**, the same one listed under **API permissions**) and sends it to VerbaFlow for that one draft (`Mail/OwnMailDrafts.cs`; History `item.outlook_draft` with mailService "microsoft-graph (own sign-in)"). Nothing is kept. **Not yet tried with a real Outlook.com account.**
+

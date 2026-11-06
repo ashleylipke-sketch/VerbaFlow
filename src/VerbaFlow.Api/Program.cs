@@ -174,6 +174,13 @@ builder.Services.AddDataProtection().SetApplicationName("VerbaFlow")
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys", "sign-in")));
 var signIn = SignInOptions.From(builder.Configuration, builder.Environment);
 signIn.AddTo(builder.Services);
+// Outlook.com and Gmail drafts, made with a mail permission the person's own browser gets (personal Microsoft accounts, Google).
+if (signIn.PersonalAccounts || signIn.Google)
+{
+    builder.Services.AddHttpClient("own-mail", c => c.Timeout = TimeSpan.FromMinutes(5));
+    builder.Services.AddSingleton<IOwnMailDrafts>(sp => new VerbaFlow.Infrastructure.Mail.OwnMailDrafts(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("own-mail")) { Gmail = signIn.Google });
+}
 
 var app = builder.Build();
 app.Logger.LogInformation(speech.IsConfigured
@@ -220,6 +227,9 @@ if (pdfSigner is not null)
 else if (signingProblem is not null)
     app.Logger.LogWarning("Signing: off, the certificate could not be loaded: {Problem}", signingProblem);
 else app.Logger.LogInformation("Signing: off (Signing:Enabled=false)");
+if (signIn.PersonalAccounts || signIn.Google)
+    app.Logger.LogInformation("Own drafts: Email… can put the file in " + (signIn.PersonalAccounts ? "Outlook.com drafts (personal Microsoft accounts)" : "")
+        + (signIn.PersonalAccounts && signIn.Google ? " and " : "") + (signIn.Google ? "Gmail drafts (anyone with Gmail)" : ""));
 app.Logger.LogInformation("Database: {Database}; files in {DataDir}", database.Describe, dataDir);
 app.Logger.LogInformation(signIn.Microsoft
     ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.PersonalAccounts ? ", personal and other organisations' Microsoft accounts as personal accounts" : "")

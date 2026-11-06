@@ -33,7 +33,12 @@ public sealed class GraphMailDrafts(HttpClient http, GraphOptions options, TimeP
     public async Task<MailDraft> CreateAsync(User user, string? userToken, EmailMessage message, CancellationToken ct)
     {
         if (!CanUse(user, userToken)) throw new ProviderException(FaultKind.Settings, "Outlook drafts need a Microsoft sign-in.");
-        var token = await TokenAsync(userToken!, ct);
+        return await WriteAsync(http, GraphBase, await TokenAsync(userToken!, ct), message, ct);
+    }
+
+    /// <summary>Makes the draft with a Graph token that already acts as the person (from the exchange above, or from their own browser).</summary>
+    public static async Task<MailDraft> WriteAsync(HttpClient http, string graphBase, string token, EmailMessage message, CancellationToken ct)
+    {
         var small = message.Attachments.Where(a => a.Content.Length <= InlineLimit).ToList();
         var large = message.Attachments.Where(a => a.Content.Length > InlineLimit).ToList();
         var body = new JsonObject
@@ -47,15 +52,15 @@ public sealed class GraphMailDrafts(HttpClient http, GraphOptions options, TimeP
                 ["contentBytes"] = Convert.ToBase64String(a.Content),
             }).ToArray()),
         };
-        var created = await SendAsync(HttpMethod.Post, $"{GraphBase}/me/messages", token, body, ct);
+        var created = await SendAsync(http, HttpMethod.Post, $"{graphBase}/me/messages", token, body, ct);
         var id = created["id"]?.GetValue<string>() ?? throw new ProviderException(FaultKind.Other, "Microsoft Graph gave no id for the draft.");
-        foreach (var a in large) await UploadAsync(id, token, a, ct);
+        foreach (var a in large) await UploadAsync(http, graphBase, id, token, a, ct);
         return new MailDraft(created["webLink"]?.GetValue<string>(), id);
     }
 
-    private async Task UploadAsync(string messageId, string token, EmailAttachment a, CancellationToken ct)
+    private static async Task UploadAsync(HttpClient http, string graphBase, string messageId, string token, EmailAttachment a, CancellationToken ct)
     {
-        var session = await SendAsync(HttpMethod.Post, $"{GraphBase}/me/messages/{Uri.EscapeDataString(messageId)}/attachments/createUploadSession", token,
+        var session = await SendAsync(http, HttpMethod.Post, $"{graphBase}/me/messages/{Uri.EscapeDataString(messageId)}/attachments/createUploadSession", token,
             new JsonObject { ["AttachmentItem"] = new JsonObject { ["attachmentType"] = "file", ["name"] = a.FileName, ["size"] = a.Content.Length, ["contentType"] = a.ContentType } }, ct);
         var url = session["uploadUrl"]?.GetValue<string>() ?? throw new ProviderException(FaultKind.Other, "Microsoft Graph gave no upload address for the attachment.");
         for (var start = 0; start < a.Content.Length; start += ChunkSize)
@@ -69,7 +74,7 @@ public sealed class GraphMailDrafts(HttpClient http, GraphOptions options, TimeP
         }
     }
 
-    private async Task<JsonNode> SendAsync(HttpMethod method, string url, string token, JsonObject body, CancellationToken ct)
+    private static async Task<JsonNode> SendAsync(HttpClient http, HttpMethod method, string url, string token, JsonObject body, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(method, url) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);

@@ -176,3 +176,59 @@ export async function authHeaders(): Promise<Record<string, string>> {
   if (vfToken) return { Authorization: `Bearer ${vfToken}` };
   return testUser ? { 'X-Dev-User': testUser } : {};
 }
+
+// ---- Permission to put drafts in the person's own mailbox (Outlook.com, Gmail) ----
+// The browser asks Microsoft or Google once for permission to make drafts; VerbaFlow uses it for one request and keeps nothing.
+
+const GRAPH_MAIL = 'https://graph.microsoft.com/Mail.ReadWrite';
+const GMAIL_COMPOSE = 'https://www.googleapis.com/auth/gmail.compose';
+let gmailToken: { value: string; until: number } | null = null;
+
+/** Thrown when Microsoft wants the person to agree first: the page then shows a button that calls askOutlookPermission(). */
+export class NeedsPermission extends Error {}
+
+/** The Outlook.com permission without asking, if Microsoft already has the person's agreement. */
+export async function outlookMailToken(): Promise<string> {
+  if (!msal || !account) throw new Error('Sign in with your Microsoft account first.');
+  try { return (await msal.acquireTokenSilent({ scopes: [GRAPH_MAIL], account })).accessToken; }
+  catch (e) {
+    if (e instanceof InteractionRequiredAuthError) throw new NeedsPermission('Microsoft asks you to agree once that VerbaFlow may put drafts in your mailbox.');
+    throw new Error('Microsoft did not give permission. Try again.');
+  }
+}
+
+/** Opens Microsoft's window asking the person to agree. Call it straight from a click, or the browser blocks the window. */
+export async function askOutlookPermission(): Promise<string> {
+  if (!msal || !account) throw new Error('Sign in with your Microsoft account first.');
+  try { return (await msal.acquireTokenPopup({ scopes: [GRAPH_MAIL], account })).accessToken; }
+  catch { throw new Error('Permission was not given, so nothing was put in your drafts.'); }
+}
+
+/** Loads Google's script ahead, so the permission window can open straight from a click. */
+export function prepareGoogle() { if (info.google) loadGoogle().catch(() => { /* reported when used */ }); }
+
+/**
+ * Google's permission to make Gmail drafts. Opens Google's window the first time (call it straight from a click);
+ * kept in this page's memory until shortly before Google's permission runs out.
+ */
+export function gmailMailToken(): Promise<string> {
+  if (gmailToken && gmailToken.until > Date.now()) return Promise.resolve(gmailToken.value);
+  const g = (window as unknown as { google?: any }).google;
+  if (!info.google || !g?.accounts?.oauth2) return Promise.reject(new Error('Google could not be reached. Try again in a moment.'));
+  return new Promise((resolve, reject) => {
+    const client = g.accounts.oauth2.initTokenClient({
+      client_id: info.google!.clientId,
+      scope: GMAIL_COMPOSE,
+      callback: (r: { access_token?: string; expires_in?: number; error?: string }) => {
+        if (!r.access_token || !g.accounts.oauth2.hasGrantedAllScopes(r, GMAIL_COMPOSE)) {
+          reject(new Error('Google did not give permission to make drafts, so nothing was put in your drafts.'));
+          return;
+        }
+        gmailToken = { value: r.access_token, until: Date.now() + Math.max(60, (r.expires_in ?? 3600) - 300) * 1000 };
+        resolve(r.access_token);
+      },
+      error_callback: () => reject(new Error('The Google window was closed, so nothing was put in your drafts.')),
+    });
+    client.requestAccessToken();
+  });
+}

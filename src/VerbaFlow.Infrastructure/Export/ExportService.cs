@@ -27,7 +27,7 @@ public sealed record ExportCheck(bool Matches, string Message, string Sha256, Da
 /// or a test certificate made on this computer until there is one. The fingerprint is taken after signing.
 /// </summary>
 public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSender? email = null, FailureReporter? reporter = null,
-    PdfSigner? signer = null, IMailDrafts? drafts = null)
+    PdfSigner? signer = null, IMailDrafts? drafts = null, IOwnMailDrafts? ownDrafts = null)
 {
     /// <summary>The most people one email can go to.</summary>
     public const int MaxRecipients = 10;
@@ -104,26 +104,54 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         string? translation = null, CancellationToken ct = default)
     {
         if (drafts is null || !drafts.CanUse(actor, userToken)) throw new DomainException("Putting emails in your Outlook drafts needs a Microsoft sign-in. Use Open a new email instead.");
-        var (file, record, item) = await CreateAsync(actor, id, format, "outlook-draft", ExportParts.Parse(parts), template, translation);
+        return await MailDraftAsync(actor, id, format, parts, template, translation, "outlook-draft", "item.outlook_draft", "outlook_draft.failed", drafts.Name,
+            "Your Microsoft account has no Outlook mailbox VerbaFlow can reach, so the draft could not be made. Use Open a new email instead.",
+            m => drafts.CreateAsync(actor, userToken, m, ct));
+    }
+
+    /// <summary>Whether this person can have drafts made with their own browser's mail permission: Outlook.com (a personal Microsoft account) and Gmail.</summary>
+    public (bool Outlook, bool Gmail) OwnDrafts(User actor) =>
+        ownDrafts is null ? (false, false) : (actor.Individual && actor.SignInId?.StartsWith("microsoft:", StringComparison.Ordinal) == true, ownDrafts.Gmail);
+
+    /// <summary>
+    /// Puts the export in the person's own Outlook.com or Gmail drafts, with the mail permission their browser got for it
+    /// (owner asked for other providers, 2026-11-06). The permission is used once and never kept.
+    /// </summary>
+    public async Task<MailDraft> OwnDraftAsync(User actor, string service, string? mailToken, Guid id, string format, string? parts = null, string? template = null,
+        string? translation = null, CancellationToken ct = default)
+    {
+        var (outlook, gmail) = OwnDrafts(actor);
+        if (service == MailServices.Gmail ? !gmail : service != MailServices.Outlook || !outlook)
+            throw new DomainException("Putting emails in your drafts is not available here. Use Open a new email instead.");
+        if (string.IsNullOrWhiteSpace(mailToken) || mailToken.Length > 8000) throw new DomainException("Your email account did not give permission. Try again.");
+        var gm = service == MailServices.Gmail;
+        return await MailDraftAsync(actor, id, format, parts, template, translation, gm ? "gmail-draft" : "outlook-draft",
+            gm ? "item.gmail_draft" : "item.outlook_draft", gm ? "gmail_draft.failed" : "outlook_draft.failed", gm ? "gmail" : "microsoft-graph (own sign-in)",
+            gm ? "Your Google account has no Gmail mailbox, so the draft could not be made. Use Open a new email instead."
+               : "Your Microsoft account has no Outlook mailbox VerbaFlow can reach, so the draft could not be made. Use Open a new email instead.",
+            m => ownDrafts!.CreateAsync(service, mailToken, m, ct));
+    }
+
+    private async Task<MailDraft> MailDraftAsync(User actor, Guid id, string format, string? parts, string? template, string? translation, string purpose,
+        string auditType, string failedType, string serviceName, string noMailbox, Func<EmailMessage, Task<MailDraft>> make)
+    {
+        var (file, record, item) = await CreateAsync(actor, id, format, purpose, ExportParts.Parse(parts), template, translation);
         var text = $"Please find attached {What(item)} \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
             + "\r\nTo confirm the file has not been changed, it can be checked with \"Check an exported file\" in VerbaFlow.\r\n";
         MailDraft draft;
         try
         {
-            draft = await drafts.CreateAsync(actor, userToken, new EmailMessage([], Subject(item, record), text,
-                [new EmailAttachment(file.FileName, file.ContentType, file.Content)]), ct);
+            draft = await make(new EmailMessage([], Subject(item, record), text, [new EmailAttachment(file.FileName, file.ContentType, file.Content)]));
         }
         catch (Exception ex) when (ex is not OperationCanceledException && reporter is not null)
         {
-            var failure = await reporter.ReportAsync("outlook-draft", id, ex);
-            await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "outlook_draft.failed",
+            var failure = await reporter.ReportAsync(purpose, id, ex);
+            await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, failedType,
                 AuditChain.Details(("kind", ex is NoMailboxException ? "no mailbox" : failure.Kind.ToString()), ("reference", failure.Reference)));
-            throw new DomainException(ex is NoMailboxException
-                ? $"Your Microsoft account has no Outlook mailbox VerbaFlow can reach, so the draft could not be made. Use Open a new email instead. (Reference {failure.Reference})"
-                : failure.UserMessage);
+            throw new DomainException(ex is NoMailboxException ? $"{noMailbox} (Reference {failure.Reference})" : failure.UserMessage);
         }
-        await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.outlook_draft",
-            AuditChain.Details(("format", record.Format), ("marker", record.Marker), ("sha256", record.Sha256), ("mailService", drafts.Name),
+        await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, auditType,
+            AuditChain.Details(("format", record.Format), ("marker", record.Marker), ("sha256", record.Sha256), ("mailService", serviceName),
                 ("mailReference", draft.Reference.Length > 40 ? draft.Reference[..40] + "…" : draft.Reference)));
         return draft;
     }

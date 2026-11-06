@@ -35,6 +35,7 @@ public static class Endpoints
     internal static ItemMode ModeOf(string? mode) => string.IsNullOrWhiteSpace(mode) ? ItemMode.Meeting
         : mode.Trim().ToLowerInvariant() switch { "dictate" => ItemMode.Dictate, "speech" => ItemMode.Speech, "meeting" => ItemMode.Meeting, _ => throw new DomainException("Unknown mode.") };
 
+    public sealed record OwnDraftBody(string? Service, string? MailToken, string? Format, string? Parts = null, string? Template = null, string? Translation = null);
     public sealed record EmailBody(string? Format, string? To, string? Note, string? Parts = null, string? Template = null, string? Translation = null);
     public sealed record TranslateBody(string? Language);
     public sealed record NameBody(string Name);
@@ -393,7 +394,14 @@ public static class Endpoints
         api.MapPost("/items/{id:guid}/export/email", async (HttpContext h, ExportService s, Guid id, EmailBody b, CancellationToken ct) =>
             new { message = await s.EmailAsync(h.Current(), id, b.Format ?? "pdf", b.To ?? "", b.Note, ct, b.Parts, b.Template, b.Translation) });
         // Outlook drafts: the file goes into the person's own Drafts folder, made as them through Microsoft Graph.
-        api.MapGet("/mail-drafts", (HttpContext h, ExportService s) => new { available = s.CanDraftInOutlook(h.Current(), BearerToken(h)) });
+        api.MapGet("/mail-drafts", (HttpContext h, ExportService s) => s.OwnDrafts(h.Current()) is var own
+            ? new { available = s.CanDraftInOutlook(h.Current(), BearerToken(h)), outlookOwn = own.Outlook, gmail = own.Gmail } : null);
+        // Outlook.com and Gmail drafts: the person's own browser gets the mail permission and sends it here once.
+        api.MapPost("/items/{id:guid}/export/own-draft", async (HttpContext h, ExportService s, Guid id, OwnDraftBody b, CancellationToken ct) =>
+        {
+            var d = await s.OwnDraftAsync(h.Current(), b.Service ?? "", b.MailToken, id, b.Format ?? "pdf", b.Parts, b.Template, b.Translation, ct);
+            return new { webLink = d.WebLink };
+        });
         api.MapPost("/items/{id:guid}/export/outlook", async (HttpContext h, ExportService s, Guid id, EmailBody b, CancellationToken ct) =>
         {
             var d = await s.OutlookDraftAsync(h.Current(), BearerToken(h), id, b.Format ?? "pdf", b.Parts, b.Template, b.Translation, ct);

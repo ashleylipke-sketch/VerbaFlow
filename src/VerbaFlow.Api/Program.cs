@@ -147,6 +147,11 @@ if (graph.IsConfigured)
     builder.Services.AddSingleton<ICalendarReader>(sp => sp.GetRequiredService<VerbaFlow.Infrastructure.Calendars.GraphCalendarReader>());
 }
 else builder.Services.AddSingleton<ICalendarReader, VerbaFlow.Infrastructure.StandIns.SampleCalendarReader>();
+// Outlook drafts: through Graph, as the signed-in person, when the app has a client secret; a stand-in folder only on a
+// computer without Microsoft sign-in, so the menu can be tried.
+if (graph.IsConfigured) builder.Services.AddHttpClient<IMailDrafts, VerbaFlow.Infrastructure.Mail.GraphMailDrafts>(c => c.Timeout = TimeSpan.FromMinutes(5));
+else if (string.IsNullOrWhiteSpace(builder.Configuration["Entra:TenantId"]))
+    builder.Services.AddSingleton<IMailDrafts>(new VerbaFlow.Infrastructure.StandIns.StandInMailDrafts(Path.Combine(dataDir, "drafts")));
 builder.Services.AddSingleton<ICalendarReader>(_ => new VerbaFlow.Infrastructure.Calendars.LinkCalendarReader());
 builder.Services.AddSingleton<CalendarService>();
 builder.Services.AddSingleton<RetentionService>();
@@ -200,6 +205,11 @@ app.Logger.LogInformation(noteTaker.IsConfigured
 app.Logger.LogInformation(graph.IsConfigured
     ? "Meet calendars: Microsoft 365 calendars read through Microsoft Graph, and calendar addresses"
     : "Meet calendars: calendar addresses, and a STAND-IN sample calendar. Set Entra:ClientSecret to read Microsoft 365 calendars (see docs/meet-setup.md).");
+app.Logger.LogInformation(graph.IsConfigured
+    ? "Outlook drafts: Email… can put the file in the person's own Outlook drafts (Microsoft Graph, Mail.ReadWrite on their behalf)"
+    : string.IsNullOrWhiteSpace(builder.Configuration["Entra:TenantId"])
+        ? "Outlook drafts: STAND-IN (drafts are saved in data/drafts)"
+        : "Outlook drafts: off. Set Entra:ClientSecret and grant Mail.ReadWrite to offer them (see docs/outlook-drafts.md).");
 if (pdfSigner is not null)
     app.Logger.LogInformation("Signing: PDF exports are signed by {Signer}{Test}", pdfSigner.Signature.SignedBy,
         pdfSigner.Signature.TestCertificate ? " (a test certificate; set Signing:CertificatePath for the organisation's own)" : "");

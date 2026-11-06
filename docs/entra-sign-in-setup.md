@@ -130,6 +130,10 @@ The test users (Alice, Bob…) do not sign in with Microsoft, so on your compute
 
 **Department admins.** Under each department an administrator can pick **Make someone a department admin…** (up to 10 per department; they do not have to be in it; anyone who has signed in at least once can be picked). A department admin can assign, re-assign and approve the recordings of the department's members, and export them, as an administrator can, but only those. Reopening, deleting, and changing settings stay with administrators. **take off** beside their name stops it. This is set in VerbaFlow, not in Microsoft.
 
+## 12. Outlook drafts (Email… puts the file in your Drafts folder)
+
+See `outlook-drafts.md`: one delegated permission (**Mail.ReadWrite**, with admin consent) and the client secret.
+
 ## How it works (for whoever looks after VerbaFlow)
 
 - The web app uses Microsoft's sign-in library (MSAL.js, `@azure/msal-browser`) and sends an access token for `api://<client id>/access_as_user` with every call. The Widget does the same through the browser's sign-in window (`chrome.identity.launchWebAuthFlow`, authorisation code with PKCE); its tokens are kept in browser-session memory only.
@@ -141,5 +145,4 @@ The test users (Alice, Bob…) do not sign in with Microsoft, so on your compute
 ## Not done yet
 
 - Items made under the test users stay with those test users; a Microsoft account is a new user.
-- Email drafts through Microsoft Graph (Outlook) instead of a downloaded .eml file.
 - When VerbaFlow goes online, its web address must be added as another **Single-page application** redirect URI (step 4).

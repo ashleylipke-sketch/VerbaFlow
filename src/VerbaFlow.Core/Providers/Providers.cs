@@ -153,6 +153,25 @@ public interface IGrammarChecker
     Task<IReadOnlyList<GrammarFix>> CheckAsync(IReadOnlyList<GrammarPassage> passages, string language, CancellationToken ct);
 }
 
+/// <param name="WebLink">Where the draft opens in Outlook on the web, when the mail service gives one.</param>
+/// <param name="Reference">The mail service's id for the draft, for the audit trail.</param>
+public sealed record MailDraft(string? WebLink, string Reference);
+
+/// <summary>The person has no mailbox the mail service can reach (for example a Microsoft account with no Exchange Online mailbox).</summary>
+public sealed class NoMailboxException(string message) : Exception(message);
+
+/// <summary>
+/// Puts a new, unsent email with attachments in the signed-in person's own mailbox, as a draft (Microsoft Graph in
+/// production, acting only as that person). They choose who it goes to in their own email program and send it there.
+/// </summary>
+public interface IMailDrafts
+{
+    string Name { get; }
+    /// <summary>Whether this person can use it. <paramref name="userToken"/> is their sign-in token, when they signed in with Microsoft.</summary>
+    bool CanUse(VerbaFlow.Core.Domain.User user, string? userToken);
+    Task<MailDraft> CreateAsync(VerbaFlow.Core.Domain.User user, string? userToken, EmailMessage message, CancellationToken ct);
+}
+
 /// <summary>One piece of text to translate, with a short id the translator gives back.</summary>
 public sealed record TextPiece(string Id, string Text);
 

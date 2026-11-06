@@ -41,6 +41,10 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
     if (open) api.get<Translations>(`/items/${id}/translations`).then(setTranslations).catch(() => setTranslations(null));
   }, [open, id]);
   const ready = translations?.translations.filter(t => t.upToDate) ?? [];
+  // Outlook drafts: offered when the person signed in with Microsoft and VerbaFlow can reach their mailbox.
+  const [outlook, setOutlook] = useState(false);
+  const [drafted, setDrafted] = useState<{ webLink: string | null } | null>(null);
+  useEffect(() => { if (open) api.mailDrafts().then(r => setOutlook(r.available)).catch(() => setOutlook(false)); }, [open]);
   const tr = ready.some(t => t.language === language) ? language : undefined;
   // Meetings: the minutes templates admins have made; the default one is chosen, with its ticked parts.
   useEffect(() => {
@@ -151,12 +155,21 @@ export function ExportMenu({ id, approved, dictate = false, documentType = null,
           <button aria-expanded={panel === 'check'} onClick={() => setPanel(p => p === 'check' ? '' : 'check')}>Check an exported file…</button>
         </div>
         {panel === 'email' && !fromApp && <div className="menu-sub">
-          <p className="note">Opens a new email in your own email program, from your own account, with the {dictate ? 'dictation' : 'minutes'} attached. Choose the people there.</p>
+          <p className="note">{outlook
+            ? <>Puts a new email in your Outlook <strong>Drafts</strong> folder with the {dictate ? 'dictation' : 'minutes'} attached. Open it in Outlook, choose the people and send.</>
+            : <>Opens a new email in your own email program, from your own account, with the {dictate ? 'dictation' : 'minutes'} attached. Choose the people there.</>}</p>
           <div className="actions">{formatPicker}
+            {outlook && <button className="primary" disabled={busy || none} onClick={() => act(async () => {
+              setInfo(''); setDrafted(null);
+              setDrafted(await api.outlookDraft(id, format, parts, tid, tr));
+            })}>{busy ? 'Putting it in your drafts…' : 'Put it in my Outlook drafts'}</button>}
             <button disabled={busy || none} onClick={() => act(async () => {
+              setDrafted(null);
               saveFile(await api.exportFile(id, format, parts, 'draft', tid, tr));
               setInfo('An email file has been downloaded. Open it (click it in your browser\'s downloads) and it appears as a new email in Outlook.');
-            })}>Open a new email</button></div>
+            })}>{outlook ? 'Or download it as an email file' : 'Open a new email'}</button></div>
+          {drafted && <p className="ok" role="status">It is in your Outlook Drafts folder.{' '}
+            {drafted.webLink && <a href={drafted.webLink} target="_blank" rel="noopener noreferrer">Open it in Outlook on the web</a>}</p>}
           {info && <p className="ok" role="status">{info}</p>}
           <p className="note"><button className="link" onClick={() => { setInfo(''); setFromApp(true); }}>Or send it from VerbaFlow instead</button></p>
         </div>}

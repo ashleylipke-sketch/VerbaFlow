@@ -27,7 +27,7 @@ public sealed record ExportCheck(bool Matches, string Message, string Sha256, Da
 /// or a test certificate made on this computer until there is one. The fingerprint is taken after signing.
 /// </summary>
 public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSender? email = null, FailureReporter? reporter = null,
-    PdfSigner? signer = null)
+    PdfSigner? signer = null, IMailDrafts? drafts = null)
 {
     /// <summary>The most people one email can go to.</summary>
     public const int MaxRecipients = 10;
@@ -89,6 +89,43 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
             + "\r\nTo confirm the file has not been changed, it can be checked with \"Check an exported file\" in VerbaFlow.\r\n";
         var eml = EmlWriter.Write(new EmailMessage([], Subject(item, record), text, [new EmailAttachment(file.FileName, file.ContentType, file.Content)]), draft: true);
         return new ExportFile(eml, "message/rfc822", Path.ChangeExtension(file.FileName, ".eml"));
+    }
+
+    /// <summary>Whether this person can have exports put in their own Outlook drafts.</summary>
+    public bool CanDraftInOutlook(User actor, string? userToken) => drafts?.CanUse(actor, userToken) == true;
+
+    /// <summary>
+    /// Puts a new email with the exported file attached in the person's own Outlook Drafts folder (owner chose "Outlook
+    /// drafts", 2026-11-06). They add who it goes to and send it from Outlook, so VerbaFlow does not know the recipients;
+    /// the file's fingerprint is recorded, so a recipient's copy can be checked.
+    /// </summary>
+    /// <param name="userToken">The person's Microsoft sign-in token, which the mail service exchanges to act as them.</param>
+    public async Task<MailDraft> OutlookDraftAsync(User actor, string? userToken, Guid id, string format, string? parts = null, string? template = null,
+        string? translation = null, CancellationToken ct = default)
+    {
+        if (drafts is null || !drafts.CanUse(actor, userToken)) throw new DomainException("Putting emails in your Outlook drafts needs a Microsoft sign-in. Use Open a new email instead.");
+        var (file, record, item) = await CreateAsync(actor, id, format, "outlook-draft", ExportParts.Parse(parts), template, translation);
+        var text = $"Please find attached {What(item)} \"{item.Name}\" ({record.Marker.ToLowerInvariant()}).\r\n"
+            + "\r\nTo confirm the file has not been changed, it can be checked with \"Check an exported file\" in VerbaFlow.\r\n";
+        MailDraft draft;
+        try
+        {
+            draft = await drafts.CreateAsync(actor, userToken, new EmailMessage([], Subject(item, record), text,
+                [new EmailAttachment(file.FileName, file.ContentType, file.Content)]), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && reporter is not null)
+        {
+            var failure = await reporter.ReportAsync("outlook-draft", id, ex);
+            await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "outlook_draft.failed",
+                AuditChain.Details(("kind", ex is NoMailboxException ? "no mailbox" : failure.Kind.ToString()), ("reference", failure.Reference)));
+            throw new DomainException(ex is NoMailboxException
+                ? $"Your Microsoft account has no Outlook mailbox VerbaFlow can reach, so the draft could not be made. Use Open a new email instead. (Reference {failure.Reference})"
+                : failure.UserMessage);
+        }
+        await stores.Audit.AppendAsync(actor.Id, Capacity(actor, item), "speak", id, "item.outlook_draft",
+            AuditChain.Details(("format", record.Format), ("marker", record.Marker), ("sha256", record.Sha256), ("mailService", drafts.Name),
+                ("mailReference", draft.Reference.Length > 40 ? draft.Reference[..40] + "…" : draft.Reference)));
+        return draft;
     }
 
     /// <summary>The heading over a dictation's text: what the person said it was for.</summary>

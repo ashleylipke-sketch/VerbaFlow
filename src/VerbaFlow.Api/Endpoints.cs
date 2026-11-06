@@ -45,6 +45,13 @@ public static class Endpoints
     public sealed record DepartmentAdminBody(Guid UserId, bool Admin);
     public sealed record LetterSpaceBody(int TopFirstMm, int TopNextMm, int BottomMm, int SideMm, bool? RepeatFirstPage = null);
     public sealed record SignOffBody(bool On, string? Closing, string? Name, string? Title);
+    /// <summary>The person's Microsoft sign-in token, when they signed in with Microsoft (checked already by SignIn.RequireUser).</summary>
+    private static string? BearerToken(HttpContext h)
+    {
+        var header = h.Request.Headers.Authorization.ToString();
+        return header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) && header.Length > 7 ? header[7..].Trim() : null;
+    }
+
     private static object TemplateView(MinutesTemplate t) => new
     {
         id = t.Id, name = t.Name, isDefault = t.IsDefault, title = t.Title, font = t.Font, colour = t.Colour, hasLogo = t.LogoSha256 is not null,
@@ -373,6 +380,13 @@ public static class Endpoints
         });
         api.MapPost("/items/{id:guid}/export/email", async (HttpContext h, ExportService s, Guid id, EmailBody b, CancellationToken ct) =>
             new { message = await s.EmailAsync(h.Current(), id, b.Format ?? "pdf", b.To ?? "", b.Note, ct, b.Parts, b.Template, b.Translation) });
+        // Outlook drafts: the file goes into the person's own Drafts folder, made as them through Microsoft Graph.
+        api.MapGet("/mail-drafts", (HttpContext h, ExportService s) => new { available = s.CanDraftInOutlook(h.Current(), BearerToken(h)) });
+        api.MapPost("/items/{id:guid}/export/outlook", async (HttpContext h, ExportService s, Guid id, EmailBody b, CancellationToken ct) =>
+        {
+            var d = await s.OutlookDraftAsync(h.Current(), BearerToken(h), id, b.Format ?? "pdf", b.Parts, b.Template, b.Translation, ct);
+            return new { webLink = d.WebLink };
+        });
         api.MapPost("/items/{id:guid}/export/check", async (HttpContext h, ExportService s, Guid id, CancellationToken ct) =>
         {
             var f = await h.Request.ReadFormAsync(ct);

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
@@ -168,6 +169,9 @@ if (!string.Equals(builder.Configuration["Notifications:Worker"], "false", Strin
 if (!string.Equals(builder.Configuration["Retention:Worker"], "false", StringComparison.OrdinalIgnoreCase)) builder.Services.AddHostedService<RetentionWorker>();
 if (!string.Equals(builder.Configuration["Meet:Worker"], "false", StringComparison.OrdinalIgnoreCase)) { builder.Services.AddHostedService<MeetWorker>(); builder.Services.AddHostedService<CalendarWorker>(); }
 
+// VerbaFlow's own sign-ins (Google accounts) are protected with keys kept in the data folder, so they survive a restart.
+builder.Services.AddDataProtection().SetApplicationName("VerbaFlow")
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys", "sign-in")));
 var signIn = SignInOptions.From(builder.Configuration, builder.Environment);
 signIn.AddTo(builder.Services);
 
@@ -218,7 +222,9 @@ else if (signingProblem is not null)
 else app.Logger.LogInformation("Signing: off (Signing:Enabled=false)");
 app.Logger.LogInformation("Database: {Database}; files in {DataDir}", database.Describe, dataDir);
 app.Logger.LogInformation(signIn.Microsoft
-    ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.TestUsers ? ", and the test users while in Development" : "")
+    ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.PersonalAccounts ? ", personal and other organisations' Microsoft accounts as personal accounts" : "")
+        + (signIn.Google ? ", Google accounts as personal accounts" : "") + (signIn.TestUsers ? ", and the test users while in Development" : "")
+    : signIn.Google ? "Sign-in: Google accounts as personal accounts" + (signIn.TestUsers ? ", and the test users while in Development" : "") + ". Microsoft sign-in is not set up (see docs/entra-sign-in-setup.md)."
     : signIn.TestUsers ? "Sign-in: TEST USERS only (alice, bob, carol...). Set Entra:TenantId and Entra:ClientId to sign in with Microsoft (see docs/entra-sign-in-setup.md)."
     : "Sign-in: NOT SET UP. Nobody can sign in until Entra:TenantId and Entra:ClientId are set (see docs/entra-sign-in-setup.md).", signIn.TenantId);
 if (signIn.TestUsers) await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
@@ -272,6 +278,7 @@ app.MapGet("/api/health", (Database db) =>
 });
 var api = app.MapGroup("/api");
 api.AddEndpointFilter(SignIn.RequireUser);
+app.MapPersonalSignIn(api);
 api.MapMeetingEndpoints();
 api.MapLiveEndpoints();
 api.MapMeetEndpoints();

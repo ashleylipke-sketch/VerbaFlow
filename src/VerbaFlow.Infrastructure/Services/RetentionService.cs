@@ -109,6 +109,7 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
     {
         RequireAdmin(admin);
         var item = await stores.RequireItemAsync(itemId);
+        if (item.Individual) throw new NotFoundException("That item does not exist.");
         if (item.Status == ItemStatus.Purged) throw new DomainException("This recording has already been deleted.");
         if (string.IsNullOrWhiteSpace(reason)) throw new DomainException("Say why this recording must be kept (for example a legal case or a complaint).");
         if (reason.Trim().Length > 500) throw new DomainException("The reason is too long (500 characters at most).");
@@ -133,6 +134,7 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
         var item = await stores.RequireItemAsync(itemId);
         PermissionEvaluator.Require(actor, item, Capability.Read);
         if (item.Status == ItemStatus.Purged) return new(null, false, null, false);
+        if (item.Individual) return new(await meetings.RecordingRemovedAsync(item), false, null, false);
         var hold = await stores.RetentionHolds.GetAsync(item.ChainId);
         var removed = await meetings.RecordingRemovedAsync(item);
         if (hold is not null)
@@ -201,7 +203,8 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
         foreach (var chain in items.GroupBy(i => i.ChainId).Select(g => g.OrderBy(i => i.VersionNo).ToList()))
         {
             var newest = chain[^1];
-            if (newest.Status == ItemStatus.Purged || holds.Contains(newest.ChainId)) continue;
+            // The organisation's rules do not reach recordings in personal accounts: their owners delete them themselves.
+            if (newest.Individual || newest.Status == ItemStatus.Purged || holds.Contains(newest.ChainId)) continue;
             var rules = p.For(newest);
             var what = newest.IsDictation ? "dictations" : "meetings";
             if (newest.Status == ItemStatus.Completed && newest.ApprovedAt is { } approved)

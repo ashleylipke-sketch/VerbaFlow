@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type UserView } from './api';
-import { getTestUser, microsoftName, setTestUser, signedIn, signInInfo, signInProblem, signInWithMicrosoft, signOut } from './auth';
+import { getTestUser, microsoftName, setTestUser, showGoogleButton, signedIn, signInInfo, signInProblem, signInWithMicrosoft, signOut } from './auth';
+import { setIndividual } from './whoami';
 import Dashboard from './pages/Dashboard';
 import Record from './pages/Record';
 import Dictate from './pages/Dictate';
@@ -55,7 +56,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     setMe(null);
-    if (way) api.me().then(setMe).catch(e => { setProblem(e.message); });
+    if (way) api.me().then(m => { setIndividual(!!m.individual); setMe(m); }).catch(e => { setProblem(e.message); });
   }, [way, getTestUser()]);
   const key = (u: UserView) => u.email.split('@')[0];
   const pickTest = (u: string) => { setTestUser(u); setProblem(''); setWay(signedIn()); };
@@ -67,6 +68,12 @@ export default function App() {
   const carryOn = /^\/speech\/live\/([0-9a-f-]{36})$/.exec(path);
   const admin = me?.isAdmin;
   const support = me?.isSupport;
+  const google = useRef<HTMLDivElement>(null);
+  const showSignIn = !way || !me;
+  useEffect(() => {
+    if (showSignIn && !way && info.google && google.current)
+      showGoogleButton(google.current, () => { setProblem(''); setWay(signedIn()); }, setProblem);
+  }, [showSignIn, way]);
 
   return (
     <>
@@ -79,12 +86,12 @@ export default function App() {
           <a href="#/" className={path === '/' || path === '/record' || path === '/import' || path === '/meet' ? 'on' : ''}>Meeting</a>
           <a href="#/widget" className={path === '/widget' ? 'on' : ''}>Widget</a>
           <a href="#/search" className={path.startsWith('/search') ? 'on' : ''}>Search</a>
-          {me && <MoreMenu path={path} admin={!!admin} support={!!support} lead={!!me?.runsDepartment} />}
+          {me && <MoreMenu path={path} admin={!!admin} support={!!support} lead={!!me?.runsDepartment} individual={!!me?.individual} />}
         </nav>
         {me && <Bell path={path} />}
         <span className="note signin">
-          {way === 'microsoft'
-            ? <>Signed in as {me?.name || microsoftName()}{me?.isAdmin ? ' (admin)' : ''} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>Sign out</a></>
+          {way === 'microsoft' || way === 'google'
+            ? <>Signed in as {me?.name || microsoftName()}{me?.isAdmin ? ' (admin)' : ''}{me?.individual ? ' (personal account)' : ''} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>Sign out</a></>
             : info.testUsers
               ? <label title="Test users: only on this computer, while VerbaFlow runs in Development">
                 {way ? 'Test user ' : 'Test sign-in '}
@@ -103,10 +110,17 @@ export default function App() {
           {problem && <div className="error">{problem}</div>}
           {way && !me && !problem && <p className="note">Signing in…</p>}
           {way === 'microsoft' && problem && <div className="actions"><button className="primary" onClick={() => signInWithMicrosoft()}>Sign in again</button></div>}
-          {!way && info.microsoft && <><p>Use your Microsoft work account, the one you use for Outlook and Teams.</p>
+          {way === 'google' && problem && <div className="actions"><button className="primary" onClick={() => signOut()}>Sign in again</button></div>}
+          {!way && info.microsoft && <><p>{info.personalAccounts
+            ? 'Use your Microsoft account: your work or school account (the one for Outlook and Teams), or a personal one such as Outlook.com or Hotmail.'
+            : 'Use your Microsoft work account, the one you use for Outlook and Teams.'}</p>
             <div className="actions"><button className="primary" onClick={() => signInWithMicrosoft()}>Sign in with Microsoft</button></div></>}
+          {!way && info.google && <>{info.microsoft ? <p>Or use your Google account:</p> : <p>Use your Google account.</p>}
+            <div className="actions" ref={google} /></>}
+          {!way && info.personalAccounts && <p className="note">A personal Microsoft account, a Google account, or a work or school account from
+            another organisation opens a personal VerbaFlow: your recordings are yours alone, and nobody else (including this organisation's administrators) can see them.</p>}
           {!way && info.testUsers && <p className="note">{info.microsoft ? 'Or, on this computer only, pick a test user at the top right.' : 'Pick a test user at the top right. (Microsoft sign-in is not set up yet.)'}</p>}
-          {!way && !info.microsoft && !info.testUsers && !problem && <p className="note">Sign-in is not set up yet. Your administrator needs to finish setting up VerbaFlow.</p>}
+          {!way && !info.microsoft && !info.google && !info.testUsers && !problem && <p className="note">Sign-in is not set up yet. Your administrator needs to finish setting up VerbaFlow.</p>}
         </div>
           : translation ? <TranslationPage key={translation[1] + translation[2]} id={translation[1]} lang={translation[2]} />
           : item ? <ItemPage id={item[1]} at={itemQuery.get('at') ? Number(itemQuery.get('at')) : undefined} seg={itemQuery.get('seg') ?? undefined} />
@@ -141,7 +155,7 @@ export default function App() {
 
 /** Settings and admin pages, folded into one list so the header shows only the five main pages.
  *  Each person sees only what they may change: everyone their own sign-off (and the departments, to see who runs theirs), admins the rest. */
-function MoreMenu({ path, admin, support, lead }: { path: string; admin: boolean; support: boolean; lead: boolean }) {
+function MoreMenu({ path, admin, support, lead, individual }: { path: string; admin: boolean; support: boolean; lead: boolean; individual: boolean }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => setOpen(false), [path]);
@@ -152,7 +166,8 @@ function MoreMenu({ path, admin, support, lead }: { path: string; admin: boolean
     addEventListener('mousedown', away); addEventListener('keydown', esc);
     return () => { removeEventListener('mousedown', away); removeEventListener('keydown', esc); };
   }, [open]);
-  const pages: [string, string][] = [
+  // Someone with a personal account keeps their own vocabulary and saved text; there are no departments or workload.
+  const pages: [string, string][] = individual ? [['/vocabulary', 'Your vocabulary'], ['/saved-text', 'Your saved text'], ['/sign-off', 'Your sign-off']] : [
     ...(admin ? [] : [...(lead ? [['/workload', 'Workload']] : []), ['/sign-off', 'Your sign-off'], ['/departments', 'Departments']] as [string, string][]),
     ...(admin ? [
       ['/workload', 'Workload'],

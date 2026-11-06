@@ -225,7 +225,7 @@ public sealed class TranslationService(Stores stores, ITranslator translator, Ti
         ItemRole.Attendee => "attendee",
         ItemRole.Colleague => "colleague",
         ItemRole.DepartmentAdmin => "department admin",
-        _ => actor.IsAdmin ? "admin" : "user"
+        _ => PermissionEvaluator.AdminOf(actor, item) ? "admin" : "user"
     };
 
     private Task Audit(User actor, Item item, string type, params (string, object?)[] details) =>

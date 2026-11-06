@@ -13,7 +13,7 @@ public readonly record struct Decision(bool Allowed, string Reason)
 /// 1. Lock: an approved item can only be read or exported, whatever anyone has been granted.
 /// 2. Role on this item: the owner (author/importer), the assignee, a department admin of the owner's department, a meeting
 ///    attendee, and a colleague in the owner's department.
-/// 3. Administrator and per-capability grants.
+/// 3. Administrator and per-capability grants (never on a recording made in a personal account).
 /// 4. Otherwise deny.
 /// Audio is never writable in Meeting mode, so there is no capability for it.
 /// </summary>
@@ -29,13 +29,13 @@ public static class PermissionEvaluator
         if (Leads(user, item)) return ItemRole.DepartmentAdmin;
         if (item.Attendees.Contains(user.Id)) return ItemRole.Attendee;
         // Someone in the same department as the owner; an unfinished dictation stays the author's own until they finish it.
-        if (user.Colleagues.Contains(item.OwnerId) && item.Status != ItemStatus.Draft) return ItemRole.Colleague;
+        if (!item.Individual && user.Colleagues.Contains(item.OwnerId) && item.Status != ItemStatus.Draft) return ItemRole.Colleague;
         return ItemRole.None;
     }
 
     /// <summary>Whether the user is a department admin of a department the item's owner is in (unfinished dictations excepted).</summary>
     public static bool Leads(User user, Item item) =>
-        item.OwnerId != user.Id && user.Leads.Contains(item.OwnerId) && item.Status != ItemStatus.Draft;
+        !item.Individual && item.OwnerId != user.Id && user.Leads.Contains(item.OwnerId) && item.Status != ItemStatus.Draft;
 
     public static Decision Evaluate(User user, Item item, Capability capability)
     {
@@ -63,10 +63,10 @@ public static class PermissionEvaluator
         if (Leads(user, item) && capability is Capability.Reassign or Capability.Approve or Capability.Export)
             return Decision.Allow("role:DepartmentAdmin");
 
-        if (user.IsAdmin && capability is Capability.Read or Capability.Reassign or Capability.Approve or Capability.Export)
+        if (AdminOf(user, item) && capability is Capability.Read or Capability.Reassign or Capability.Approve or Capability.Export)
             return Decision.Allow("admin");
 
-        if ((user.Grants & capability) == capability && capability != Capability.None)
+        if (!item.Individual && (user.Grants & capability) == capability && capability != Capability.None)
             return Decision.Allow("grant");
 
         return Decision.Deny("You do not have permission to do this.");
@@ -80,5 +80,11 @@ public static class PermissionEvaluator
 
     /// <summary>Whether the user can see the item at all (dashboard visibility).</summary>
     public static bool CanSee(User user, Item item) =>
-        user.IsAdmin || RoleOn(user, item) != ItemRole.None;
+        AdminOf(user, item) || RoleOn(user, item) != ItemRole.None;
+
+    /// <summary>
+    /// Whether the user acts as an administrator for this item. A recording made in a personal account (Item.Individual) has no
+    /// administrator: the organisation's administrators neither see nor change it.
+    /// </summary>
+    public static bool AdminOf(User user, Item item) => user.IsAdmin && !item.Individual;
 }

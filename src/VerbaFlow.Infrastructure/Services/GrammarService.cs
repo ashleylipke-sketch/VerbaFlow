@@ -83,7 +83,7 @@ public sealed class GrammarService(Stores stores, IGrammarChecker checker, TimeP
         ItemRole.Attendee => "attendee",
         ItemRole.Colleague => "colleague",
         ItemRole.DepartmentAdmin => "department admin",
-        _ => actor.IsAdmin ? "admin" : "user"
+        _ => PermissionEvaluator.AdminOf(actor, item) ? "admin" : "user"
     };
 
     private Task Audit(User actor, Item item, Guid id, string type, params (string, object?)[] details) =>

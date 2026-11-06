@@ -57,7 +57,7 @@ public class DepartmentTests
         await departments.SetHandMemberAsync(env.Carol, legal.Id, env.Alice.Id, true);
         var id = await env.ProcessedRecordingAsync(env.Alice);
 
-        var users = await env.Meeting.ListUsersAsync();
+        var users = await env.Meeting.ListUsersAsync(env.Alice);
         Assert.Equal(["Legal"], users.Single(u => u.Id == env.Alice.Id).Departments);
         Assert.Empty(users.Single(u => u.Id == env.Bob.Id).Departments!);
         var row = (await env.Meeting.ListAsync(env.Alice, new ListQuery(null, null, null))).Single(r => r.Id == id);

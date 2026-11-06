@@ -42,8 +42,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             // A dictation is one person: no speaker separation, and spoken commands ("comma", "new paragraph") are applied.
             var dictation = item.IsDictation;
             // A dictation also needs its saved text ("insert <code>") and the list commands, which the speech service is told to expect.
-            var (phrases, saved) = dictation ? await DictationContext.LoadAsync(stores)
-                : ((await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList(), (IReadOnlyList<SavedText>)[]);
+            var (phrases, saved) = dictation ? await DictationContext.LoadAsync(stores, item.Space)
+                : ((await VocabularyService.InAsync(stores, item.Space)).Select(v => v.Text).ToList(), (IReadOnlyList<SavedText>)[]);
             var request = new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
                 azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases, Enhanced: !dictation && item.SpeechModel == "enhanced");
             string? speechModel = request.Enhanced ? "newer (LLM Speech)" : null;

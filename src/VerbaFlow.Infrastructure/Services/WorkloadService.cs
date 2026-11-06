@@ -54,7 +54,8 @@ public sealed class WorkloadService(Stores stores, TimeProvider clock)
         var owners = shown?.SelectMany(d => users.Values.Where(d.Has)).Select(u => u.Id).ToHashSet();
         var allItems = await stores.Items.ListAsync();
         var superseded = allItems.Where(i => i.SupersedesItemId is not null).Select(i => i.SupersedesItemId!.Value).ToHashSet();
-        var items = allItems.Where(i => (only is null || i.Mode == only) && (owners is null || owners.Contains(i.OwnerId))).ToDictionary(i => i.Id);
+        // Recordings in personal accounts are not the organisation's work.
+        var items = allItems.Where(i => !i.Individual && (only is null || i.Mode == only) && (owners is null || owners.Contains(i.OwnerId))).ToDictionary(i => i.Id);
         var events = await AllEventsAsync();
         var lastEvent = new Dictionary<Guid, DateTimeOffset>();
         foreach (var e in events) if (e.ItemId is { } iid && Steps.Contains(e.Type)) lastEvent[iid] = e.At;

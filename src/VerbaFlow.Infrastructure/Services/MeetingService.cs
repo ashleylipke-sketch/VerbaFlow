@@ -34,6 +34,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var id = Guid.NewGuid();
         var now = clock.GetUtcNow();
         var item = Item.CreateRecorded(id, actor.Id, up.Name, up.LengthMs, up.OutputLanguage, now, up.Mode);
+        if (actor.Individual) item.MarkIndividual();
         if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
         if (dictation) item.SetDocumentType(up.DocumentType);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
@@ -83,6 +84,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             CheckDictation(up.Name, up.DocumentType);
             if (up.LengthMs <= 0) throw new DomainException("The dictation has no length.");
             item = Item.CreateDraft(Guid.NewGuid(), actor.Id, up.Name!, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), up.Mode);
+            if (actor.Individual) item.MarkIndividual();
             if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
             item.SetDocumentType(up.DocumentType);
             item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
@@ -180,6 +182,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var id = Guid.NewGuid();
         var name = string.IsNullOrWhiteSpace(up.Name) ? Path.GetFileNameWithoutExtension(up.FileName) : up.Name!;
         var item = Item.CreateImported(id, actor.Id, name, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), SafeName(up.FileName), up.SourceNote, up.Mode);
+        if (actor.Individual) item.MarkIndividual();
         if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
         if (up.Mode == ItemMode.Dictate) item.SetDocumentType(up.DocumentType);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
@@ -203,6 +206,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     public async Task<Guid> CreateFromOnlineMeetingAsync(OnlineMeetingUpload up, CancellationToken ct = default)
     {
         var owner = await stores.RequireUserAsync(up.Requesters[0]);
+        if (owner.Individual) throw new DomainException("Online meetings are not available in a personal account.");
         var staged = await StageAndScanAsync(owner, up.Video, up.FileName, "online-meeting", ct, MaxMeetingVideoBytes);
         var id = Guid.NewGuid();
         var now = clock.GetUtcNow();
@@ -355,6 +359,10 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (dueDate is not null) CheckDueDate(dueDate);
         User? target = null;
         if (toUserId is { } t) target = await stores.RequireUserAsync(t);
+        if (item.Individual && toUserId is not null && toUserId != item.OwnerId)
+            throw new DomainException("A recording in a personal account cannot be given to someone else.");
+        if (!item.Individual && target is { Individual: true })
+            throw new DomainException("That person uses VerbaFlow with a personal account, so the organisation's recordings cannot be given to them.");
         var previous = item.AssignedUserId;
         var isReassignment = previous is not null && previous != toUserId && previous != item.OwnerId;
         if (isReassignment && string.IsNullOrWhiteSpace(reason))
@@ -390,7 +398,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         PermissionEvaluator.Require(actor, item, Capability.Approve);
         var selfReview = item.IsSelfAssigned || item.AssignedUserId is null && item.OwnerId == actor.Id;
         // A department admin is someone other than the author, so they may approve a self-assigned item as an administrator can.
-        item.Approve(actor.Id, actor.IsAdmin || PermissionEvaluator.Leads(actor, item), policy.BlockSelfApproval, clock.GetUtcNow());
+        item.Approve(actor.Id, PermissionEvaluator.AdminOf(actor, item) || PermissionEvaluator.Leads(actor, item), policy.BlockSelfApproval, clock.GetUtcNow());
         var asset = await stores.Media.FindCurrentAsync(item.MediaSourceItemId);
         var transcript = await stores.Transcripts.GetAsync(id);
         await stores.Items.UpsertAsync(id, item);
@@ -409,6 +417,16 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             throw new DomainException("This version has already been reopened. Open the newer version instead.");
         if ((await stores.Reopen.ListAsync()).Any(r => r.ItemId == itemId && r.IsOpen))
             throw new DomainException("A reopen request is already waiting for approval.");
+        if (item.Individual)
+        {
+            // A personal account has no administrators: its owner reopens their own recording, and History says so.
+            if (string.IsNullOrWhiteSpace(reason)) throw new DomainException("A reason is required to reopen a recording.");
+            var next = await CreateReopenedVersionAsync(actor, item);
+            await Audit(actor, CapacityOf(actor, next), next.Id, "item.reopened", ("reason", reason.Trim()), ("requestedBy", actor.Id),
+                ("approvedBy", "the owner (personal account)"), ("supersedes", item.Id), ("versionNo", next.VersionNo));
+            await Audit(actor, "system", item.Id, "item.reopened_version_created", ("newItemId", next.Id), ("versionNo", next.VersionNo));
+            return next.Id;
+        }
         var req = ReopenRequest.Create(Guid.NewGuid(), itemId, actor.Id, reason, clock.GetUtcNow());
         await stores.Reopen.UpsertAsync(req.Id, req);
         await Audit(actor, CapacityOf(actor, item), null, "reopen.requested", ("requestId", req.Id), ("originalItemId", itemId), ("reason", req.Reason));
@@ -424,13 +442,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (!req.IsApproved) { await stores.Reopen.UpsertAsync(requestId, req); return null; }
 
         var original = await stores.RequireItemAsync(req.ItemId);
-        var now = clock.GetUtcNow();
-        var next = original.CreateReopenedVersion(Guid.NewGuid(), now);
-        var transcript = await stores.Transcripts.GetAsync(original.Id);
-        if (transcript is not null) await stores.Transcripts.UpsertAsync(next.Id, transcript.ForkFor(next.Id, admin.Id, now));
-        var outputs = await stores.Outputs.GetAsync(original.Id);
-        if (outputs is not null) await stores.Outputs.UpsertAsync(next.Id, outputs with { ItemId = next.Id });
-        await stores.Items.UpsertAsync(next.Id, next);
+        if (original.Individual) throw new ForbiddenException("This recording is in a personal account.");
+        var next = await CreateReopenedVersionAsync(admin, original);
         req.NewItemId = next.Id;
         await stores.Reopen.UpsertAsync(requestId, req);
 
@@ -439,6 +452,19 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             ("requestedBy", req.RequestedBy), ("approvedBy", approvers), ("supersedes", original.Id), ("versionNo", next.VersionNo));
         await Audit(admin, "system", original.Id, "item.reopened_version_created", ("newItemId", next.Id), ("versionNo", next.VersionNo));
         return next.Id;
+    }
+
+    /// <summary>The next version of an approved recording, with its transcript and summary carried over.</summary>
+    private async Task<Item> CreateReopenedVersionAsync(User actor, Item original)
+    {
+        var now = clock.GetUtcNow();
+        var next = original.CreateReopenedVersion(Guid.NewGuid(), now);
+        var transcript = await stores.Transcripts.GetAsync(original.Id);
+        if (transcript is not null) await stores.Transcripts.UpsertAsync(next.Id, transcript.ForkFor(next.Id, actor.Id, now));
+        var outputs = await stores.Outputs.GetAsync(original.Id);
+        if (outputs is not null) await stores.Outputs.UpsertAsync(next.Id, outputs with { ItemId = next.Id });
+        await stores.Items.UpsertAsync(next.Id, next);
+        return next;
     }
 
     public async Task RejectReopenAsync(User admin, Guid requestId, string reason)
@@ -454,7 +480,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (!actor.IsAdmin) throw new ForbiddenException("Only administrators can see reopen requests.");
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id);
         var items = (await stores.Items.ListAsync()).ToDictionary(i => i.Id);
-        return (await stores.Reopen.ListAsync()).OrderByDescending(r => r.CreatedAt).Select(r => new ReopenView(
+        return (await stores.Reopen.ListAsync()).Where(r => items.GetValueOrDefault(r.ItemId)?.Individual != true).OrderByDescending(r => r.CreatedAt).Select(r => new ReopenView(
             r.Id, r.ItemId, items.GetValueOrDefault(r.ItemId)?.Name ?? "?", r.Reason,
             users.GetValueOrDefault(r.RequestedBy)?.Name ?? "?", r.Approvals.Count,
             r.Approvals.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), r.IsOpen,
@@ -473,7 +499,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         RequireOwnerOrAdmin(actor, item);
         if (string.IsNullOrWhiteSpace(reason)) throw new DomainException("A reason is required to delete a recording.");
         var chain = await RequireDeletableAsync(item);
-        if (chain.Any(i => i.ApprovedAt is not null))
+        // A personal account has no administrators to agree: its owner deletes their own recording, approved before or not.
+        if (!item.Individual && chain.Any(i => i.ApprovedAt is not null))
             throw new DomainException("This recording was approved before, so two administrators must agree to delete it. Use Ask to delete instead.");
         await PurgeChainAsync(actor, chain, reason.Trim(), null, [actor.Id]);
     }
@@ -483,6 +510,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         var item = await stores.RequireItemAsync(id);
         RequireOwnerOrAdmin(actor, item);
+        if (item.Individual) throw new DomainException("A recording in a personal account can be deleted straight away. Use Delete instead.");
         var chain = await RequireDeletableAsync(item);
         if (chain.All(i => i.ApprovedAt is null))
             throw new DomainException("This recording has never been approved, so it can be deleted straight away.");
@@ -500,6 +528,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     public async Task<bool> ApproveDeleteAsync(User admin, Guid requestId)
     {
         var req = await stores.Deletes.GetAsync(requestId) ?? throw new NotFoundException("That request does not exist.");
+        if ((await stores.Items.GetAsync(req.ItemId))?.Individual == true) throw new ForbiddenException("This recording is in a personal account.");
         req.Approve(admin);
         if (req.IsApproved)
         {
@@ -530,7 +559,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (!actor.IsAdmin) throw new ForbiddenException("Only administrators can see delete requests.");
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id);
         var items = (await stores.Items.ListAsync()).ToDictionary(i => i.Id);
-        return (await stores.Deletes.ListAsync()).OrderByDescending(r => r.CreatedAt).Select(r => new DeleteRequestView(
+        return (await stores.Deletes.ListAsync()).Where(r => items.GetValueOrDefault(r.ItemId)?.Individual != true).OrderByDescending(r => r.CreatedAt).Select(r => new DeleteRequestView(
             r.Id, r.ItemId, items.GetValueOrDefault(r.ItemId)?.Name ?? "?", r.Reason,
             users.GetValueOrDefault(r.RequestedBy)?.Name ?? "?", r.Approvals.Count,
             r.Approvals.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), r.IsOpen,
@@ -624,7 +653,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         // Saved text put in by "insert" is marked on the page. Older passages did not keep the inserted words, so the saved
         // text's wording now is looked for instead.
         var saved = current.Any(r => r.Segment.Inserted is not null && r.Segment.InsertedParts is null)
-            ? await stores.SavedText.ListAsync() : null;
+            ? await SavedTextService.InAsync(stores, item.Space) : null;
         IReadOnlyList<SavedTextMark>? MarksOf(Segment s) => SavedTextMarks.Find(s, saved) is { Count: > 0 } m ? m : null;
         return new TranscriptView(v.No,
             t.Versions.Select(x => new VersionView(x.No, x.Kind.ToString(), x.Capacity,
@@ -887,9 +916,9 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             item.ExternalSourceNote, asset?.Sha256,
             item.Markers.Select(m => new MarkerView(m.Type.ToString(), m.OffsetMs, m.Note, users.GetValueOrDefault(m.ActorId)?.Name ?? "?", m.At)).ToList(),
             PermissionEvaluator.Evaluate(actor, item, Capability.Write).Allowed,
-            PermissionEvaluator.Evaluate(actor, item, Capability.Write).Allowed && (role == ItemRole.Owner || actor.IsAdmin),
+            PermissionEvaluator.Evaluate(actor, item, Capability.Write).Allowed && (role == ItemRole.Owner || PermissionEvaluator.AdminOf(actor, item)),
             PermissionEvaluator.Evaluate(actor, item, Capability.ExportAudio).Allowed,
-            actor.IsAdmin && role == ItemRole.None ? "Admin" : role == ItemRole.DepartmentAdmin ? "Department admin" : role.ToString(), item.OutputLanguage, item.ApprovedAt,
+            PermissionEvaluator.AdminOf(actor, item) && role == ItemRole.None ? "Admin" : role == ItemRole.DepartmentAdmin ? "Department admin" : role.ToString(), item.OutputLanguage, item.ApprovedAt,
             item.ApprovedBy is { } a ? users.GetValueOrDefault(a)?.Name : null, item.ChainId,
             chain.Select(c => new ChainEntry(c.Id, c.VersionNo, StatusLabels.For(c.Mode, c.Status), !all.Any(x => x.SupersedesItemId == c.Id))).ToList(),
             item.Source switch { SourceKind.Imported => "Imported (external source)", SourceKind.OnlineMeeting => item.ExternalSourceNote ?? "Online meeting", _ => "Recorded in app" }, item.SpokenLanguages,
@@ -914,10 +943,14 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return await stores.Audit.VerifyAsync();
     }
 
-    public async Task<IReadOnlyList<UserView>> ListUsersAsync()
+    /// <summary>
+    /// The people the actor can pick (to assign to, for example). Someone with a personal account sees only themselves; the
+    /// organisation's members never see people with personal accounts.
+    /// </summary>
+    public async Task<IReadOnlyList<UserView>> ListUsersAsync(User actor)
     {
         var departments = (await stores.Departments.ListAsync()).OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-        return (await stores.Users.ListAsync()).Select(u => new UserView(u.Id, u.Name, u.Email, u.IsAdmin, u.IsSupport,
+        return (await stores.Users.ListAsync()).Where(u => actor.Individual ? u.Id == actor.Id : !u.Individual).Select(u => new UserView(u.Id, u.Name, u.Email, u.IsAdmin, u.IsSupport,
             u.IsSupport ? [] : departments.Where(d => d.Has(u)).Select(d => d.Name).ToList())).ToList();
     }
 
@@ -961,20 +994,20 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         var a = new List<string> { "open" };
         var role = PermissionEvaluator.RoleOn(u, i);
-        var ownerOrAdmin = role == ItemRole.Owner || u.IsAdmin;
+        var ownerOrAdmin = role == ItemRole.Owner || PermissionEvaluator.AdminOf(u, i);
         var idle = i.Processing == ProcessingState.Idle;
         if (i.Status == ItemStatus.ConversionFailed && ownerOrAdmin) a.Add("retry");
         if (i.Status == ItemStatus.Draft && role == ItemRole.Owner) a.Add("continue"); // an unfinished dictation: only its author carries on
         if (i.IsDictation && i.Status == ItemStatus.WithAuthor && idle && !superseded && role == ItemRole.Owner) a.Add("change-recording");
         if (idle && ownerOrAdmin && i.Status is not (ItemStatus.ConversionFailed or ItemStatus.Completed or ItemStatus.Draft)) a.Add("rerun");
         if (idle && i.Status == i.Home && PermissionEvaluator.Evaluate(u, i, Capability.Approve).Allowed) a.Add("approve");
-        if (idle && i.Status is ItemStatus.WithAuthor or ItemStatus.WithImporter or ItemStatus.AwaitingAssignee or ItemStatus.WithAssignee
+        if (idle && !i.Individual && i.Status is ItemStatus.WithAuthor or ItemStatus.WithImporter or ItemStatus.AwaitingAssignee or ItemStatus.WithAssignee
             && PermissionEvaluator.Evaluate(u, i, Capability.Reassign).Allowed) a.Add(i.AssignedUserId is null ? "assign" : "reassign");
         if (i.Status == ItemStatus.AwaitingAssignee && i.AssignedUserId == u.Id) a.Add("accept");
         if (i.Status == ItemStatus.WithAssignee && i.AssignedUserId == u.Id) a.Add("return");
         if (i.Status == ItemStatus.Completed && !superseded && ownerOrAdmin) a.Add("request-reopen");
         if (idle && !superseded && ownerOrAdmin && i.Status is not (ItemStatus.Completed or ItemStatus.Purged))
-            a.Add(i.VersionNo > 1 ? "request-delete" : "delete");
+            a.Add(i.VersionNo > 1 && !i.Individual ? "request-delete" : "delete");
         return a;
     }
 
@@ -1005,7 +1038,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
 
     private static void RequireOwnerOrAdmin(User actor, Item item)
     {
-        if (PermissionEvaluator.RoleOn(actor, item) != ItemRole.Owner && !actor.IsAdmin)
+        if (PermissionEvaluator.RoleOn(actor, item) != ItemRole.Owner && !PermissionEvaluator.AdminOf(actor, item))
             throw new ForbiddenException("Only the author, importer or an administrator can do this.");
     }
 
@@ -1016,7 +1049,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         ItemRole.Attendee => "attendee",
         ItemRole.Colleague => "colleague",
         ItemRole.DepartmentAdmin => "department admin",
-        _ => actor.IsAdmin ? "admin" : "user"
+        _ => PermissionEvaluator.AdminOf(actor, item) ? "admin" : "user"
     };
 
     private static string SafeName(string fileName) => Path.GetFileName(fileName).Replace('\\', '_');

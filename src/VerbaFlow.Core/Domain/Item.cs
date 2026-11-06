@@ -134,6 +134,19 @@ public sealed class Item
     [JsonIgnore] public bool IsDictation => Mode is ItemMode.Dictate or ItemMode.Speech;
     [JsonIgnore] public bool IsLocked => Status is ItemStatus.Completed or ItemStatus.Purged;
     [JsonIgnore] public bool IsSelfAssigned => AssignedUserId is { } a && a == OwnerId;
+    /// <summary>
+    /// Made by someone using VerbaFlow on their own (see User.Individual), not by a member of the organisation. Only they (and
+    /// nobody they could assign it to) can see it: the organisation's administrators, grants and departments do not reach it.
+    /// Set when the item is made and kept on every version.
+    /// </summary>
+    [JsonInclude] public bool Individual { get; private set; }
+    /// <summary>Whose vocabulary and saved text this item uses: null for the organisation's, or the owner's own for a personal account.</summary>
+    [JsonIgnore] public Guid? Space => Individual ? OwnerId : null;
+    public void MarkIndividual()
+    {
+        if (VersionNo != 1 || IsLocked) throw new DomainException("Only a new recording can be marked as a personal account's.");
+        Individual = true;
+    }
 
     public static Item CreateRecorded(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage,
         DateTimeOffset now, ItemMode mode = ItemMode.Meeting) =>
@@ -360,6 +373,7 @@ public sealed class Item
         next.Attendees = [.. Attendees];
         next.Introductions = [.. Introductions];
         next.ObjectionFlag = ObjectionFlag;
+        next.Individual = Individual;
         next.Processing = ProcessingState.Idle;
         return next;
     }

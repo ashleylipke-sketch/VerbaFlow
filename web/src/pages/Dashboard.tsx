@@ -1,3 +1,4 @@
+import { isIndividual } from '../whoami';
 import { AssignOptions } from '../assignOptions';
 import { dueWhen, todayIso } from '../DueDate';
 import { useEffect, useState } from 'react';
@@ -112,7 +113,7 @@ export default function Dashboard({ mode }: { mode: Mode }) {
           {speech ? <a className="btn primary" href="#/speech/live">Start speaking</a> : <>
           <a className="btn primary" href={dictate ? '#/dictate/record' : '#/record'}>{dictate ? 'New dictation' : 'Record a meeting'}</a>
           <a className="btn" href={dictate ? '#/dictate/import' : '#/import'}>{dictate ? 'Import a dictation' : 'Import a recording'}</a>
-          {!dictate && <a className="btn" href="#/meet" title="A visible note-taker joins a Teams, Zoom, Google Meet or Webex call and records it">Online meeting</a>}</>}
+          {!dictate && !isIndividual() && <a className="btn" href="#/meet" title="A visible note-taker joins a Teams, Zoom, Google Meet or Webex call and records it">Online meeting</a>}</>}
         </div>
       </div>
       <div className="toggles" role="group" aria-label="Views">

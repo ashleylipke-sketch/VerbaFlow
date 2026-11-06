@@ -9,7 +9,8 @@ namespace VerbaFlow.Infrastructure.Services;
 /// <summary>
 /// Saved text: phrases, sentences or paragraphs a person drops into a dictation by saying "insert" and the code
 /// ("insert legal 1.1"). Anyone signed in can read it; only administrators change it. Every change is audited with a
-/// fingerprint of the text, so it can be shown later which wording was in force.
+/// fingerprint of the text, so it can be shown later which wording was in force. Someone with a personal account has saved
+/// text of their own instead (SavedText.OwnerId), which they change themselves.
 /// </summary>
 public sealed class SavedTextService(Stores stores, TimeProvider clock)
 {
@@ -18,19 +19,24 @@ public sealed class SavedTextService(Stores stores, TimeProvider clock)
     public const int MaxCodeWords = 6;
     public const int MaxTextLength = 20_000;
 
-    public async Task<IReadOnlyList<SavedText>> ListAsync() =>
-        (await stores.SavedText.ListAsync()).OrderBy(t => SpokenCodes.Key(t.Code), StringComparer.Ordinal).ToList();
+    /// <summary>The saved text the person uses: the organisation's, or their own with a personal account (null = the organisation's).</summary>
+    public async Task<IReadOnlyList<SavedText>> ListAsync(User? actor = null) =>
+        (await InAsync(stores, actor?.Space)).OrderBy(t => SpokenCodes.Key(t.Code), StringComparer.Ordinal).ToList();
+
+    /// <summary>The entries of one list of saved text: the organisation's (null) or a personal account's.</summary>
+    public static async Task<List<SavedText>> InAsync(Stores stores, Guid? space) =>
+        (await stores.SavedText.ListAsync()).Where(t => t.OwnerId == space).ToList();
 
     public async Task<SavedText> AddAsync(User actor, string? code, string? text)
     {
         RequireAdmin(actor);
         var (cleanCode, key) = CleanCode(code);
         var cleanText = CleanText(text);
-        var existing = await stores.SavedText.ListAsync();
+        var existing = await InAsync(stores, actor.Space);
         if (existing.Count >= MaxEntries) throw new DomainException($"There is no room for more saved text ({MaxEntries} entries). Remove some first.");
         if (existing.FirstOrDefault(t => SpokenCodes.Key(t.Code) == key) is { } same)
             throw new DomainException($"\"{same.Code}\" already uses that code. Choose a different one.");
-        var entry = new SavedText(Guid.NewGuid(), cleanCode, cleanText, actor.Id, clock.GetUtcNow());
+        var entry = new SavedText(Guid.NewGuid(), cleanCode, cleanText, actor.Id, clock.GetUtcNow(), OwnerId: actor.Space);
         await stores.SavedText.UpsertAsync(entry.Id, entry);
         await Audit(actor, "saved-text.added", ("code", cleanCode), ("sha256", Fingerprint(cleanText)), ("characters", cleanText.Length));
         return entry;
@@ -39,10 +45,10 @@ public sealed class SavedTextService(Stores stores, TimeProvider clock)
     public async Task<SavedText> ChangeAsync(User actor, Guid id, string? code, string? text)
     {
         RequireAdmin(actor);
-        var entry = await stores.SavedText.GetAsync(id) ?? throw new NotFoundException("That saved text does not exist.");
+        var entry = await RequireAsync(actor, id);
         var (cleanCode, key) = CleanCode(code);
         var cleanText = CleanText(text);
-        if ((await stores.SavedText.ListAsync()).FirstOrDefault(t => t.Id != id && SpokenCodes.Key(t.Code) == key) is { } same)
+        if ((await InAsync(stores, actor.Space)).FirstOrDefault(t => t.Id != id && SpokenCodes.Key(t.Code) == key) is { } same)
             throw new DomainException($"\"{same.Code}\" already uses that code. Choose a different one.");
         var changed = entry with { Code = cleanCode, Text = cleanText, ChangedBy = actor.Id, ChangedAt = clock.GetUtcNow() };
         await stores.SavedText.UpsertAsync(id, changed);
@@ -54,7 +60,7 @@ public sealed class SavedTextService(Stores stores, TimeProvider clock)
     public async Task RemoveAsync(User actor, Guid id)
     {
         RequireAdmin(actor);
-        var entry = await stores.SavedText.GetAsync(id) ?? throw new NotFoundException("That saved text does not exist.");
+        var entry = await RequireAsync(actor, id);
         await stores.SavedText.DeleteAsync(id);
         await Audit(actor, "saved-text.removed", ("code", entry.Code), ("sha256", Fingerprint(entry.Text)));
     }
@@ -62,9 +68,13 @@ public sealed class SavedTextService(Stores stores, TimeProvider clock)
     /// <summary>Short fingerprint of the wording, for the audit trail and the processing history.</summary>
     public static string Fingerprint(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
 
+    private async Task<SavedText> RequireAsync(User actor, Guid id) =>
+        await stores.SavedText.GetAsync(id) is { } e && e.OwnerId == actor.Space ? e : throw new NotFoundException("That saved text does not exist.");
+
     private static void RequireAdmin(User actor)
     {
-        if (!actor.IsAdmin) throw new ForbiddenException("Only administrators can change saved text.");
+        // Someone with a personal account changes their own saved text; the organisation's is changed by its administrators.
+        if (!actor.Individual && !actor.IsAdmin) throw new ForbiddenException("Only administrators can change saved text.");
     }
 
     /// <summary>The code as typed (spaces tidied) and its comparable form. It must start with a word, so "insert 1.1" is never a code on its own.</summary>
@@ -97,5 +107,5 @@ public sealed class SavedTextService(Stores stores, TimeProvider clock)
     }
 
     private Task Audit(User actor, string type, params (string, object?)[] details) =>
-        stores.Audit.AppendAsync(actor.Id, "admin", "platform", null, type, AuditChain.Details(details));
+        stores.Audit.AppendAsync(actor.Id, actor.Individual ? "user" : "admin", "platform", null, type, AuditChain.Details(details));
 }

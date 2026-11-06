@@ -93,6 +93,7 @@ public sealed class CalendarService(Stores stores, IEnumerable<ICalendarReader> 
     /// <summary>Connects a calendar, or changes the automatic setting and language of the one connected.</summary>
     public async Task<CalendarOverview> ConnectAsync(User user, CalendarConnect body, CancellationToken ct = default)
     {
+        if (user.Individual) throw new DomainException(MeetService.PersonalAccounts);
         var existing = await stores.CalendarSettings.GetAsync(user.Id);
         var source = (body.Source ?? existing?.Source ?? "").Trim().ToLowerInvariant();
         if (!SourcesFor(user).Any(o => o.Id == source)) throw new DomainException("Choose which calendar to connect.");

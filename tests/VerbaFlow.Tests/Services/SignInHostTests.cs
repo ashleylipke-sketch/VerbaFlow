@@ -28,6 +28,7 @@ public class SignInHostTests : IDisposable
             b.UseSetting("VerbaFlow:DataDir", _dir);
             b.UseSetting("Entra:TenantId", Tenant);
             b.UseSetting("Entra:ClientId", Client);
+            b.UseSetting("Entra:PersonalAccounts", "true");
             b.ConfigureServices(s => s.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
             {
                 o.Authority = null;
@@ -39,13 +40,13 @@ public class SignInHostTests : IDisposable
 
     public void Dispose() { _app.Dispose(); try { Directory.Delete(_dir, true); } catch { /* best effort */ } }
 
-    private string Token(string tenant = Tenant, string? roles = null, string audience = Client) => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+    private string Token(string tenant = Tenant, string? roles = null, string audience = Client, string oid = "oid-ashley") => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
     {
         Issuer = $"https://login.microsoftonline.com/{tenant}/v2.0", Audience = audience, Expires = DateTime.UtcNow.AddMinutes(10),
         SigningCredentials = new SigningCredentials(_key, SecurityAlgorithms.HmacSha256),
         Claims = new Dictionary<string, object>
         {
-            ["tid"] = tenant, ["oid"] = "oid-ashley", ["scp"] = "access_as_user", ["name"] = "Ashley Lipke", ["preferred_username"] = "ashley@firm.example",
+            ["tid"] = tenant, ["oid"] = oid, ["scp"] = "access_as_user", ["name"] = "Ashley Lipke", ["preferred_username"] = "ashley@firm.example",
             ["roles"] = roles is null ? Array.Empty<string>() : new[] { roles },
         },
     });
@@ -66,7 +67,6 @@ public class SignInHostTests : IDisposable
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await Me(_ => { })).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await Me(r => r.Headers.Add("X-Dev-User", "carol"))).StatusCode); // no test users online
-        Assert.Equal(HttpStatusCode.Unauthorized, (await Me(r => r.Headers.Authorization = new("Bearer", Token(tenant: "99999999-2222-3333-4444-555555555555")))).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await Me(r => r.Headers.Authorization = new("Bearer", Token(audience: "someone-else")))).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await Me(r => r.Headers.Authorization = new("Bearer", "not-a-token"))).StatusCode);
 
@@ -76,5 +76,38 @@ public class SignInHostTests : IDisposable
         Assert.Equal(("Ashley Lipke", true), (me.GetProperty("name").GetString(), me.GetProperty("isAdmin").GetBoolean()));
         var users = await (await Me(r => { r.RequestUri = new Uri("/api/users", UriKind.Relative); r.Headers.Authorization = new("Bearer", Token()); })).Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(1, users.GetArrayLength()); // the test users are not created online
+    }
+
+    [Fact]
+    public async Task A_microsoft_account_from_outside_the_organisation_gets_a_personal_VerbaFlow()
+    {
+        var info = await _app.CreateClient().GetFromJsonAsync<JsonElement>("/api/sign-in");
+        Assert.True(info.GetProperty("personalAccounts").GetBoolean());
+        Assert.Equal("https://login.microsoftonline.com/common", info.GetProperty("microsoft").GetProperty("authority").GetString());
+
+        var consumer = "9188040d-6c67-4c5b-b5f8-a3d2c3c9b6e1";
+        var ok = await Me(r => r.Headers.Authorization = new("Bearer", Token(tenant: consumer, oid: "oid-sam")));
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        var me = await ok.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(me.GetProperty("individual").GetBoolean());
+        Assert.False(me.GetProperty("isAdmin").GetBoolean());
+
+        // A Microsoft sign-in is renewed with Microsoft, not by VerbaFlow; a made-up VerbaFlow sign-in is refused.
+        var renew = new HttpRequestMessage(HttpMethod.Post, "/api/sign-in/renew");
+        renew.Headers.Authorization = new("Bearer", Token(tenant: consumer, oid: "oid-sam"));
+        Assert.Equal(HttpStatusCode.NoContent, (await _app.CreateClient().SendAsync(renew)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Me(r => r.Headers.Authorization = new("Bearer", "vf1.made-up"))).StatusCode);
+
+        // A VerbaFlow sign-in made for this person (as after Google) gets in and renews itself.
+        var id = Guid.Parse(me.GetProperty("id").GetString()!);
+        var vf = _app.Services.GetRequiredService<VerbaFlow.Api.SessionTokens>().Issue(id);
+        Assert.Equal(HttpStatusCode.OK, (await Me(r => r.Headers.Authorization = new("Bearer", vf))).StatusCode);
+        var again = new HttpRequestMessage(HttpMethod.Post, "/api/sign-in/renew");
+        again.Headers.Authorization = new("Bearer", vf);
+        var fresh = await (await _app.CreateClient().SendAsync(again)).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.StartsWith("vf1.", fresh.GetProperty("token").GetString());
+
+        // Google is not set up here, so its exchange does not exist.
+        Assert.Equal(HttpStatusCode.NotFound, (await _app.CreateClient().PostAsJsonAsync("/api/sign-in/google", new { credential = "x" })).StatusCode);
     }
 }

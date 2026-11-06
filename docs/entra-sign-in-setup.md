@@ -134,12 +134,31 @@ The test users (Alice, Bob…) do not sign in with Microsoft, so on your compute
 
 See `outlook-drafts.md`: one delegated permission (**Mail.ReadWrite**, with admin consent) and the client secret.
 
+## 13. People using VerbaFlow on their own (personal Microsoft accounts)
+
+So that students and others without a work account can use VerbaFlow, it can also accept personal Microsoft accounts (Outlook.com, Hotmail, Live, Microsoft 365 Family) and work or school accounts from **other** organisations (for example a university). Each of them gets a **personal VerbaFlow**: their recordings, vocabulary and saved text are theirs alone; your administrators cannot see them, and they cannot see your people, departments, letterhead or templates. Google accounts are set up separately (see `google-sign-in.md`).
+
+1. In the Entra admin center, open **App registrations** › **VerbaFlow** › **Manifest**.
+2. Find `"requestedAccessTokenVersion"` (inside `"api"`; in the older layout it is `"accessTokenAcceptedVersion"` at the top). Change its value from `null` to `2` and click **Save**. Microsoft requires this before personal accounts can be allowed.
+3. Open **Authentication** (or **Branding & properties** in some layouts) and under **Supported account types** choose **Accounts in any organizational directory and personal Microsoft accounts**. Click **Save**.
+4. Open **Expose an API**, click the `access_as_user` scope and make sure **Who can consent?** is **Admins and users** (a personal account has no administrator to agree for it). Click **Save**.
+5. In the `src\VerbaFlow.Api` folder, run:
+
+   ```
+   dotnet user-secrets set "Entra:PersonalAccounts" "true"
+   ```
+
+6. Restart `run.cmd`. The start-up line `Sign-in:` now ends with "personal and other organisations' Microsoft accounts as personal accounts".
+
+Your own people still sign in exactly as before and keep everything they had. Someone from another organisation is asked by Microsoft to agree that VerbaFlow may read their name and email; some universities switch that off, in which case their IT department must allow it, or the person uses a personal account instead.
+
 ## How it works (for whoever looks after VerbaFlow)
 
 - The web app uses Microsoft's sign-in library (MSAL.js, `@azure/msal-browser`) and sends an access token for `api://<client id>/access_as_user` with every call. The Widget does the same through the browser's sign-in window (`chrome.identity.launchWebAuthFlow`, authorisation code with PKCE); its tokens are kept in browser-session memory only.
 - The server (`SignIn.cs`) checks each token's signature against Microsoft, its audience, issuer and organisation (`tid`), and that it carries the `access_as_user` permission (so an app's own token is refused). A person is matched on their directory id (`oid`); the first sign-in creates the VerbaFlow user (History `user.first_sign_in`), and name, email and administrator status follow Microsoft 365 on every sign-in (History `user.admin_changed`).
 - Administrator status comes only from the `Admin` app role. VerbaFlow support access never comes from a customer's directory (see `support-and-errors.md`).
 - The Widget for Windows uses MSAL.NET with the system browser and a `http://localhost` (any port) redirect, as a public client; its sign-in is kept in `%LOCALAPPDATA%\VerbaFlow\Widget\signin.cache`, protected by Windows for that person only.
+- With `Entra:PersonalAccounts=true` the web app signs in through Microsoft's `common` address and the server accepts tokens from any directory (issuer `https://login.microsoftonline.com/<tid>/v2.0`, still only for VerbaFlow's own `access_as_user`). A token from this organisation's directory is a member of the organisation as before; any other becomes a personal account matched on `microsoft:<tid>:<oid>` (`User.Individual`, `User.SignInId`), never an administrator.
 - Live speech (Speech mode and the Widget) uses a one-minute ticket for its connection, obtained with the signed-in call, as before.
 
 ## Not done yet

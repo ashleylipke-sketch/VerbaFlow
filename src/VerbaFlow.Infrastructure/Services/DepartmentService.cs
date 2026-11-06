@@ -28,12 +28,14 @@ public sealed class DepartmentService(Stores stores, TimeProvider clock)
     /// </summary>
     public async Task<User> WithColleaguesAsync(User user)
     {
+        // Someone with a personal account is in no department and runs none.
+        if (user.Individual) return user.Colleagues.Count == 0 && user.Leads.Count == 0 ? user : user with { Colleagues = new HashSet<Guid>(), Leads = new HashSet<Guid>() };
         var all = await stores.Departments.ListAsync();
         var departments = all.Where(d => d.Has(user)).ToList();
         var led = user.IsSupport ? [] : all.Where(d => d.Leads.Contains(user.Id)).ToList();
         if (departments.Count == 0 && led.Count == 0)
             return user.Colleagues.Count == 0 && user.Leads.Count == 0 ? user : user with { Colleagues = new HashSet<Guid>(), Leads = new HashSet<Guid>() };
-        var users = (await stores.Users.ListAsync()).Where(u => u.Id != user.Id && !u.IsSupport).ToList();
+        var users = (await stores.Users.ListAsync()).Where(u => u.Id != user.Id && !u.IsSupport && !u.Individual).ToList();
         return user with
         {
             Colleagues = users.Where(u => departments.Any(d => d.Has(u))).Select(u => u.Id).ToHashSet(),
@@ -43,8 +45,9 @@ public sealed class DepartmentService(Stores stores, TimeProvider clock)
 
     public async Task<DepartmentsOverview> OverviewAsync(User actor)
     {
-        var departments = await stores.Departments.ListAsync();
-        var users = (await stores.Users.ListAsync()).Where(u => !u.IsSupport).ToList();
+        // Departments are the organisation's: someone with a personal account sees none, and is never listed in one.
+        var departments = actor.Individual ? [] : await stores.Departments.ListAsync();
+        var users = (await stores.Users.ListAsync()).Where(u => !u.IsSupport && !u.Individual).ToList();
         var views = departments.OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).Select(d => new DepartmentView(d.Id, d.Name,
             actor.IsAdmin ? d.GroupId : null,
             users.Where(d.Has).OrderBy(u => u.Name).Select(u => new DepartmentMember(u.Id, u.Name, d.HandMembers.Contains(u.Id) ? "by hand" : "Microsoft group")).ToList(),
@@ -107,6 +110,7 @@ public sealed class DepartmentService(Stores stores, TimeProvider clock)
         RequireAdmin(actor);
         var d = await Require(id);
         var person = await stores.Users.GetAsync(userId) ?? throw new NotFoundException("That person does not exist.");
+        if (member && person.Individual) throw new DomainException($"{person.Name} uses VerbaFlow with a personal account, so they cannot be in a department.");
         if (member && (person.EntraObjectId is not null || person.IsSupport))
             throw new DomainException($"{person.Name} signs in with Microsoft, so their departments come from their Microsoft groups. Add them to the group linked to {d.Name} instead.");
         if (member == d.HandMembers.Contains(userId)) return d;
@@ -126,6 +130,7 @@ public sealed class DepartmentService(Stores stores, TimeProvider clock)
         var d = await Require(id);
         var person = await stores.Users.GetAsync(userId) ?? throw new NotFoundException("That person does not exist.");
         if (admin && person.IsSupport) throw new DomainException("VerbaFlow support cannot be a department admin.");
+        if (admin && person.Individual) throw new DomainException($"{person.Name} uses VerbaFlow with a personal account, so they cannot be a department admin.");
         if (admin == d.Leads.Contains(userId)) return d;
         if (admin && d.Leads.Count >= Department.MaxAdmins)
             throw new DomainException($"A department can have at most {Department.MaxAdmins} department admins.");

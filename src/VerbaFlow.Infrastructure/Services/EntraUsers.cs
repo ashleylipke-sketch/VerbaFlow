@@ -13,6 +13,13 @@ public sealed record EntraIdentity(string ObjectId, string? Name, string? Email,
 }
 
 /// <summary>
+/// Someone signing in with a personal account (a personal Microsoft account, a work or school account from another
+/// organisation, or a Google account). <paramref name="SignInId"/> is stable for that account ("microsoft:&lt;directory&gt;:&lt;id&gt;",
+/// "google:&lt;id&gt;"); <paramref name="Kind"/> names the kind of account for History.
+/// </summary>
+public sealed record PersonalIdentity(string SignInId, string? Name, string? Email, string Kind);
+
+/// <summary>
 /// Turns a Microsoft Entra ID sign-in into a VerbaFlow user. The first sign-in creates the user; later sign-ins keep the
 /// name, email and administrator status in step with Microsoft 365, where the organisation manages them. VerbaFlow
 /// support access never comes from a customer's directory, so a Microsoft sign-in is never a support user.
@@ -57,6 +64,41 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
                 }
             }
             _known[who.ObjectId] = (user, who, now);
+            return user;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// The VerbaFlow user for a personal account: made on the first sign-in, name and email kept in step afterwards. Never an
+    /// administrator or VerbaFlow support, in no department, with a space of their own (User.Individual).
+    /// </summary>
+    public async Task<User> ResolvePersonalAsync(PersonalIdentity who)
+    {
+        if (string.IsNullOrWhiteSpace(who.SignInId)) throw new ForbiddenException("Your sign-in did not say who you are. Sign in again.");
+        var now = clock.GetUtcNow();
+        var key = "personal|" + who.SignInId;
+        var seen = new EntraIdentity(key, who.Name, who.Email, false);
+        if (_known.TryGetValue(key, out var hit) && hit.Seen == seen && now - hit.At < Remember) return hit.User;
+        await _gate.WaitAsync();
+        try
+        {
+            var name = Clean(who.Name, 200) is { Length: > 0 } n ? n : Clean(who.Email, 200) is { Length: > 0 } e ? e : "VerbaFlow user";
+            var email = Clean(who.Email, 320) ?? "";
+            var existing = (await stores.Users.ListAsync()).FirstOrDefault(u => u.SignInId == who.SignInId);
+            User user;
+            if (existing is null)
+            {
+                user = new User(Guid.NewGuid(), name, email, false, Capability.None, Individual: true, SignInId: who.SignInId);
+                await stores.Users.UpsertAsync(user.Id, user);
+                await Audit(user, "user.first_sign_in", ("account", who.Kind), ("personal", true));
+            }
+            else
+            {
+                user = existing with { Name = name, Email = email, IsAdmin = false, IsSupport = false, Individual = true, Grants = Capability.None };
+                if (user != existing) await stores.Users.UpsertAsync(user.Id, user);
+            }
+            _known[key] = (user, seen, now);
             return user;
         }
         finally { _gate.Release(); }

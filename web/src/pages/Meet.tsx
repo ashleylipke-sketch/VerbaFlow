@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type CalendarMeetingRow, type CalendarOverview, type MeetOverview, type NoteTakerRow } from '../api';
 import LanguagePicker from '../LanguagePicker';
+import { isIndividual } from '../whoami';
 
 const ACTIVE = new Set(['Scheduled', 'Joining', 'WaitingToBeLetIn', 'Recording', 'MeetingEnded']);
 
@@ -12,6 +13,13 @@ function localInput(d: Date) {
 
 /** Meet: send a note-taker to an online meeting (Zoom, Google Meet, Teams, Webex); the recording comes back as a Meeting item. */
 export default function Meet() {
+  if (isIndividual()) return <div className="card"><p><a href="#/">← Meetings</a></p><h2>Record an online meeting</h2>
+    <p>The note-taker for online meetings is not available in a personal account. Record the meeting on this computer or phone,
+      or import its recording, from the <a href="#/">Meeting</a> page instead.</p></div>;
+  return <MeetPage />;
+}
+
+function MeetPage() {
   const [o, setO] = useState<MeetOverview | null>(null);
   const [link, setLink] = useState('');
   const [name, setName] = useState('');

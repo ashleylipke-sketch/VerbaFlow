@@ -41,6 +41,8 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     private readonly SemaphoreSlim checking = new(1, 1);
     private readonly ConcurrentDictionary<Guid, int> failuresInARow = new();
 
+    public const string PersonalAccounts = "The note-taker for online meetings is not available in a personal account. Record the meeting on this computer or phone, or import its recording, instead.";
+
     public async Task<MeetOverview> OverviewAsync(User actor) =>
         new(service.Name, service.Name != StandIns.StandInNoteTaker.EngineName, noteTakerName,
             [MeetingPlatforms.Zoom, MeetingPlatforms.GoogleMeet, MeetingPlatforms.Teams, MeetingPlatforms.Webex], await ListAsync(actor));
@@ -49,6 +51,8 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     /// <param name="via">"page" when the person booked it, "calendar" when their calendar did (recorded in History).</param>
     public async Task<NoteTakerBooked> BookAsync(User actor, NoteTakerBooking b, CancellationToken ct = default, string via = "page")
     {
+        // Each meeting the note-taker joins is paid for by the organisation, so it is not offered to personal accounts.
+        if (actor.Individual) throw new DomainException(PersonalAccounts);
         var url = (b.MeetingUrl ?? "").Trim();
         var platform = MeetingPlatforms.Of(url)
             ?? throw new DomainException("Paste the meeting's join link (it starts with https://). The note-taker can join Zoom, Google Meet, Microsoft Teams and Webex meetings.");

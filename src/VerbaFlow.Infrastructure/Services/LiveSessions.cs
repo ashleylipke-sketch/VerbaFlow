@@ -34,11 +34,12 @@ public sealed record LiveTranscript(Guid ItemId, string Engine, IReadOnlyList<Se
 /// <summary>What a dictation's spoken commands need: the words to tell the speech service to expect, and the saved text for "insert".</summary>
 public static class DictationContext
 {
-    public static async Task<(List<string> Phrases, IReadOnlyList<SavedText> Saved)> LoadAsync(Stores stores)
+    /// <param name="space">Whose vocabulary and saved text: null for the organisation's, or a personal account's (User.Space / Item.Space).</param>
+    public static async Task<(List<string> Phrases, IReadOnlyList<SavedText> Saved)> LoadAsync(Stores stores, Guid? space)
     {
-        var phrases = (await stores.Vocabulary.ListAsync()).Select(v => v.Text).ToList();
+        var phrases = (await VocabularyService.InAsync(stores, space)).Select(v => v.Text).ToList();
         // Saved text a dictation can drop in with "insert <code>"; its codes help the speech service hear them.
-        var saved = await stores.SavedText.ListAsync();
+        var saved = await SavedTextService.InAsync(stores, space);
         phrases.AddRange(saved.Select(t => "insert " + t.Code).Distinct(StringComparer.OrdinalIgnoreCase).Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
         // The list commands are easy to mishear ("end list" came back as "endless"), so the speech service is told to expect them.
         phrases.AddRange(new[] { "bullet point", "numbered point", "end list", "scratch that" }.Take(Math.Max(0, VocabularyService.MaxTerms - phrases.Count)));
@@ -207,7 +208,7 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
             throw new DomainException("Choose the language you will speak. Speech mode cannot detect it automatically.");
         if (languages.Length > SpokenLanguageCatalogue.MaxPerRecording)
             throw new DomainException($"Choose at most {SpokenLanguageCatalogue.MaxPerRecording} languages.");
-        var (phrases, saved) = await DictationContext.LoadAsync(stores);
+        var (phrases, saved) = await DictationContext.LoadAsync(stores, user.Space);
         var s = new LiveSession { OwnerId = user.Id, Languages = languages, Engine = live.Name, Phrases = phrases, Saved = saved, LastUsed = clock.GetUtcNow() };
         if (carryOn is not null) s.Seed(carryOn, carryOnLengthMs);
         _sessions[s.Id] = s;

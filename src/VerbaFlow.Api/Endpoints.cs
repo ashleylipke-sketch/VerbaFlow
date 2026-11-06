@@ -58,6 +58,12 @@ public static class Endpoints
         logoVersion = t.LogoSha256?[..12], logoPlace = t.LogoPlace, onLetterhead = t.OnLetterhead,
         sections = t.Sections.Select(s => new { part = s.Part, heading = s.Heading, on = s.On }), transcriptTimes = t.TranscriptTimes, footerText = t.FooterText,
     };
+    /// <summary>Refuses someone with a personal account: this is part of the organisation's own settings.</summary>
+    private static void OrganisationOnly(HttpContext h)
+    {
+        if (h.Current().Individual) throw new ForbiddenException("This belongs to an organisation's settings, which a personal account does not have.");
+    }
+
     private static object SignOffView(SignOff s) =>
         new { s.On, s.Closing, s.Name, s.Title, hasPicture = s.PictureSha256 is not null, picture = s.PictureSha256?[..12] };
     public sealed record LinesBody(string Lines);
@@ -77,7 +83,7 @@ public static class Endpoints
     {
         api.MapGet("/me", (HttpContext h) => h.Current() is var u ? new
         {
-            u.Id, u.Name, u.Email, u.IsAdmin, u.Grants, u.Department, u.IsSupport, u.EntraObjectId, u.GroupIds,
+            u.Id, u.Name, u.Email, u.IsAdmin, u.Grants, u.Department, u.IsSupport, u.EntraObjectId, u.GroupIds, u.Individual,
             RunsDepartment = u.Leads.Count > 0, // a department admin: they see the Workload page for their departments
         } : null);
         api.MapGet("/languages", () => new { max = SpokenLanguageCatalogue.MaxPerRecording, languages = SpokenLanguageCatalogue.All });
@@ -89,11 +95,11 @@ public static class Endpoints
             return all.Where(e => reference is null || string.Equals(e.Reference, reference, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(e => e.At).Take(200).ToList();
         });
-        api.MapGet("/users", (MeetingService s) => s.ListUsersAsync());
+        api.MapGet("/users", (HttpContext h, MeetingService s) => s.ListUsersAsync(h.Current()));
         api.MapGet("/policy", (PlatformPolicy p) => p);
 
         // Custom vocabulary: anyone signed in can read it, administrators change it.
-        api.MapGet("/vocabulary", (VocabularyService v) => v.ListAsync());
+        api.MapGet("/vocabulary", (HttpContext h, VocabularyService v) => v.ListAsync(h.Current()));
         api.MapPost("/vocabulary", async (HttpContext h, VocabularyService v, TermBody b) => Results.Ok(await v.AddAsync(h.Current(), b.Text, b.Note)));
         api.MapPost("/vocabulary/import", async (HttpContext h, VocabularyService v, LinesBody b) => Results.Ok(await v.ImportAsync(h.Current(), b.Lines)));
         api.MapDelete("/vocabulary/{id:guid}", async (HttpContext h, VocabularyService v, Guid id) => { await v.RemoveAsync(h.Current(), id); return Results.NoContent(); });
@@ -118,15 +124,17 @@ public static class Endpoints
             Results.Ok(await d.SetAdminAsync(h.Current(), id, b.UserId, b.Admin)));
         api.MapPost("/departments/{id:guid}/members", async (HttpContext h, DepartmentService d, Guid id, DepartmentMemberBody b) =>
             Results.Ok(await d.SetHandMemberAsync(h.Current(), id, b.UserId, b.Member)));
-        api.MapGet("/saved-text", (SavedTextService t) => t.ListAsync());
+        api.MapGet("/saved-text", (HttpContext h, SavedTextService t) => t.ListAsync(h.Current()));
         api.MapPost("/saved-text", async (HttpContext h, SavedTextService t, SavedTextBody b) => Results.Ok(await t.AddAsync(h.Current(), b.Code, b.Text)));
         api.MapPut("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id, SavedTextBody b) => Results.Ok(await t.ChangeAsync(h.Current(), id, b.Code, b.Text)));
         api.MapDelete("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id) => { await t.RemoveAsync(h.Current(), id); return Results.NoContent(); });
-        api.MapGet("/letterhead", (LetterheadService l) => l.GetAsync());
+        // The letterhead belongs to the organisation: someone with a personal account has none (their letters go on a plain page).
+        api.MapGet("/letterhead", async (HttpContext h, LetterheadService l) => h.Current().Individual ? Letterhead.Empty : await l.GetAsync());
         // An administrator looks at the stored file to check it; it is the organisation's own letterhead, not customer content.
         api.MapGet("/letterhead/sample", async (HttpContext h, LetterheadService l, string? format, bool? preview) =>
         {
             var word = format == "docx";
+            OrganisationOnly(h);
             var bytes = await l.SampleAsync(word ? LetterheadService.Word : LetterheadService.Pdf, h.Current());
             return Results.File(bytes, word ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf",
                 preview == true ? null : word ? "sample letter.docx" : "sample letter.pdf");
@@ -148,8 +156,10 @@ public static class Endpoints
         // Minutes templates: everyone sees them (to pick one when exporting); only admins change them.
         api.MapGet("/minutes-templates", async (HttpContext h, MinutesTemplateService m, LetterheadService l) =>
         {
-            var lh = await l.GetAsync();
-            return new { templates = (await m.ListAsync()).Select(TemplateView), canChange = h.Current().IsAdmin,
+            // The templates are the organisation's: someone with a personal account exports with VerbaFlow's standard layout.
+            var individual = h.Current().Individual;
+            var lh = individual ? Letterhead.Empty : await l.GetAsync();
+            return new { templates = individual ? [] : (await m.ListAsync()).Select(TemplateView), canChange = h.Current().IsAdmin,
                 standard = TemplateView(MinutesTemplate.Standard), fonts = MinutesTemplate.Fonts,
                 wordLetterhead = lh.Word is not null, pdfLetterhead = lh.Pdf is not null };
         });
@@ -162,8 +172,9 @@ public static class Endpoints
             return TemplateView(await m.SetLogoAsync(h.Current(), id, stream));
         }).DisableAntiforgery();
         api.MapDelete("/minutes-templates/{id:guid}/logo", async (HttpContext h, MinutesTemplateService m, Guid id) => TemplateView(await m.RemoveLogoAsync(h.Current(), id)));
-        api.MapGet("/minutes-templates/{id:guid}/logo", async (MinutesTemplateService m, Guid id) =>
+        api.MapGet("/minutes-templates/{id:guid}/logo", async (HttpContext h, MinutesTemplateService m, Guid id) =>
         {
+            OrganisationOnly(h);
             var t = await m.PickAsync(id);
             var bytes = await m.LogoAsync(t) ?? throw new NotFoundException("This template has no logo.");
             return Results.File(bytes, t.LogoType == "png" ? "image/png" : "image/jpeg");
@@ -171,6 +182,7 @@ public static class Endpoints
         // A made-up meeting laid out with the template (Guid.Empty = VerbaFlow standard); not recorded as an export.
         api.MapGet("/minutes-templates/{id:guid}/sample", async (HttpContext h, MinutesTemplateService m, Guid id, string? format, bool? download) =>
         {
+            if (id != Guid.Empty) OrganisationOnly(h);
             var file = await m.SampleAsync(h.Current(), id, format ?? "pdf");
             return download == true ? Results.File(file.Content, file.ContentType, file.FileName) : Results.File(file.Content, file.ContentType);
         });

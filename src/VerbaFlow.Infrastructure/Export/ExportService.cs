@@ -174,7 +174,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         var dictation = item.IsDictation;
         // Meetings are laid out with a minutes template: the one chosen, else the default one, else VerbaFlow's standard.
         var templates = new MinutesTemplateService(stores, clock);
-        var template = dictation ? null : await templates.PickAsync(templateId switch
+        // The organisation's templates and letterhead are not used for a recording in a personal account.
+        var template = dictation ? null : item.Individual ? MinutesTemplate.Standard : await templates.PickAsync(templateId switch
         {
             null or "" => null,
             "standard" => Guid.Empty,
@@ -293,13 +294,13 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 signOffUsed = fitted.Note;
             }
             var letterheads = new Services.LetterheadService(stores, clock);
-            var l = await letterheads.GetAsync();
-            letterheadUsed = (format == ExportFormats.Word ? l.Word : l.Pdf) is null
+            var l = item.Individual ? Letterhead.Empty : await letterheads.GetAsync();
+            letterheadUsed = item.Individual ? "none (personal account)" : (format == ExportFormats.Word ? l.Word : l.Pdf) is null
                 ? (format == ExportFormats.Word ? "none (no Word letterhead uploaded)" : "none (no PDF letterhead uploaded)")
                 : (format == ExportFormats.Word ? "Word letterhead" : "PDF letterhead");
             bytes = format == ExportFormats.Word
-                ? LetterWriter.Word(letter, await letterheads.ReadAsync(Services.LetterheadService.Word))
-                : LetterWriter.Pdf(letter, await letterheads.ReadAsync(Services.LetterheadService.Pdf),
+                ? LetterWriter.Word(letter, item.Individual ? null : await letterheads.ReadAsync(Services.LetterheadService.Word))
+                : LetterWriter.Pdf(letter, item.Individual ? null : await letterheads.ReadAsync(Services.LetterheadService.Pdf),
                     new LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm, l.PdfRepeatFirstPage));
         }
         else if (template is not null) (bytes, letterheadUsed) = await templates.RenderAsync(doc, template, format, parts);
@@ -372,7 +373,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         ItemRole.Attendee => "attendee",
         ItemRole.Colleague => "colleague",
         ItemRole.DepartmentAdmin => "department admin",
-        _ => actor.IsAdmin ? "admin" : "user"
+        _ => PermissionEvaluator.AdminOf(actor, item) ? "admin" : "user"
     };
 
     /// <summary>Dates in the computer's own time zone, with the offset so the time is never ambiguous.</summary>

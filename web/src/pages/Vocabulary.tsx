@@ -18,7 +18,8 @@ export default function Vocabulary() {
 
   const load = () => api.vocabulary().then(setTerms).catch(e => setError(e.message));
   useEffect(() => { load(); api.me().then(setMe); }, []);
-  const admin = me?.isAdmin === true;
+  // Someone with a personal account looks after their own list.
+  const admin = me?.isAdmin === true || me?.individual === true;
 
   const run = async (fn: () => Promise<unknown>) => { setError(''); setMessage(''); try { await fn(); await load(); } catch (e: any) { setError(e.message); } };
   const add = () => run(async () => { const t = await api.addTerm(text, note); setText(''); setNote(''); setMessage(`Added "${t.text}".`); });

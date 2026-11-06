@@ -134,7 +134,7 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
         text ??= "";
         if (text.Length > MaxGrammarChars) throw new DomainException("The text is too long to check here. Check it in parts.");
         if (grammar is null || reporter is null) throw new DomainException("Checking grammar is not available.");
-        var saved = (await stores.SavedText.ListAsync())
+        var saved = (await SavedTextService.InAsync(stores, actor.Space))
             .SelectMany(t => t.Text.Split('\n')).Select(Squash).Where(l => l.Length > 0).ToHashSet(StringComparer.Ordinal);
         var lines = text.Replace("\r\n", "\n").Split('\n');
         var passages = new List<GrammarPassage>();
@@ -182,9 +182,12 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
     /// <summary>The person's own uses, newest first; administrators see everyone's.</summary>
     public async Task<IReadOnlyList<WidgetSessionRow>> ListAsync(User actor, int take = 100)
     {
-        var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
+        var all = await stores.Users.ListAsync();
+        var users = all.ToDictionary(u => u.Id, u => u.Name);
+        // Administrators see the organisation's uses, never those of people with personal accounts.
+        var personal = all.Where(u => u.Individual).Select(u => u.Id).ToHashSet();
         var now = clock.GetUtcNow();
-        return (await stores.WidgetSessions.ListAsync()).Where(w => actor.IsAdmin || w.UserId == actor.Id)
+        return (await stores.WidgetSessions.ListAsync()).Where(w => w.UserId == actor.Id || actor.IsAdmin && !personal.Contains(w.UserId))
             .OrderByDescending(w => w.StartedAt).Take(take)
             .Select(w => new WidgetSessionRow(w.Id, actor.IsAdmin ? users.GetValueOrDefault(w.UserId) : null, w.Site, w.Device, w.Languages,
                 w.StartedAt, w.EndedAt, w.Outcome ?? (now - w.StartedAt > TimeSpan.FromHours(6) ? "not finished" : "open"), w.Listens, w.SpokenMs, w.Words))

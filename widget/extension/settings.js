@@ -1,6 +1,7 @@
 // Shared by the background worker and the options page.
-// Sign-in: with Microsoft sign-in set up on the VerbaFlow server, the Widget signs in with the person's Microsoft work
-// account (Entra ID) and sends a Microsoft access token. On the owner's computer, while VerbaFlow runs in Development,
+// Sign-in: with Microsoft sign-in set up on the VerbaFlow server, the Widget signs in with the person's Microsoft
+// account (Entra ID) and sends a Microsoft access token. A Google or other personal account is linked through the
+// VerbaFlow website instead (linkThroughWebsite). On the owner's computer, while VerbaFlow runs in Development,
 // a test user (sent as X-Dev-User) can be picked instead; the server refuses test users anywhere else.
 export const DEFAULTS = { server: 'http://localhost:5044', user: 'alice', languages: 'en-GB' };
 
@@ -64,12 +65,54 @@ export async function signInWithMicrosoft(interactive) {
 }
 
 let quietFailedAt = 0;
-export async function signOut() { await chrome.storage.session.remove('tokens'); }
+export async function signOut() { await chrome.storage.session.remove('tokens'); await chrome.storage.local.remove('linked'); }
+
+// ---------- Linked through the VerbaFlow website (Google and other personal accounts) ----------
+// The Widget gets a short code, the website (where the person is signed in) agrees, and the Widget then holds
+// VerbaFlow's own sign-in, renewed once a day. It is kept in this browser profile so the Widget stays signed in.
+
+/** Starts linking: returns the code to show and opens the website's page for it; resolves when the website agreed. */
+export async function linkThroughWebsite(onCode) {
+  const s = await settings();
+  let start;
+  try { start = await (await fetch(`${s.server}/api/widget-link/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device: 'browser Widget' }) })).json(); }
+  catch { throw new Error('VerbaFlow cannot be reached. Check that it is running, and the address in the Widget settings.'); }
+  if (!start?.code) throw new Error(start?.error || 'VerbaFlow could not start linking. Try again in a minute.');
+  onCode(start.code);
+  chrome.tabs.create({ url: `${s.server}/#/link-widget?code=${encodeURIComponent(start.code)}` });
+  const until = Date.now() + start.expiresInSeconds * 1000;
+  while (Date.now() < until) {
+    await new Promise(r => setTimeout(r, 2000));
+    const res = await fetch(`${s.server}/api/widget-link/poll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: start.secret }) }).catch(() => null);
+    if (!res || res.status === 202) continue;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.token) throw new Error(data.error || 'The link did not finish. Try again.');
+    await chrome.storage.session.remove('tokens');
+    await chrome.storage.local.set({ linked: { token: data.token, server: s.server, renewed: Date.now() } });
+    return;
+  }
+  throw new Error('The code ran out before it was agreed on the website. Try again.');
+}
+
+/** The linked sign-in for this server, renewed when it is a day old; null if there is none (or it ran out). */
+async function linkedToken(server) {
+  const { linked } = await chrome.storage.local.get('linked');
+  if (!linked || linked.server !== server) return null;
+  if (Date.now() - linked.renewed > 24 * 3600_000) {
+    const res = await fetch(`${server}/api/sign-in/renew`, { method: 'POST', headers: { Authorization: `Bearer ${linked.token}` } }).catch(() => null);
+    if (res?.status === 401) { await chrome.storage.local.remove('linked'); return null; }
+    const data = res?.ok ? await res.json().catch(() => null) : null;
+    if (data?.token) { linked.token = data.token; linked.renewed = Date.now(); await chrome.storage.local.set({ linked }); }
+  }
+  return linked.token;
+}
 
 /** The sign-in to send with a call to VerbaFlow. Throws a plain sentence when the person needs to sign in. */
 export async function authHeaders() {
   const s = await settings();
   const info = await signInInfo(s.server);
+  const linked = await linkedToken(s.server);
+  if (linked) return { Authorization: `Bearer ${linked}` };
   const ms = info.microsoft;
   if (ms) {
     let { tokens } = await chrome.storage.session.get('tokens');
@@ -89,6 +132,7 @@ export async function authHeaders() {
     }
   }
   if (info.testUsers) return { 'X-Dev-User': s.user };
+  if (info.google || info.personalAccounts) throw new Error('Sign in to VerbaFlow first: click Settings, then Sign in through the VerbaFlow website.');
   throw new Error('Sign-in is not set up on this VerbaFlow yet.');
 }
 

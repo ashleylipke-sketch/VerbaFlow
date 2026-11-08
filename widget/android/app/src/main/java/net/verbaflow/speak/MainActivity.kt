@@ -3,6 +3,7 @@ package net.verbaflow.speak
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.net.Uri
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -40,6 +41,9 @@ class MainActivity : Activity() {
     private lateinit var signInState: TextView
     private lateinit var signInButton: Button
     private lateinit var signOutButton: Button
+    private lateinit var linkButton: Button
+    private lateinit var linkCode: TextView
+    private var linking: kotlinx.coroutines.Job? = null
     private lateinit var testUserRow: LinearLayout
     private lateinit var testUser: EditText
     private lateinit var language: Spinner
@@ -108,6 +112,12 @@ class MainActivity : Activity() {
         page.addView(signInState)
         signInButton = button("Sign in with Microsoft") { startSignIn() }
         page.addView(signInButton)
+        linkButton = button("Google or another personal account: sign in through the VerbaFlow website") { startLink() }
+        linkButton.visibility = View.GONE
+        page.addView(linkButton)
+        linkCode = text("")
+        linkCode.visibility = View.GONE
+        page.addView(linkCode)
         signOutButton = button("Sign out") { signIn.forget(); say("Signed out."); refresh() }
         page.addView(signOutButton)
         testUserRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; visibility = View.GONE }
@@ -184,6 +194,7 @@ class MainActivity : Activity() {
             signInState.text = "Type VerbaFlow's address first."
             signInButton.visibility = View.GONE
             signOutButton.visibility = View.GONE
+            linkButton.visibility = View.GONE
             testUserRow.visibility = View.GONE
             return
         }
@@ -193,8 +204,10 @@ class MainActivity : Activity() {
                 info = i
                 signInButton.visibility = if (i.microsoft != null) View.VISIBLE else View.GONE
                 signOutButton.visibility = if (signIn.isSignedIn) View.VISIBLE else View.GONE
+                linkButton.visibility = if (i.personal && !signIn.isSignedIn) View.VISIBLE else View.GONE
+                if (signIn.isSignedIn) signInButton.visibility = View.GONE
                 testUserRow.visibility = if (i.testUsers && !signIn.isSignedIn) View.VISIBLE else View.GONE
-                if (i.microsoft == null && !i.testUsers) {
+                if (i.microsoft == null && !i.testUsers && !signIn.isLinked) {
                     signInState.text = "This VerbaFlow has no sign-in set up. Ask your administrator."
                     return@launch
                 }
@@ -203,7 +216,8 @@ class MainActivity : Activity() {
                     return@launch
                 }
                 val name = a.me()
-                signInState.text = if (signIn.isSignedIn) "Signed in as $name ✓" else "Using the test user $name ✓"
+                signInState.text = if (signIn.isLinked) "Signed in as $name (personal account) ✓"
+                    else if (signIn.isSignedIn) "Signed in as $name ✓" else "Using the test user $name ✓"
                 loadLanguages(a)
             } catch (e: CancellationException) {
                 throw e
@@ -243,6 +257,42 @@ class MainActivity : Activity() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                say((e as? PlainError)?.message ?: PlainError.UNEXPECTED)
+            }
+        }
+    }
+
+    /**
+     * Personal accounts (Google and others): the website shows the same code, the person agrees there, and the app
+     * collects VerbaFlow's own sign-in. The code lasts 10 minutes.
+     */
+    private fun startLink() {
+        val a = api() ?: return
+        linking?.cancel()
+        linking = scope.launch {
+            try {
+                val link = a.startLink("Android keyboard")
+                linkCode.text = "Your code is ${link.code}. Sign in on the VerbaFlow website that has just opened and agree to this code there. Then come back here."
+                linkCode.visibility = View.VISIBLE
+                val page = Uri.parse(a.server.toString().trimEnd('/') + "/#/link-widget?code=" + Uri.encode(link.code))
+                try { startActivity(Intent(Intent.ACTION_VIEW, page)) }
+                catch (e: ActivityNotFoundException) { say("No web browser was found on this phone. Open VerbaFlow's website on another device and type the code there.") }
+                val until = System.currentTimeMillis() + link.expiresInSeconds * 1000L
+                while (System.currentTimeMillis() < until) {
+                    kotlinx.coroutines.delay(2000)
+                    val token = a.collectLink(link.secret) ?: continue
+                    signIn.keepLinked(a.server.toString(), token)
+                    linkCode.visibility = View.GONE
+                    say("Signed in.")
+                    refresh()
+                    return@launch
+                }
+                linkCode.visibility = View.GONE
+                say("The code ran out before it was agreed on the website. Try again.")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                linkCode.visibility = View.GONE
                 say((e as? PlainError)?.message ?: PlainError.UNEXPECTED)
             }
         }

@@ -31,7 +31,20 @@ class SignIn(private val prefs: Prefs) {
         private fun b64(b: ByteArray) = Base64.encodeToString(b, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
     }
 
-    val isSignedIn: Boolean get() = prefs.access.isNotEmpty()
+    val isSignedIn: Boolean get() = prefs.access.isNotEmpty() || prefs.linked.isNotEmpty()
+
+    /** Signed in with a personal account through the VerbaFlow website (Google and others). */
+    val isLinked: Boolean get() = prefs.linked.isNotEmpty()
+    val linkedRenewed: Long get() = prefs.linkedRenewed
+
+    fun linkedFor(server: String): String? =
+        prefs.linked.takeIf { it.isNotEmpty() && prefs.linkedServer.trimEnd('/') == server.trimEnd('/') }
+
+    fun keepLinked(server: String, token: String) {
+        prefs.linked = token
+        prefs.linkedServer = server.trimEnd('/')
+        prefs.linkedRenewed = System.currentTimeMillis()
+    }
 
     private val needed get() = PlainError("Open the VerbaFlow app and sign in first.", signIn = true)
 

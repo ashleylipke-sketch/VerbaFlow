@@ -174,6 +174,7 @@ builder.Services.AddDataProtection().SetApplicationName("VerbaFlow")
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys", "sign-in")));
 var signIn = SignInOptions.From(builder.Configuration, builder.Environment);
 signIn.AddTo(builder.Services);
+builder.Services.AddSingleton<WidgetLinks>();
 // Outlook.com and Gmail drafts, made with a mail permission the person's own browser gets (personal Microsoft accounts, Google).
 if (signIn.PersonalAccounts || signIn.Google)
 {
@@ -289,6 +290,7 @@ app.MapGet("/api/health", (Database db) =>
 var api = app.MapGroup("/api");
 api.AddEndpointFilter(SignIn.RequireUser);
 app.MapPersonalSignIn(api);
+app.MapWidgetLinks(api);
 api.MapMeetingEndpoints();
 api.MapLiveEndpoints();
 api.MapMeetEndpoints();

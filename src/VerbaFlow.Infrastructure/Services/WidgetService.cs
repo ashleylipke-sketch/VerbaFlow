@@ -80,7 +80,8 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
         var s = SiteOf(site);
         if (s.Length == 0) throw new DomainException("The Widget only works on websites and Windows programs.");
         var policy = await stores.WidgetPolicy.GetAsync(WidgetPolicy.RowId);
-        if (policy is not null && IsBlocked(s, policy.BlockedSites))
+        // The organisation's blocked list is for its own people; a personal account is not under it.
+        if (policy is not null && !actor.Individual && IsBlocked(s, policy.BlockedSites))
             throw new DomainException("Your administrator has switched the Widget off here.");
         var (session, ticket) = await live.StartAsync(actor, spokenLanguages);
         var w = new WidgetSession(Guid.NewGuid(), actor.Id, s, DeviceOf(device), string.Join(",", session.Languages), clock.GetUtcNow(), session.Id);

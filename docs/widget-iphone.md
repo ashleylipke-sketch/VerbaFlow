@@ -73,3 +73,5 @@ GitHub builds the app on a Mac for you, so you do not need one.
   and upload.
 - Opening the app from the keyboard goes up the responder chain to `UIApplication` (a keyboard may not open apps
   itself); Apple could stop that in a future iOS version.
+
+Google and other personal accounts: **Google or another personal account** in the app (see "Personal accounts" in `widget.md`).

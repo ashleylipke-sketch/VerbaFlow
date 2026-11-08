@@ -22,7 +22,8 @@ class PlainError(message: String, val signIn: Boolean = false) : Exception(messa
 }
 
 data class MicrosoftInfo(val tenantId: String, val clientId: String, val scope: String, val authority: String)
-data class SignInInfo(val testUsers: Boolean, val microsoft: MicrosoftInfo?)
+data class SignInInfo(val testUsers: Boolean, val microsoft: MicrosoftInfo?, val personal: Boolean = false)
+data class WidgetLink(val code: String, val secret: String, val expiresInSeconds: Int)
 data class WidgetStart(val id: String, val liveId: String, val ticket: String, val engine: String)
 data class Language(val code: String, val name: String, val supported: Boolean)
 data class GrammarFix(val text: String, val linesChanged: Int, val leftOutAsRewrites: Int)
@@ -59,8 +60,56 @@ class Api(val server: HttpUrl, private val signIn: SignIn) {
             val ms = o.optJSONObject("microsoft")?.let {
                 MicrosoftInfo(it.getString("tenantId"), it.getString("clientId"), it.getString("scope"), it.getString("authority"))
             }
-            return SignInInfo(o.optBoolean("testUsers"), ms).also { info = it; infoAt = System.currentTimeMillis() }
+            return SignInInfo(o.optBoolean("testUsers"), ms, o.optBoolean("personalAccounts")).also { info = it; infoAt = System.currentTimeMillis() }
         } catch (e: JSONException) { throw PlainError(PlainError.UNREACHABLE) }
+    }
+
+    /** Starts linking this keyboard to a personal account: the person agrees to the code on the VerbaFlow website. */
+    suspend fun startLink(device: String): WidgetLink {
+        val (code, text) = post("api/widget-link/start", JSONObject().put("device", device), null)
+        if (code !in 200..299) throw PlainError(errorOf(text) ?: PlainError.UNEXPECTED)
+        val o = try { JSONObject(text) } catch (e: JSONException) { throw PlainError(PlainError.UNEXPECTED) }
+        return WidgetLink(o.getString("code"), o.getString("secret"), o.optInt("expiresInSeconds", 600))
+    }
+
+    /** The sign-in once the code has been agreed on the website, or null while still waiting. */
+    suspend fun collectLink(secret: String): String? {
+        val (code, text) = post("api/widget-link/poll", JSONObject().put("secret", secret), null)
+        if (code == 202) return null
+        if (code !in 200..299) throw PlainError(errorOf(text) ?: PlainError.UNEXPECTED)
+        return try { JSONObject(text).getString("token") } catch (e: JSONException) { throw PlainError(PlainError.UNEXPECTED) }
+    }
+
+    /** A fresh linked sign-in (they last 30 days), or null when it has run out. Offline: the old one is kept. */
+    private suspend fun renewLink(token: String): String? {
+        val (code, text) = try { post("api/sign-in/renew", null, token) } catch (e: PlainError) { return token }
+        if (code == 401) return null
+        if (code !in 200..299) return token
+        return try { JSONObject(text).optString("token").ifEmpty { token } } catch (e: JSONException) { token }
+    }
+
+    private suspend fun post(path: String, body: JSONObject?, bearer: String?): Pair<Int, String> {
+        val b = Request.Builder().url(url(path)).post((body?.toString() ?: "").toRequestBody(Http.json))
+        bearer?.let { b.header("Authorization", "Bearer $it") }
+        return withContext(Dispatchers.IO) {
+            try { Http.client.newCall(b.build()).execute().use { r -> r.code to (r.body?.string() ?: "") } }
+            catch (e: IOException) { throw PlainError(PlainError.UNREACHABLE) }
+        }
+    }
+
+    /** The linked sign-in for this VerbaFlow, renewed once a day. */
+    private suspend fun linkedHeader(): Pair<String, String>? {
+        val token = signIn.linkedFor(server.toString()) ?: return null
+        if (System.currentTimeMillis() - signIn.linkedRenewed > 86_400_000) {
+            val fresh = renewLink(token)
+            if (fresh == null) {
+                signIn.forget()
+                throw PlainError("Your sign-in has run out. Open the VerbaFlow app and sign in again.", signIn = true)
+            }
+            signIn.keepLinked(server.toString(), fresh)
+            return "Authorization" to "Bearer $fresh"
+        }
+        return "Authorization" to "Bearer $token"
     }
 
     /** Who VerbaFlow says is signed in. */
@@ -106,7 +155,7 @@ class Api(val server: HttpUrl, private val signIn: SignIn) {
     private fun startOf(o: JSONObject) = WidgetStart(o.getString("id"), o.getString("liveId"), o.getString("ticket"), o.optString("engine"))
 
     private suspend fun send(method: String, path: String, body: JSONObject?): JSONObject {
-        val header = signIn.header(signInInfo())
+        val header = linkedHeader() ?: signIn.header(signInInfo())
         val req = Request.Builder().url(url(path)).header(header.first, header.second)
             .method(method, if (method == "GET") null else (body?.toString() ?: "").toRequestBody(Http.json))
             .build()

@@ -16,6 +16,8 @@ internal sealed class SettingsForm : Form
     private readonly Label _status = new() { AutoSize = true, MaximumSize = new Size(440, 0), Padding = new Padding(0, 4, 0, 4) };
     private readonly Button _signInButton = new() { Text = "Sign in with Microsoft", AutoSize = true };
     private readonly Button _signOutButton = new() { Text = "Sign out", AutoSize = true, Visible = false };
+    private readonly Button _linkButton = new() { Text = "Sign in through the VerbaFlow website", AutoSize = true, Visible = false };
+    private readonly Label _linkNote = new() { AutoSize = true, MaximumSize = new Size(440, 0), Visible = false };
     private readonly Label _testUserLabel = new() { Text = "Test user (only on this computer, while nobody is signed in with Microsoft)", AutoSize = true, MaximumSize = new Size(440, 0), Visible = false };
     private readonly ComboBox _testUser = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, Visible = false };
     private readonly ComboBox _language = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = 320 };
@@ -50,6 +52,8 @@ internal sealed class SettingsForm : Form
         var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 0) };
         row.Controls.AddRange([check, _signInButton, _signOutButton]);
         flow.Controls.Add(row);
+        flow.Controls.Add(_linkButton);
+        flow.Controls.Add(_linkNote);
         flow.Controls.Add(_status);
         flow.Controls.Add(_testUserLabel);
         flow.Controls.Add(_testUser);
@@ -85,6 +89,7 @@ internal sealed class SettingsForm : Form
 
         _signInButton.Click += async (_, _) => await SignInAsync();
         _signOutButton.Click += async (_, _) => await SignOutAsync();
+        _linkButton.Click += async (_, _) => await LinkAsync();
         Shown += async (_, _) => await CheckAsync();
     }
 
@@ -116,15 +121,19 @@ internal sealed class SettingsForm : Form
             var client = _client();
             var info = await client.SignInInfoAsync();
             var account = await _signIn.AccountAsync(info);
-            _signInButton.Visible = info.Microsoft is not null && account is null;
-            _signOutButton.Visible = account is not null;
-            _testUser.Visible = _testUserLabel.Visible = info.TestUsers && account is null;
+            var linked = _signIn.IsLinked;
+            var signed = account is not null || linked;
+            _signInButton.Visible = info.Microsoft is not null && !signed;
+            _linkButton.Visible = info.CanLink && !signed;
+            _signOutButton.Visible = signed;
+            _testUser.Visible = _testUserLabel.Visible = info.TestUsers && !signed;
             await LoadLanguagesAsync(client);
             var (name, admin) = await client.MeAsync();
-            Status(account is not null ? $"Connected. Signed in with Microsoft as {name}{(admin ? " (admin)" : "")}."
-                : $"Connected, as the test user {name}{(admin ? " (admin)" : "")}." + (info.Microsoft is not null ? " Sign in with Microsoft to use your own account." : ""), false);
+            Status(linked ? $"Connected. Signed in as {name} (through the VerbaFlow website)."
+                : account is not null ? $"Connected. Signed in with Microsoft as {name}{(admin ? " (admin)" : "")}."
+                : $"Connected, as the test user {name}{(admin ? " (admin)" : "")}." + (info.Microsoft is not null || info.CanLink ? " Sign in to use your own account." : ""), false);
         }
-        catch (SignInNeededException e) { Status(e.Message.StartsWith("Sign in first") ? "Connected. Now click Sign in with Microsoft." : e.Message, true); }
+        catch (SignInNeededException e) { Status(e.Message.StartsWith("Sign in first") ? "Connected. Now sign in: Microsoft work account, or a Google or personal account through the VerbaFlow website." : e.Message, true); }
         catch (WidgetException e) { Status(e.Message, true); }
         catch (Exception) { Status("Something went wrong in the Widget. Try again.", true); }
     }
@@ -156,6 +165,26 @@ internal sealed class SettingsForm : Form
         }
         catch (WidgetException e) { Status(e.Message, true); }
         catch (Exception) { Status("The Microsoft sign-in did not finish. Try again.", true); }
+    }
+
+    private async Task LinkAsync()
+    {
+        if (!Save()) return;
+        _linkButton.Enabled = false;
+        try
+        {
+            await _signIn.LinkAsync(_client(), code =>
+            {
+                _linkNote.Text = $"A VerbaFlow page opens in your browser. Check it shows the code {code}, then click Link it there. (Not signed in? Sign in on that page first: the code stays the same.)";
+                _linkNote.Visible = true;
+            }, CancellationToken.None);
+            _linkNote.Visible = false;
+            Activate();
+            await CheckAsync();
+        }
+        catch (WidgetException e) { _linkNote.Visible = false; Status(e.Message, true); }
+        catch (Exception) { _linkNote.Visible = false; Status("The link did not finish. Try again.", true); }
+        finally { _linkButton.Enabled = true; }
     }
 
     private async Task SignOutAsync()

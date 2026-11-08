@@ -60,3 +60,5 @@ GitHub builds the app each time it changes.
   as a run artifact, and builds from `main` replace the `android-latest` release. The debug signing key is kept in the
   Actions cache so updates install over each other; if that cache is ever dropped (unused for 7 days), the next build
   has a new key and the old app must be removed before installing it.
+
+Google and other personal accounts: **Google or another personal account** in the app (see "Personal accounts" in `widget.md`).

@@ -23,6 +23,7 @@ import SearchPage from './pages/Search';
 import WidgetPage from './pages/Widget';
 import Meet from './pages/Meet';
 import Support from './pages/Support';
+import LinkWidget from './pages/LinkWidget';
 import SignOffCard from './SignOffCard';
 
 function useHash() {
@@ -146,6 +147,7 @@ export default function App() {
           : path === '/departments' ? <DepartmentsPage />
           : path.startsWith('/search') ? <SearchPage key={path} query={new URLSearchParams(path.split('?')[1] ?? '')} />
           : path === '/meet' ? <Meet />
+          : path.startsWith('/link-widget') ? <LinkWidget code={new URLSearchParams(path.split('?')[1] ?? '').get('code') ?? ''} />
           : path === '/support' ? <Support />
           : <Dashboard key="meeting" mode="meeting" />}
       </main>

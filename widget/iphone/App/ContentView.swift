@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var busy = false
     @State private var choices: [SpokenLanguage] = []
     @State private var tryIt = ""
+    @State private var linkCode: String?
 
     var body: some View {
         NavigationStack {
@@ -38,8 +39,10 @@ struct ContentView: View {
                 }
 
                 Section("Sign in") {
-                    if let who { Text("Signed in as \(who)") }
-                    if let ms = info?.microsoft {
+                    if let who { Text(c.signIn.isLinked ? "Signed in as \(who) (personal account)" : "Signed in as \(who)") }
+                    if c.signIn.isLinked {
+                        Button("Sign out") { c.signIn.forget(); who = nil; Task { await refresh() } }
+                    } else if let ms = info?.microsoft {
                         if c.signIn.isSignedIn {
                             Button("Sign out") { c.signIn.forget(); who = nil; Task { await refresh() } }
                         } else {
@@ -51,6 +54,14 @@ struct ContentView: View {
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                             .onSubmit { Task { await refresh() } }
                         Text("Test users work only on the VerbaFlow on your own computer.").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if info?.personalAccounts == true && !c.signIn.isSignedIn {
+                        Button(linkCode == nil ? "Google or another personal account" : "Waiting for you on the website…") { Task { await link() } }
+                            .disabled(linkCode != nil)
+                        if let linkCode {
+                            Text("Your code is \(linkCode). Sign in on the VerbaFlow website that has just opened and agree to this code there, then come back here.")
+                                .font(.callout)
+                        }
                     }
                     if info == nil { Button("Check the address") { Task { await refresh() } } }
                     if let problem { Text(problem).foregroundStyle(.red).font(.callout) }
@@ -96,6 +107,32 @@ struct ContentView: View {
             problem = (error as? PlainError)?.message ?? PlainError.unexpected.message
             who = nil
         }
+    }
+
+    /// Personal accounts (Google and others): the website shows the same code, the person agrees there, and the
+    /// app collects VerbaFlow's own sign-in. The code lasts 10 minutes.
+    private func link() async {
+        problem = nil
+        do {
+            let api = try c.api()
+            let l = try await api.startLink(device: UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")
+            linkCode = l.code
+            openURL(api.linkPage(code: l.code))
+            let until = Date().addingTimeInterval(TimeInterval(l.expiresInSeconds))
+            while Date() < until {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+                if let token = try await api.collectLink(secret: l.secret) {
+                    c.signIn.keepLinked(api.server, token: token)
+                    linkCode = nil
+                    await refresh()
+                    return
+                }
+            }
+            problem = "The code ran out before it was agreed on the website. Try again."
+        } catch {
+            problem = (error as? PlainError)?.message ?? PlainError.unexpected.message
+        }
+        linkCode = nil
     }
 
     private func signIn(_ ms: SignInInfo.Microsoft) async {

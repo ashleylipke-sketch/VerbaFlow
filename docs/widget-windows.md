@@ -33,3 +33,5 @@ Nothing the person said. Exactly as for the browser Widget: VerbaFlow keeps the 
 
 ## Not built
 A choice of shortcut, a microphone picker (it uses Windows' default recording device), a sound level meter, a signed installer, admin-pushed install, typing the words directly instead of pasting (some programs may refuse a paste), Mac.
+
+Google and other personal accounts: **Sign in through the VerbaFlow website** in the settings (see "Personal accounts" in `widget.md`).

@@ -32,6 +32,7 @@ internal sealed class TrayApp : ApplicationContext
         _settings = WidgetSettings.Load(WidgetSettings.DefaultPath);
         _signIn = new WindowsSignIn(() => _settings);
         (_http, _client) = NewClient();
+        _signIn.Use(() => _client);
         _controller = new WidgetController(() => _client, () => _settings, Notify, OpenSettings);
 
         var menu = new ContextMenuStrip();

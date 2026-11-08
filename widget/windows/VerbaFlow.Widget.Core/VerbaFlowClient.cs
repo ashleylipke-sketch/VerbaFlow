@@ -10,7 +10,14 @@ public class WidgetException(string message) : Exception(message);
 public sealed class SignInNeededException(string message) : WidgetException(message);
 
 public sealed record MicrosoftSignIn(string TenantId, string ClientId, string Scope, string Authority);
-public sealed record SignInInfo(bool TestUsers, MicrosoftSignIn? Microsoft);
+public sealed record GoogleSignInInfo(string ClientId);
+public sealed record SignInInfo(bool TestUsers, MicrosoftSignIn? Microsoft, GoogleSignInInfo? Google = null, bool PersonalAccounts = false)
+{
+    /// <summary>Whether a Google or other personal account can be linked through the VerbaFlow website.</summary>
+    public bool CanLink => Google is not null || PersonalAccounts;
+}
+/// <summary>A link through the VerbaFlow website: the code the person checks there, and the Widget's own secret for collecting it.</summary>
+public sealed record WidgetLink(string Code, string Secret, int ExpiresInSeconds);
 public sealed record WidgetStart(Guid Id, Guid LiveId, string Ticket, string Engine);
 public sealed record SpokenLanguage(string Code, string Name, bool Supported);
 public sealed record GrammarFix(string Text, int LinesChanged, int LeftOutAsRewrites);
@@ -48,6 +55,53 @@ public sealed class VerbaFlowClient(HttpClient http, ISignIn signIn)
         }
         catch (Exception e) when (e is HttpRequestException or JsonException or NotSupportedException or TaskCanceledException && !ct.IsCancellationRequested)
         { throw new WidgetException(Unreachable); }
+    }
+
+    // ---- Linking through the VerbaFlow website (Google and other personal accounts); these calls carry no sign-in ----
+
+    public async Task<WidgetLink> StartLinkAsync(string device, CancellationToken ct = default)
+    {
+        try
+        {
+            using var res = await http.PostAsJsonAsync("api/widget-link/start", new { device }, Json, ct);
+            var text = await res.Content.ReadAsStringAsync(ct);
+            if (!res.IsSuccessStatusCode) throw new WidgetException(ErrorOf(text) ?? "VerbaFlow could not start linking. Try again in a minute.");
+            return JsonSerializer.Deserialize<WidgetLink>(text, Json) ?? throw new WidgetException(Unreachable);
+        }
+        catch (Exception e) when (e is HttpRequestException or JsonException or TaskCanceledException && !ct.IsCancellationRequested) { throw new WidgetException(Unreachable); }
+    }
+
+    /// <summary>The VerbaFlow sign-in once the person agreed on the website; null while still waiting.</summary>
+    public async Task<string?> CollectLinkAsync(string secret, CancellationToken ct = default)
+    {
+        HttpResponseMessage res;
+        try { res = await http.PostAsJsonAsync("api/widget-link/poll", new { secret }, Json, ct); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested) { return null; } // try again shortly
+        using (res)
+        {
+            if (res.StatusCode == HttpStatusCode.Accepted) return null;
+            var text = await res.Content.ReadAsStringAsync(ct);
+            if (!res.IsSuccessStatusCode) throw new WidgetException(ErrorOf(text) ?? "The link did not finish. Try again.");
+            try { return JsonDocument.Parse(text).RootElement.GetProperty("token").GetString() ?? throw new WidgetException("The link did not finish. Try again."); }
+            catch (Exception e) when (e is JsonException or KeyNotFoundException) { throw new WidgetException("The link did not finish. Try again."); }
+        }
+    }
+
+    /// <summary>A fresh VerbaFlow sign-in for a linked Widget; null when VerbaFlow no longer accepts it (sign in again).</summary>
+    public async Task<string?> RenewLinkAsync(string token, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/sign-in/renew");
+        req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
+        HttpResponseMessage res;
+        try { res = await http.SendAsync(req, ct); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested) { return token; } // offline: keep it
+        using (res)
+        {
+            if (res.StatusCode == HttpStatusCode.Unauthorized) return null;
+            if (!res.IsSuccessStatusCode || res.StatusCode == HttpStatusCode.NoContent) return token;
+            try { return JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("token").GetString() ?? token; }
+            catch (Exception e) when (e is JsonException or KeyNotFoundException) { return token; }
+        }
     }
 
     /// <summary>Who VerbaFlow says is signed in: their name, and whether they are an administrator.</summary>

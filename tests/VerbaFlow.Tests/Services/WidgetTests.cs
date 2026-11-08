@@ -48,6 +48,9 @@ public class WidgetTests
         Assert.Equal(["bank.example", "pay.test"], p.BlockedSites);
         await Assert.ThrowsAsync<DomainException>(() => w.StartAsync(env.Alice, "online.bank.example", "Edge", "en-GB"));
         await w.StartAsync(env.Alice, "notbank.example", "Edge", "en-GB");
+        // The organisation's list does not reach someone using VerbaFlow on their own (a personal account).
+        var sam = await new EntraUsers(env.Stores, env.Clock).ResolvePersonalAsync(new PersonalIdentity("google:sam", "Sam", "sam@gmail.test", "Google"));
+        await w.StartAsync(sam, "online.bank.example", "Edge", "en-GB");
         Assert.Contains("\"added\":\"bank.example,pay.test\"", (await env.Stores.Audit.ListAsync()).Single(a => a.Type == "widget.policy_changed").Details);
         Assert.False((await w.GetPolicyAsync(env.Alice)).CanChange);
     }

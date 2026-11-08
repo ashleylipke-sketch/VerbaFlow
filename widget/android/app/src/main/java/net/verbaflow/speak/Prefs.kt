@@ -22,11 +22,17 @@ class Prefs(context: Context) {
     var refresh: String get() = str("refresh"); set(v) = put("refresh", v)
     var expires: Long get() = p.getLong("expires", 0); set(v) = p.edit().putLong("expires", v).apply()
 
+    /** A VerbaFlow sign-in for a personal account (Google and others), agreed on the VerbaFlow website. */
+    var linked: String get() = str("linked"); set(v) = put("linked", v)
+    var linkedServer: String get() = str("linkedServer"); set(v) = put("linkedServer", v)
+    var linkedRenewed: Long get() = p.getLong("linkedRenewed", 0); set(v) = p.edit().putLong("linkedRenewed", v).apply()
+
     /** Kept only while Microsoft's sign-in page is open in the browser. */
     var verifier: String get() = str("verifier"); set(v) = put("verifier", v)
     var state: String get() = str("state"); set(v) = put("state", v)
 
-    fun forgetSignIn() = p.edit().remove("access").remove("refresh").remove("expires").apply()
+    fun forgetSignIn() = p.edit().remove("access").remove("refresh").remove("expires")
+        .remove("linked").remove("linkedServer").remove("linkedRenewed").apply()
 
     fun serverUrl(): HttpUrl? = cleanServer(server)
 

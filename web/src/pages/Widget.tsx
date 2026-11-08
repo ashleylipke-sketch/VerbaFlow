@@ -63,6 +63,9 @@ export default function WidgetPage() {
           <li>Click where you want the words in any program, press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> and speak; press it again to stop, check the words, then <strong>Accept</strong>.</li>
         </ol>
         <p className="note">Its icon is near the clock: click it for the settings. In Chrome and Edge the shortcut is left to the browser extension.</p>
+
+        <h3>With a Google or other personal account</h3>
+        <p className="note">Personal Microsoft accounts use <strong>Sign in with Microsoft</strong> as above. With Google (or any account you use on this website), choose <strong>Sign in through the VerbaFlow website</strong> in the Widget's settings (on a phone: <strong>Google or another personal account</strong> in the VerbaFlow app). This website opens with a short code; check it is the code the Widget shows and click <strong>Link it</strong>. The link lasts 30 days from the last use.</p>
       </div>
 
       <div className="card">

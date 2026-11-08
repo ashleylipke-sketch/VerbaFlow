@@ -54,3 +54,17 @@ Nothing the person said. The live session is thrown away on Accept or Cancel (an
 
 ## Not built
 Outside the browser: see `widget-windows.md` (the Widget for Windows, built 2026-10-23, untested). Also not built: phone and tablet keyboards, store publishing, admin-pushed install (Edge/Chrome policy), blocking by page rather than site.
+
+## Personal accounts (Google, personal Microsoft)
+
+Built 2026-11-07. **Not yet tried by the owner.** For everyone who uses VerbaFlow on their own (see `google-sign-in.md` and `entra-sign-in-setup.md` step 13):
+
+- **Personal Microsoft accounts** (outlook.com, hotmail, another organisation's work account): **Sign in with Microsoft** in any Widget, as for work accounts. This works because the Widgets take Microsoft's address from VerbaFlow, which says `common` when personal accounts are on.
+- **Google** (and anyone else who signs in on the website): **Sign in through the VerbaFlow website** in the Widget's settings (browser extension and Windows), or **Google or another personal account** in the Android and iPhone app.
+  1. The Widget asks VerbaFlow for a code (`POST /api/widget-link/start` {device}: an 8-letter code shown as `ABCD-EF23`, no 0/O or 1/I, plus a secret only the Widget knows) and opens `<VerbaFlow>/#/link-widget?code=ABCD-EF23`.
+  2. The person signs in on the website (Google), checks the code is the one the Widget shows, and clicks **Link it** (`GET /api/widget-link/{code}`, `POST /api/widget-link/{code}/approve`). Only personal accounts can link; a work account of the organisation is told to use Sign in with Microsoft in the Widget. History `widget.linked` (device).
+  3. The Widget asks every 2 seconds (`POST /api/widget-link/poll` {secret}: 202 waiting, 200 with a VerbaFlow sign-in once, 410 when unknown, used or run out). Codes last 10 minutes and are kept only in memory, so a restart of VerbaFlow forgets them.
+  4. The Widget keeps that sign-in (30 days, renewed once a day with `POST /api/sign-in/renew`): extension `chrome.storage.local`, Windows `%LOCALAPPDATA%\VerbaFlow\Widget\linked.dat` protected by Windows for that person, Android the app's private storage, iPhone the keychain. Sign out forgets it.
+- The organisation's list of websites and programs where the Widget is switched off does not apply to personal accounts.
+- Risk: someone could send a person a link with their own code and ask them to click Link it; the page warns to link only a Widget on one's own device showing that code.
+

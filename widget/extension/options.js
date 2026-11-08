@@ -1,4 +1,4 @@
-import { DEFAULTS, call, settings, signInInfo, signInWithMicrosoft, signOut } from './settings.js';
+import { DEFAULTS, call, linkThroughWebsite, settings, signInInfo, signInWithMicrosoft, signOut } from './settings.js';
 
 const $ = id => document.getElementById(id);
 const status = (text, ok) => { $('status').textContent = text; $('status').className = `note ${ok ? 'ok' : 'bad'}`; };
@@ -9,11 +9,12 @@ async function fill() {
   let info;
   try { info = await signInInfo(s.server); }
   catch {
-    $('msBox').hidden = true; $('testBox').hidden = true;
+    $('msBox').hidden = true; $('testBox').hidden = true; $('linkBox').hidden = true;
     $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`;
     return status('VerbaFlow cannot be reached at this address. Check that it is running (run.cmd).', false);
   }
   $('msBox').hidden = !info.microsoft;
+  $('linkBox').hidden = !(info.google || info.personalAccounts);
   $('testBox').hidden = !info.testUsers;
   if (info.testUsers) {
     const users = await fetch(`${s.server}/api/users`, { headers: { 'X-Dev-User': s.user } }).then(r => r.json()).catch(() => []);
@@ -23,13 +24,15 @@ async function fill() {
     }).join('');
   }
   let me = null;
-  try { me = await call('GET', '/me'); } catch (e) { me = null; if (!info.microsoft) return status(e.message, false); }
-  const microsoft = info.microsoft && me && !me.email?.endsWith('@example.test');
-  if (info.microsoft) {
-    $('who').textContent = microsoft ? `Signed in as ${me.name}${me.isAdmin ? ' (admin)' : ''}.` : 'Not signed in with Microsoft yet.';
-    $('msIn').hidden = !!microsoft; $('msOut').hidden = !microsoft;
-  }
-  if (!me) { $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`; return status('Sign in with Microsoft to use the Widget.', false); }
+  try { me = await call('GET', '/me'); } catch (e) { me = null; if (!info.microsoft && !info.google && !info.personalAccounts) return status(e.message, false); }
+  const signed = me && !me.email?.endsWith('@example.test');
+  const { linked } = await chrome.storage.local.get('linked');
+  const viaLink = signed && linked?.server === s.server;
+  const who = signed ? `Signed in as ${me.name}${me.isAdmin ? ' (admin)' : ''}${me.individual ? ' (personal account)' : ''}.` : 'Not signed in yet.';
+  if (info.microsoft) { $('who').textContent = viaLink ? '' : who; $('msIn').hidden = !!signed; $('msOut').hidden = !signed || viaLink; }
+  $('linkWho').textContent = viaLink ? who : '';
+  $('linkIn').hidden = !!signed; $('linkOut').hidden = !viaLink;
+  if (!me) { $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`; return status('Sign in to use the Widget.', false); }
   const langs = await call('GET', '/languages');
   $('languages').innerHTML = langs.languages.filter(l => l.supported !== false && l.code !== 'auto')
     .map(l => `<option value="${l.code}"${l.code === s.languages ? ' selected' : ''}>${l.name}</option>`).join('');
@@ -48,6 +51,18 @@ $('msIn').onclick = async () => {
   await fill();
 };
 $('msOut').onclick = async () => { await signOut(); await fill(); };
+$('linkIn').onclick = async () => {
+  $('linkCode').textContent = '';
+  try {
+    await chrome.storage.local.set({ server: $('server').value.trim() || DEFAULTS.server });
+    await linkThroughWebsite(code => {
+      $('linkCode').innerHTML = `A VerbaFlow tab has opened. Check it shows the code <strong>${code}</strong>, then click <strong>Link it</strong> there. (Not signed in? Sign in on that page first: the code stays the same.)`;
+    });
+    $('linkCode').textContent = '';
+  } catch (e) { $('linkCode').textContent = ''; return status(e.message, false); }
+  await fill();
+};
+$('linkOut').onclick = async () => { await signOut(); await fill(); };
 
 const micNote = (text, ok) => { $('micStatus').textContent = text; $('micStatus').className = `note ${ok ? 'ok' : 'bad'}`; };
 const bg = msg => chrome.runtime.sendMessage({ ...msg, to: 'bg' });

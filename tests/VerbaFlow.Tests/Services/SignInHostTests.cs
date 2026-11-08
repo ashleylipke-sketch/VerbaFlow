@@ -110,4 +110,51 @@ public class SignInHostTests : IDisposable
         // Google is not set up here, so its exchange does not exist.
         Assert.Equal(HttpStatusCode.NotFound, (await _app.CreateClient().PostAsJsonAsync("/api/sign-in/google", new { credential = "x" })).StatusCode);
     }
+
+    [Fact]
+    public async Task A_widget_is_linked_to_a_personal_account_through_the_website_once()
+    {
+        var http = _app.CreateClient();
+        var start = await (await http.PostAsJsonAsync("/api/widget-link/start", new { device = "Android keyboard" })).Content.ReadFromJsonAsync<JsonElement>();
+        var code = start.GetProperty("code").GetString()!;
+        var secret = start.GetProperty("secret").GetString()!;
+        Assert.Matches("^[A-Z2-9]{4}-[A-Z2-9]{4}$", code);
+        Assert.Equal(600, start.GetProperty("expiresInSeconds").GetInt32());
+
+        async Task<HttpResponseMessage> Signed(HttpMethod m, string path, string token)
+        {
+            var req = new HttpRequestMessage(m, path);
+            req.Headers.Authorization = new("Bearer", token);
+            return await http.SendAsync(req);
+        }
+        async Task<HttpResponseMessage> Poll() => await http.PostAsJsonAsync("/api/widget-link/poll", new { secret });
+
+        Assert.Equal((HttpStatusCode)202, (await Poll()).StatusCode);
+
+        // The website needs a sign-in; a work account of this organisation signs in to the Widget directly instead.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await http.GetAsync($"/api/widget-link/{code}")).StatusCode);
+        var work = await Signed(HttpMethod.Post, $"/api/widget-link/{code}/approve", Token());
+        Assert.Equal(HttpStatusCode.BadRequest, work.StatusCode);
+        Assert.Equal((HttpStatusCode)202, (await Poll()).StatusCode);
+
+        // A personal account sees the waiting Widget (typed in small letters without the dash works too) and agrees.
+        var personal = Token(tenant: "9188040d-6c67-4c5b-b5f8-a3d2c3c9b6e1", oid: "oid-student");
+        var seen = await (await Signed(HttpMethod.Get, $"/api/widget-link/{code.Replace("-", "").ToLowerInvariant()}", personal)).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Android keyboard", seen.GetProperty("device").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await Signed(HttpMethod.Post, $"/api/widget-link/{code}/approve", personal)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Signed(HttpMethod.Get, $"/api/widget-link/{code}", personal)).StatusCode);
+
+        // The Widget collects VerbaFlow's own sign-in exactly once; it signs in as that person.
+        var got = await Poll();
+        Assert.Equal(HttpStatusCode.OK, got.StatusCode);
+        var vf = (await got.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString()!;
+        Assert.StartsWith("vf1.", vf);
+        Assert.Equal((HttpStatusCode)410, (await Poll()).StatusCode);
+        var me = await (await Me(r => r.Headers.Authorization = new("Bearer", vf))).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(me.GetProperty("individual").GetBoolean());
+
+        // A wrong secret or a made-up code gets nothing.
+        Assert.Equal((HttpStatusCode)410, (await http.PostAsJsonAsync("/api/widget-link/poll", new { secret = "00" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Signed(HttpMethod.Get, "/api/widget-link/AAAA-BBBB", personal)).StatusCode);
+    }
 }

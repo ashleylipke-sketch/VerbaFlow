@@ -17,7 +17,7 @@
   button.secondary { background:#fff; color:var(--brand); margin-left:8px; }
   .note { color:var(--muted); font-size:13px; } .ok { color:var(--ok); } .bad { color:var(--bad); }
   ul { padding-left:20px; margin:6px 0; }
-  #msBox button { margin-top:4px; }
+  #msBox button, #linkBox button { margin-top:4px; }
 </style>
 </head>
 <body>
@@ -42,6 +42,14 @@
       <p id="who" class="note" role="status"></p>
       <button id="msIn">Sign in with Microsoft</button>
       <button id="msOut" class="secondary" hidden>Sign out</button>
+    </div>
+    <div id="linkBox" hidden>
+      <label>Google or another personal account</label>
+      <p class="note">Signed in to the VerbaFlow website with Google or a personal account? Link the Widget to it there.</p>
+      <p id="linkWho" class="note" role="status"></p>
+      <button id="linkIn">Sign in through the VerbaFlow website</button>
+      <button id="linkOut" class="secondary" hidden>Sign out</button>
+      <p id="linkCode" class="note" role="status"></p>
     </div>
     <div id="testBox" hidden>
       <label for="user">Test user</label>

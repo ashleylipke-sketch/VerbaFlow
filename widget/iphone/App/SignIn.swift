@@ -9,10 +9,13 @@ import UIKit
 /// keychain, readable only by this app, and never leave it except to Microsoft and VerbaFlow.
 final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
     struct Tokens: Codable { var access: String; var refresh: String?; var expires: Date }
+    /// VerbaFlow's own sign-in for a personal account (Google and others), agreed on the VerbaFlow website.
+    struct Linked: Codable { var server: String; var token: String; var renewed: Date }
 
     /// The redirect registered in Microsoft Entra under "iOS / macOS" for this app's bundle ID.
     static var redirect: String { "msauth.\(Bundle.main.bundleIdentifier ?? "net.verbaflow.speak")://auth" }
     private static let keychainItem = "microsoft-sign-in"
+    private static let linkedItem = "verbaflow-link"
     /// Kept while the sign-in sheet is open; Apple closes the sheet if nothing holds on to it.
     private var session: ASWebAuthenticationSession?
 
@@ -20,7 +23,22 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
         get { UserDefaults.standard.string(forKey: "testUser") ?? "alice" }
         set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespaces).lowercased(), forKey: "testUser") }
     }
-    var isSignedIn: Bool { Self.load() != nil }
+    var isSignedIn: Bool { Self.load() != nil || Self.loadLinked() != nil }
+    var isLinked: Bool { Self.loadLinked() != nil }
+
+    /// The linked sign-in for this VerbaFlow, if there is one.
+    func linked(for server: URL) -> Linked? {
+        guard let l = Self.loadLinked(), Self.same(l.server, server.absoluteString) else { return nil }
+        return l
+    }
+
+    func keepLinked(_ server: URL, token: String) {
+        Self.saveLinked(Linked(server: server.absoluteString, token: token, renewed: Date()))
+    }
+
+    private static func same(_ a: String, _ b: String) -> Bool {
+        a.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased() == b.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+    }
 
     /// The header to send: a Microsoft token, or X-Dev-User for a test user.
     func header(_ info: SignInInfo) async throws -> (name: String, value: String) {
@@ -37,7 +55,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
 
     private var needed: PlainError { PlainError(message: "Open the VerbaFlow app and sign in first.", signIn: true) }
 
-    func forget() { Self.save(nil) }
+    func forget() { Self.save(nil); Self.saveLinked(nil) }
 
     /// Opens Microsoft's sign-in page in Apple's secure sheet and keeps the tokens that come back.
     @MainActor func signIn(_ ms: SignInInfo.Microsoft) async throws {
@@ -103,26 +121,31 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
         return Data(bytes).base64URL
     }
 
-    private static func query() -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "VerbaFlow", kSecAttrAccount as String: keychainItem]
+    private static func query(_ item: String = keychainItem) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "VerbaFlow", kSecAttrAccount as String: item]
     }
 
-    private static func load() -> Tokens? {
-        var q = query()
+    private static func read<T: Decodable>(_ item: String) -> T? {
+        var q = query(item)
         q[kSecReturnData as String] = true
         var out: AnyObject?
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data else { return nil }
-        return try? JSONDecoder().decode(Tokens.self, from: d)
+        return try? JSONDecoder().decode(T.self, from: d)
     }
 
-    private static func save(_ t: Tokens?) {
-        SecItemDelete(query() as CFDictionary)
-        guard let t, let d = try? JSONEncoder().encode(t) else { return }
-        var q = query()
+    private static func write<T: Encodable>(_ value: T?, _ item: String) {
+        SecItemDelete(query(item) as CFDictionary)
+        guard let value, let d = try? JSONEncoder().encode(value) else { return }
+        var q = query(item)
         q[kSecValueData as String] = d
         q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(q as CFDictionary, nil)
     }
+
+    private static func load() -> Tokens? { read(keychainItem) }
+    private static func save(_ t: Tokens?) { write(t, keychainItem) }
+    private static func loadLinked() -> Linked? { read(linkedItem) }
+    private static func saveLinked(_ l: Linked?) { write(l, linkedItem) }
 }
 
 extension Data {

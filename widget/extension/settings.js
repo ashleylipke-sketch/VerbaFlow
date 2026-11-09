@@ -61,11 +61,21 @@ export async function signInWithMicrosoft(interactive) {
   const code = back.searchParams.get('code');
   if (!code || back.searchParams.get('state') !== state) throw new Error(interactive ? 'The Microsoft sign-in did not finish. Try again.' : 'signin');
   quietFailedAt = 0;
+  if (interactive) await chrome.storage.local.remove('signedOut');
   return tokenRequest(ms, { grant_type: 'authorization_code', code, redirect_uri: redirect, code_verifier: verifier });
 }
 
 let quietFailedAt = 0;
-export async function signOut() { await chrome.storage.session.remove('tokens'); await chrome.storage.local.remove('linked'); }
+/**
+ * Forgets the sign-in. When the person clicked Sign out (byPerson), the quiet Microsoft sign-in is also switched off
+ * until they sign in again themselves; otherwise a browser that is signed in to Microsoft would sign the Widget
+ * straight back in, and a Google account could never be linked.
+ */
+export async function signOut(byPerson = false) {
+  await chrome.storage.session.remove('tokens');
+  await chrome.storage.local.remove('linked');
+  if (byPerson) await chrome.storage.local.set({ signedOut: true });
+}
 
 // ---------- Linked through the VerbaFlow website (Google and other personal accounts) ----------
 // The Widget gets a short code, the website (where the person is signed in) agrees, and the Widget then holds
@@ -89,6 +99,7 @@ export async function linkThroughWebsite(onCode) {
     if (!res.ok || !data.token) throw new Error(data.error || 'The link did not finish. Try again.');
     await chrome.storage.session.remove('tokens');
     await chrome.storage.local.set({ linked: { token: data.token, server: s.server, renewed: Date.now() } });
+    await chrome.storage.local.remove('signedOut');
     return;
   }
   throw new Error('The code ran out before it was agreed on the website. Try again.');
@@ -121,7 +132,8 @@ export async function authHeaders() {
       if (!tokens || tokens.expires - Date.now() < 120_000) {
         tokens = tokens?.refresh ? await tokenRequest(ms, { grant_type: 'refresh_token', refresh_token: tokens.refresh }).catch(() => null) : null;
         // After a quiet attempt fails, the next one waits two minutes, so test users and error messages are not slowed down.
-        if (!tokens && Date.now() - quietFailedAt > 120_000) {
+        const { signedOut } = await chrome.storage.local.get('signedOut');
+        if (!tokens && !signedOut && Date.now() - quietFailedAt > 120_000) {
           tokens = await signInWithMicrosoft(false).catch(() => { quietFailedAt = Date.now(); return null; });
         }
         if (!tokens) throw new Error('signin');

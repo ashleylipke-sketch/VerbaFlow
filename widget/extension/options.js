@@ -50,7 +50,7 @@ $('msIn').onclick = async () => {
   catch (e) { return status(e.message === 'signin' ? 'The Microsoft sign-in did not finish. Try again.' : e.message, false); }
   await fill();
 };
-$('msOut').onclick = async () => { await signOut(); await fill(); };
+$('msOut').onclick = async () => { await signOut(true); await fill(); };
 $('linkIn').onclick = async () => {
   $('linkCode').textContent = '';
   try {
@@ -62,7 +62,7 @@ $('linkIn').onclick = async () => {
   } catch (e) { $('linkCode').textContent = ''; return status(e.message, false); }
   await fill();
 };
-$('linkOut').onclick = async () => { await signOut(); await fill(); };
+$('linkOut').onclick = async () => { await signOut(true); await fill(); };
 
 const micNote = (text, ok) => { $('micStatus').textContent = text; $('micStatus').className = `note ${ok ? 'ok' : 'bad'}`; };
 const bg = msg => chrome.runtime.sendMessage({ ...msg, to: 'bg' });

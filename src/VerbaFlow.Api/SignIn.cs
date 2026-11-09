@@ -28,6 +28,12 @@ public sealed class SignInOptions
     public bool PersonalAccounts { get; init; }
     /// <summary>Google sign-in for personal accounts (<c>Google:ClientId</c>, a Google Cloud OAuth client id; not secret).</summary>
     public string? GoogleClientId { get; init; }
+    /// <summary>
+    /// Sign-in with an emailed code for personal accounts (no Google or Microsoft account needed). On whenever personal
+    /// accounts are offered, unless <c>SignIn:EmailCodes=false</c>; online only once real email is set up (Email:ConnectionString),
+    /// because the stand-in only writes emails to the data folder.
+    /// </summary>
+    public bool EmailCodes { get; init; }
     public bool Microsoft => !string.IsNullOrWhiteSpace(TenantId) && !string.IsNullOrWhiteSpace(ClientId);
     public bool Google => !string.IsNullOrWhiteSpace(GoogleClientId);
     /// <summary>Microsoft's own tenant id for personal Microsoft accounts.</summary>
@@ -44,6 +50,9 @@ public sealed class SignInOptions
         TestUsers = env.IsDevelopment() && !string.Equals(config["SignIn:TestUsers"], "false", StringComparison.OrdinalIgnoreCase),
         PersonalAccounts = string.Equals(config["Entra:PersonalAccounts"], "true", StringComparison.OrdinalIgnoreCase),
         GoogleClientId = config["Google:ClientId"]?.Trim() is { Length: > 0 } g ? g : null,
+        EmailCodes = (string.Equals(config["Entra:PersonalAccounts"], "true", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(config["Google:ClientId"]))
+            && !string.Equals(config["SignIn:EmailCodes"], "false", StringComparison.OrdinalIgnoreCase)
+            && (env.IsDevelopment() || !string.IsNullOrWhiteSpace(config["Email:ConnectionString"])),
     };
 
     public void AddTo(IServiceCollection services)
@@ -51,6 +60,7 @@ public sealed class SignInOptions
         services.AddSingleton(this);
         services.AddSingleton<EntraUsers>();
         services.AddSingleton<SessionTokens>();
+        services.AddSingleton<EmailCodes>();
         if (Google) services.AddSingleton(new GoogleSignIn(GoogleClientId!));
         if (!Microsoft) return;
         services.AddAuthentication().AddJwtBearer(o =>
@@ -75,7 +85,8 @@ public sealed class SignInOptions
         microsoft = Microsoft ? new { tenantId = TenantId, clientId = ClientId, scope = Scope,
             authority = PersonalAccounts ? "https://login.microsoftonline.com/common" : $"https://login.microsoftonline.com/{TenantId}" } : null,
         google = Google ? new { clientId = GoogleClientId } : null,
-        personalAccounts = PersonalAccounts || Google,
+        personalAccounts = PersonalAccounts || Google || EmailCodes,
+        email = EmailCodes,
         testUsers = TestUsers,
     };
 }

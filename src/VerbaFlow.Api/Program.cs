@@ -238,6 +238,8 @@ app.Logger.LogInformation(signIn.Microsoft
     : signIn.Google ? "Sign-in: Google accounts as personal accounts" + (signIn.TestUsers ? ", and the test users while in Development" : "") + ". Microsoft sign-in is not set up (see docs/entra-sign-in-setup.md)."
     : signIn.TestUsers ? "Sign-in: TEST USERS only (alice, bob, carol...). Set Entra:TenantId and Entra:ClientId to sign in with Microsoft (see docs/entra-sign-in-setup.md)."
     : "Sign-in: NOT SET UP. Nobody can sign in until Entra:TenantId and Entra:ClientId are set (see docs/entra-sign-in-setup.md).", signIn.TenantId);
+if (signIn.EmailCodes)
+    app.Logger.LogInformation("Email sign-in: on for personal accounts; codes are " + (emailOptions.IsConfigured ? "emailed through Azure" : "written to {Outbox} (stand-in email, nothing is really sent)"), outbox);
 if (signIn.TestUsers) await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
 
 app.UseExceptionHandler(new ExceptionHandlerOptions
@@ -291,6 +293,7 @@ var api = app.MapGroup("/api");
 api.AddEndpointFilter(SignIn.RequireUser);
 app.MapPersonalSignIn(api);
 app.MapWidgetLinks(api);
+app.MapEmailSignIn();
 api.MapMeetingEndpoints();
 api.MapLiveEndpoints();
 api.MapMeetEndpoints();

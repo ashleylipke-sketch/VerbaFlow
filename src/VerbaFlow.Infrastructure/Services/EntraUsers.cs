@@ -95,6 +95,8 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
             }
             else
             {
+                // An emailed-code sign-in names nobody: keep the name the person gave before.
+                if (Clean(who.Name, 200) is null && who.SignInId.StartsWith("email:", StringComparison.Ordinal)) name = existing.Name;
                 user = existing with { Name = name, Email = email, IsAdmin = false, IsSupport = false, Individual = true, Grants = Capability.None };
                 if (user != existing) await stores.Users.UpsertAsync(user.Id, user);
             }

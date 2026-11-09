@@ -51,3 +51,4 @@ With Google set up, **Export ▾ → Email…** also offers **Put it in my Gmail
 - If the keys in `data/keys/sign-in` are lost, everyone signed in with Google simply signs in again.
 - Gmail drafts: the browser asks Google for `gmail.compose` with Google's token client (`gmailMailToken` in `web/src/auth.ts`), sends it once to `POST /api/items/{id}/export/own-draft` {service: gmail, mailToken}, and the server uploads the email (`EmlWriter`) to `gmail/v1/users/me/drafts` (`Mail/OwnMailDrafts.cs`). History `item.gmail_draft` / `gmail_draft.failed`; the permission is never stored or logged.
 - The Widgets (browser extension, Windows, phones) link to a Google account through the website: see "Personal accounts" in `widget.md`.
+- People without a Google or Microsoft account can sign in with an emailed code instead: see `email-sign-in.md`.

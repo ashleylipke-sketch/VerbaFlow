@@ -180,4 +180,17 @@ public class IndividualAccountTests
         Assert.Null(await google.CheckAsync(Make(k: new SymmetricSecurityKey(new byte[32]))));
         Assert.Null(await google.CheckAsync(""));
     }
+
+    [Fact]
+    public async Task An_emailed_code_sign_in_keeps_the_name_given_the_first_time()
+    {
+        using var env = new Env();
+        var users = new EntraUsers(env.Stores, env.Clock);
+        var first = await users.ResolvePersonalAsync(new PersonalIdentity("email:sam@example.org", "Sam Student", "sam@example.org", "email"));
+        var users2 = new EntraUsers(env.Stores, env.Clock);
+        var again = await users2.ResolvePersonalAsync(new PersonalIdentity("email:sam@example.org", null, "sam@example.org", "email"));
+        Assert.Equal(first.Id, again.Id);
+        Assert.Equal("Sam Student", again.Name);
+        Assert.True(again.Individual);
+    }
 }

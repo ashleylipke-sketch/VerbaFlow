@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type UserView } from './api';
+import EmailSignIn from './EmailSignIn';
 import { getTestUser, microsoftName, setTestUser, showGoogleButton, signedIn, signInInfo, signInProblem, signInWithMicrosoft, signOut } from './auth';
 import { setIndividual } from './whoami';
 import Dashboard from './pages/Dashboard';
@@ -118,10 +119,13 @@ export default function App() {
             <div className="actions"><button className="primary" onClick={() => signInWithMicrosoft()}>Sign in with Microsoft</button></div></>}
           {!way && info.google && <>{info.microsoft ? <p>Or use your Google account:</p> : <p>Use your Google account.</p>}
             <div className="actions" ref={google} /></>}
-          {!way && info.personalAccounts && <p className="note">A personal Microsoft account, a Google account, or a work or school account from
+          {!way && info.email && <>{info.microsoft || info.google ? <p>Or, without a Microsoft or Google account, sign in with your email address:</p>
+            : <p>Sign in with your email address:</p>}
+            <EmailSignIn done={() => { setProblem(''); setWay(signedIn()); }} /></>}
+          {!way && info.personalAccounts && <p className="note">A personal Microsoft account, a Google account, an email address, or a work or school account from
             another organisation opens a personal VerbaFlow: your recordings are yours alone, and nobody else (including this organisation's administrators) can see them.</p>}
           {!way && info.testUsers && <p className="note">{info.microsoft ? 'Or, on this computer only, pick a test user at the top right.' : 'Pick a test user at the top right. (Microsoft sign-in is not set up yet.)'}</p>}
-          {!way && !info.microsoft && !info.google && !info.testUsers && !problem && <p className="note">Sign-in is not set up yet. Your administrator needs to finish setting up VerbaFlow.</p>}
+          {!way && !info.microsoft && !info.google && !info.email && !info.testUsers && !problem && <p className="note">Sign-in is not set up yet. Your administrator needs to finish setting up VerbaFlow.</p>}
         </div>
           : translation ? <TranslationPage key={translation[1] + translation[2]} id={translation[1]} lang={translation[2]} />
           : item ? <ItemPage id={item[1]} at={itemQuery.get('at') ? Number(itemQuery.get('at')) : undefined} seg={itemQuery.get('seg') ?? undefined} />

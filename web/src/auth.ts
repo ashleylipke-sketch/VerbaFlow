@@ -11,6 +11,8 @@ export type SignInInfo = {
   testUsers: boolean;
   google?: { clientId: string } | null;
   personalAccounts?: boolean;
+  /** Sign-in with a code sent by email (personal accounts). */
+  email?: boolean;
 };
 
 let info: SignInInfo = { microsoft: null, testUsers: false };
@@ -135,6 +137,28 @@ export async function showGoogleButton(el: HTMLElement, done: () => void, proble
   el.innerHTML = '';
   g.accounts.id.renderButton(el, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', width: 260 });
 }
+/** Asks VerbaFlow to email a sign-in code. Returns a plain sentence when it could not. */
+export async function sendEmailCode(email: string): Promise<string | null> {
+  try {
+    const r = await fetch('/api/sign-in/email/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    if (r.ok) return null;
+    return (await r.json().catch(() => ({}))).error ?? 'The code could not be sent. Try again.';
+  } catch { return 'VerbaFlow could not be reached. Check your connection and try again.'; }
+}
+
+/** Signs in with the emailed code. Returns a plain sentence when it did not work. */
+export async function signInWithEmailCode(email: string, code: string, name: string): Promise<string | null> {
+  try {
+    const r = await fetch('/api/sign-in/email/finish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, code, name }) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok || !body.token) return body.error ?? 'The sign-in did not work. Try again.';
+    testUser = ''; write('devUser', '');
+    setVfToken(body.token);
+    failure = '';
+    return null;
+  } catch { return 'VerbaFlow could not be reached. Check your connection and try again.'; }
+}
+
 export const microsoftName = () => account?.name || account?.username || '';
 export const getTestUser = () => testUser;
 export function setTestUser(u: string) { testUser = info.testUsers ? u : ''; write('devUser', testUser); }

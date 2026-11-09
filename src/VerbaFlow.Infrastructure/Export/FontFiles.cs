@@ -221,6 +221,72 @@ internal static class FontFiles
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// Gives the font its own name. PDFsharp keeps fonts by their full name, so a changed copy of a font that is also used
+    /// as it is (Arial for Arabic letters and Arial for the text, both on Windows) must not carry the same name, or the
+    /// export fails. The other name records (copyright, licence) are kept.
+    /// </summary>
+    public static byte[] Rename(byte[] font, string family)
+    {
+        try
+        {
+            if (Table(font, "name") is not { } at) return font;
+            var count = U16(font, at + 2);
+            var strings = at + U16(font, at + 4);
+            var ours = new ushort[] { 1, 2, 3, 4, 6, 16, 17 };
+            var records = new List<(ushort Platform, ushort Encoding, ushort Language, ushort Id, byte[] Text)>();
+            for (var i = 0; i < count; i++)
+            {
+                var r = at + 6 + 12 * i;
+                var id = U16(font, r + 6);
+                if (ours.Contains(id)) continue;
+                var length = U16(font, r + 8);
+                var offset = U16(font, r + 10);
+                records.Add((U16(font, r), U16(font, r + 2), U16(font, r + 4), id, font.AsSpan(strings + offset, length).ToArray()));
+            }
+            byte[] Utf16(string t) => System.Text.Encoding.BigEndianUnicode.GetBytes(t);
+            var postScript = new string(family.Where(char.IsLetterOrDigit).ToArray());
+            foreach (var (id, words) in new (ushort, string)[] { (1, family), (2, "Regular"), (3, family), (4, family), (6, postScript) })
+                records.Add((3, 1, 0x409, id, Utf16(words)));
+            records = records.OrderBy(r => r.Platform).ThenBy(r => r.Encoding).ThenBy(r => r.Language).ThenBy(r => r.Id).ToList();
+
+            var table = new MemoryStream();
+            var head = new byte[6 + 12 * records.Count];
+            BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(2), (ushort)records.Count);
+            BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(4), (ushort)head.Length);
+            var text = new MemoryStream();
+            for (var i = 0; i < records.Count; i++)
+            {
+                var (platform, encoding, language, id, bytes) = records[i];
+                var r = 6 + 12 * i;
+                BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(r), platform);
+                BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(r + 2), encoding);
+                BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(r + 4), language);
+                BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(r + 6), id);
+                BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(r + 8), (ushort)bytes.Length);
+                BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(r + 10), (ushort)text.Length);
+                text.Write(bytes);
+            }
+            if (text.Length > ushort.MaxValue) return font;
+            table.Write(head);
+            table.Write(text.ToArray());
+
+            var tables = new Dictionary<uint, byte[]>();
+            var n = U16(font, 4);
+            for (var i = 0; i < n; i++)
+            {
+                var r = 12 + 16 * i;
+                tables[U32(font, r)] = font.AsSpan((int)U32(font, r + 8), (int)U32(font, r + 12)).ToArray();
+            }
+            tables[BinaryPrimitives.ReadUInt32BigEndian("name"u8)] = table.ToArray();
+            return Write(U32(font, 0), tables);
+        }
+        catch (Exception e) when (e is ArgumentOutOfRangeException or ArgumentException or IndexOutOfRangeException)
+        {
+            return font;
+        }
+    }
+
     private static byte[] Write(uint version, Dictionary<uint, byte[]> tables)
     {
         var n = tables.Count;

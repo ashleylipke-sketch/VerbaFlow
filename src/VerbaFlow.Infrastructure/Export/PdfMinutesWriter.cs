@@ -295,7 +295,7 @@ public static class PdfMinutesWriter
                     {
                         var path = Path.Combine(dir, name);
                         if (!File.Exists(path)) continue;
-                        try { found = FontFiles.Fonts(File.ReadAllBytes(path)).FirstOrDefault(f => FontFiles.Covers(f, sample)); if (found is not null) found = FontFiles.FlattenNestedParts(found); }
+                        try { found = FontFiles.Fonts(File.ReadAllBytes(path)).FirstOrDefault(f => FontFiles.Covers(f, sample)); if (found is not null) found = FontFiles.Rename(FontFiles.FlattenNestedParts(found), family); }
                         catch (IOException) { }
                         if (found is not null) break;
                     }

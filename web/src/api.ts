@@ -230,6 +230,8 @@ export const api = {
       translation: translation || null }),
   workload: (mode: string, days: number, department: string) =>
     call<Workload>('GET', `/workload?mode=${mode}&days=${days}${department ? `&department=${encodeURIComponent(department)}` : ''}`),
+  emailService: () => call<{ real: boolean; sender: string | null; yourEmail: string | null }>('GET', '/email-service'),
+  testEmail: (to: string) => call<{ to: string; outcome: 'Saved' | 'HandedOver' | 'StillWaiting' }>('POST', '/email-service/test', { to: to || null }),
   notifications: () => call<NotificationList>('GET', '/notifications'),
   markRead: (id?: string) => call<NotificationList>('POST', '/notifications/read', { id: id ?? null }),
   notificationSettings: () => call<NotificationSettings>('GET', '/notifications/settings'),

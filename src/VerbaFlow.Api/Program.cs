@@ -299,6 +299,7 @@ api.MapLiveEndpoints();
 api.MapMeetEndpoints();
 api.MapRetentionEndpoints();
 api.MapNotificationEndpoints();
+api.MapEmailEndpoints();
 api.MapWorkloadEndpoints();
 api.MapAttachmentEndpoints();
 api.MapNoteEndpoints();

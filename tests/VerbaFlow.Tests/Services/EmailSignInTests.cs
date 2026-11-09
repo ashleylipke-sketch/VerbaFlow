@@ -110,4 +110,31 @@ public class EmailSignInTests
         }
         finally { try { Directory.Delete(dir, true); } catch { /* best effort */ } }
     }
+
+    [Fact]
+    public async Task An_administrator_sends_a_test_email_and_others_cannot()
+    {
+        var dir = Directory.CreateTempSubdirectory("verbaflow-email-").FullName;
+        try
+        {
+            using var app = Host(dir, "Development");
+            var http = app.CreateClient();
+            http.DefaultRequestHeaders.Add("X-Dev-User", "carol");
+            var info = await http.GetFromJsonAsync<JsonElement>("/api/email-service");
+            Assert.False(info.GetProperty("real").GetBoolean());
+            Assert.Equal(HttpStatusCode.BadRequest, (await http.PostAsJsonAsync("/api/email-service/test", new { to = "nonsense" })).StatusCode);
+
+            var sent = await (await http.PostAsJsonAsync("/api/email-service/test", new { to = (string?)null })).Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("Saved", sent.GetProperty("outcome").GetString());
+            var to = sent.GetProperty("to").GetString()!;
+            var mail = Directory.GetFiles(Path.Combine(dir, "outbox"), "*.eml").Select(File.ReadAllText).Single();
+            Assert.Contains(to, mail, StringComparison.OrdinalIgnoreCase);
+
+            var other = app.CreateClient();
+            other.DefaultRequestHeaders.Add("X-Dev-User", "alice");
+            Assert.Equal(HttpStatusCode.Forbidden, (await other.PostAsJsonAsync("/api/email-service/test", new { to = "x@example.org" })).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await other.GetAsync("/api/email-service")).StatusCode);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* best effort */ } }
+    }
 }

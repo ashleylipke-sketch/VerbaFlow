@@ -20,7 +20,25 @@ public sealed class AzureEmailSender(AzureEmailOptions options) : IEmailSender
 
     public string Name => "azure-communication-email";
 
-    public async Task<string> SendAsync(CoreEmail m, CancellationToken ct)
+    public async Task<string> SendAsync(CoreEmail m, CancellationToken ct) => (await StartAsync(m, ct)).Id;
+
+    public async Task<EmailCheck> SendAndWaitAsync(CoreEmail m, CancellationToken ct)
+    {
+        var op = await StartAsync(m, ct);
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        wait.CancelAfter(TimeSpan.FromSeconds(60));
+        try
+        {
+            await op.WaitForCompletionAsync(TimeSpan.FromSeconds(2), wait.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new(EmailOutcome.StillWaiting, op.Id, null); }
+        catch (RequestFailedException ex) { return new(EmailOutcome.Failed, op.Id, $"Azure email returned {ex.Status} {ex.ErrorCode}: {ex.Message}"); }
+        var result = op.Value;
+        return result.Status == EmailSendStatus.Succeeded ? new(EmailOutcome.HandedOver, op.Id, null)
+            : new(EmailOutcome.Failed, op.Id, $"Azure email finished with status {result.Status}");
+    }
+
+    private async Task<EmailSendOperation> StartAsync(CoreEmail m, CancellationToken ct)
     {
         var message = new global::Azure.Communication.Email.EmailMessage(options.Sender,
             new EmailRecipients(m.To.Select(a => new EmailAddress(a)).ToList()),
@@ -31,8 +49,7 @@ public sealed class AzureEmailSender(AzureEmailOptions options) : IEmailSender
         try
         {
             // Started, not Completed: the service has accepted the message; delivery carries on in the background.
-            var op = await client.SendAsync(WaitUntil.Started, message, ct);
-            return op.Id;
+            return await client.SendAsync(WaitUntil.Started, message, ct);
         }
         catch (RequestFailedException ex)
         {

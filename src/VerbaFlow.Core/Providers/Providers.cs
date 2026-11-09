@@ -104,7 +104,17 @@ public interface IEmailSender
     string Name { get; }
     /// <summary>Hands the message to the mail service and returns its reference for the audit trail.</summary>
     Task<string> SendAsync(EmailMessage message, CancellationToken ct);
+
+    /// <summary>Sends and waits for the mail service's own answer (used by the administrators' test email).
+    /// A service that cannot say more than "accepted" answers <see cref="EmailOutcome.Saved"/>.</summary>
+    async Task<EmailCheck> SendAndWaitAsync(EmailMessage message, CancellationToken ct) =>
+        new(EmailOutcome.Saved, await SendAsync(message, ct), null);
 }
+
+public enum EmailOutcome { Saved, HandedOver, StillWaiting, Failed }
+
+/// <param name="Problem">Technical detail when the service refused the email; for support only.</param>
+public sealed record EmailCheck(EmailOutcome Outcome, string Reference, string? Problem);
 
 /// <param name="Languages">The locales the person will speak (one, or a few to switch between).</param>
 /// <param name="Phrases">Names and terms the speech service should expect.</param>

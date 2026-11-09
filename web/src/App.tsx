@@ -18,6 +18,7 @@ import RetentionPage from './pages/Retention';
 import WorkloadPage from './pages/Workload';
 import DepartmentsPage from './pages/Departments';
 import MinutesTemplatesPage from './pages/MinutesTemplates';
+import EmailServicePage from './pages/EmailService';
 import NotificationsPage from './pages/Notifications';
 import { Bell } from './Bell';
 import SearchPage from './pages/Search';
@@ -143,6 +144,7 @@ export default function App() {
           : path === '/saved-text' ? <SavedTextPage />
           : path === '/letterhead' ? <LetterheadPage />
           : path === '/minutes-templates' ? <MinutesTemplatesPage />
+          : path === '/email' ? <EmailServicePage />
           : path === '/notifications' ? <NotificationsPage />
           : path === '/sign-off' ? <SignOffCard />
           : path === '/widget' ? <WidgetPage />
@@ -180,6 +182,7 @@ function MoreMenu({ path, admin, support, lead, individual }: { path: string; ad
       ['/vocabulary', 'Vocabulary'], ['/saved-text', 'Saved text'], ['/letterhead', 'Letterhead and your sign-off'],
       ['/minutes-templates', 'Minutes templates'],
       ['/retention', 'Retention'], ['/departments', 'Departments'], ['/reopen', 'Reopen and delete requests'],
+      ['/email', 'Email'],
     ] as [string, string][] : []),
     ...(support ? [['/support', 'Support: errors'] as [string, string]] : []),
   ];

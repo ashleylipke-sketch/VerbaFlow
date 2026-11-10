@@ -32,6 +32,11 @@ public sealed class OrganisationService(Stores stores, TimeProvider clock, strin
         return o is null ? (false, null) : (true, o.Id);
     }
 
+    /// <summary>The Microsoft directory (Tenant ID) of an organisation (null = the first), or null when it has none.</summary>
+    public async Task<string?> TenantOfAsync(Guid? organisationId) =>
+        organisationId is null || organisationId == Organisations.Default ? firstTenant
+            : (await AllAsync()).FirstOrDefault(o => o.Id == organisationId)?.TenantId;
+
     public async Task<string> NameAsync(Guid? organisationId) =>
         Organisations.Stored(organisationId) is { } id ? (await AllAsync()).FirstOrDefault(o => o.Id == id)?.Name ?? "An organisation" : firstName;
 

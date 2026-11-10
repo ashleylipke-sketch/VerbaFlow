@@ -210,6 +210,21 @@ export async function signInWithMicrosoft(organisation = false) {
   await msal.loginRedirect({ scopes: [info.microsoft.scope], prompt: 'select_account', ...(msAuthority ? { authority: msAuthority } : {}) });
 }
 
+/**
+ * VerbaFlow said this Microsoft sign-in gave the personal account for an address that is also an organisation's work account
+ * (one email address can be both). Sign in again through that organisation's directory, once, without asking which account.
+ * Returns false when that was already tried, so the message is shown instead.
+ */
+export async function switchToOrganisation(tenant: string): Promise<boolean> {
+  if (!msal || !info.microsoft || !account || msAuthority || !/^[0-9a-f-]{36}$/i.test(tenant)) return false;
+  const hint = account.username;
+  msAuthority = `https://login.microsoftonline.com/${tenant}`;
+  write('vfMsAuthority', msAuthority);
+  redirecting = true;
+  await msal.loginRedirect({ scopes: [info.microsoft.scope], authority: msAuthority, ...(hint ? { loginHint: hint } : {}) });
+  return true;
+}
+
 export async function signOut() {
   if (vfToken) {
     setVfToken('');

@@ -122,6 +122,10 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
         user.Individual && SignInWays.TakenBy(await stores.Users.ListAsync(), user.SignInId ?? "", user.Email, false) is { } other
             ? SignInWays.Refusal(user.Email, other) : null;
 
+    /// <summary>An organisation member (a Microsoft work account) who has this email address, or null.</summary>
+    public async Task<User?> OrganisationMemberWithAsync(string? email) =>
+        (await stores.Users.ListAsync()).FirstOrDefault(u => !u.Individual && !u.IsSupport && u.EntraObjectId is not null && SignInWays.SameAddress(u.Email, email));
+
     /// <summary>The plain sentence refusing a new sign-in with this address and way (before an email code is even sent), or null.</summary>
     public async Task<string?> RefusalForAsync(string signInId, string email)
     {

@@ -117,6 +117,18 @@ public class SignInHostTests : IDisposable
     }
 
     [Fact]
+    public async Task A_personal_microsoft_account_with_a_work_address_is_sent_to_the_organisations_directory()
+    {
+        // The work account (this organisation's directory) signs in first; the same address then comes back as a personal
+        // Microsoft account, as Microsoft does when one address is both: VerbaFlow asks the page to sign in through the directory.
+        Assert.Equal(HttpStatusCode.OK, (await Me(r => r.Headers.Authorization = new("Bearer", Token(email: "ash@firm.example")))).StatusCode);
+        var personal = await Me(r => r.Headers.Authorization = new("Bearer", Token(tenant: "9188040d-6c67-4c5b-b112-36a304b66dad", oid: "oid-home", email: "ASH@firm.example")));
+        Assert.Equal(HttpStatusCode.Forbidden, personal.StatusCode);
+        Assert.Equal(Tenant, (await personal.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("signInAt").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await Me(r => r.Headers.Authorization = new("Bearer", Token(tenant: "9188040d-6c67-4c5b-b112-36a304b66dad", oid: "oid-other", email: "other@outlook.example")))).StatusCode);
+    }
+
+    [Fact]
     public async Task A_microsoft_account_from_outside_the_organisation_gets_a_personal_VerbaFlow()
     {
         var info = await _app.CreateClient().GetFromJsonAsync<JsonElement>("/api/sign-in");

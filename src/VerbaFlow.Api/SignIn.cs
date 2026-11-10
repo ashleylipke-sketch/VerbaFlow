@@ -133,7 +133,15 @@ public static class SignIn
                 : (false, null);
             if (result.Succeeded && (known ? Member(result.Principal!, organisation) : Identity(result.Principal!, options)) is { } who)
                 user = await users.ResolveAsync(who);
-            else if (result.Succeeded && PersonalIdentityOf(result.Principal!, options) is { } personal) user = await users.ResolvePersonalAsync(personal);
+            else if (result.Succeeded && PersonalIdentityOf(result.Principal!, options) is { } personal)
+            {
+                // Microsoft gave the personal account for an address that is also an organisation's work account (one address
+                // can be both): the page signs in again through that organisation's directory, which gives the work account.
+                if (await users.OrganisationMemberWithAsync(personal.Email) is { } member
+                    && await http.RequestServices.GetRequiredService<OrganisationService>().TenantOfAsync(member.OrganisationId) is { } tenant)
+                    return Results.Json(new { error = "This email address belongs to your organisation's Microsoft account. Signing you in with that one…", signInAt = tenant }, statusCode: 403);
+                user = await users.ResolvePersonalAsync(personal);
+            }
             else return Results.Json(new { error = "Your sign-in has run out or is not for this organisation. Sign in again." }, statusCode: 401);
         }
         else if (options.TestUsers)

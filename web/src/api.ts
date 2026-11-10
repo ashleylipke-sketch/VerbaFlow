@@ -1,4 +1,4 @@
-import { authHeaders } from './auth';
+import { authHeaders, switchToOrganisation } from './auth';
 export type Row = {
   id: string; name: string; priority: string; status: string; statusCode: string; lengthMs: number;
   clientReference: string | null; description: string | null; assignedTo: string | null; author: string | null; createdOn: string;
@@ -94,7 +94,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   catch { throw new Error('VerbaFlow could not be reached. Check your connection and try again.'); }
   if (!res.ok) {
     let msg = res.statusText;
-    try { msg = (await res.json()).error ?? msg; } catch { /* keep status text */ }
+    let signInAt = '';
+    try { const b = await res.json(); msg = b.error ?? msg; signInAt = b.signInAt ?? ''; } catch { /* keep status text */ }
+    if (res.status === 403 && signInAt) await switchToOrganisation(signInAt);
     throw new Error(msg);
   }
   return res.status === 204 ? (undefined as T) : res.json();

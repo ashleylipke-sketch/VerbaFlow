@@ -86,7 +86,7 @@ public static class EmailSignInEndpoints
     public static void MapEmailSignIn(this WebApplication app)
     {
         var limit = new SignInProblemLimit();
-        app.MapPost("/api/sign-in/email/start", async (SignInOptions options, EmailCodes codes, IEmailSender mail, FailureReporter reporter,
+        app.MapPost("/api/sign-in/email/start", async (SignInOptions options, EmailCodes codes, IEmailSender mail, FailureReporter reporter, EntraUsers users,
             EmailCodeStart b, CancellationToken ct) =>
         {
             if (!options.EmailCodes) return Results.NotFound();
@@ -95,9 +95,16 @@ public static class EmailSignInEndpoints
             if (email is null) return Results.Json(new { error = "That does not look like an email address. Check it and try again." }, statusCode: 400);
             var code = codes.Make(email);
             if (code is null) return Results.Json(new { error = "A code was sent to that address a moment ago. Check your email (and the junk folder), or try again in a minute." }, statusCode: 429);
+            // An address that signs in another way gets an email saying so instead of a code (one address, one way to sign in).
+            // The page answers the same either way, so nobody learns from it whether an address has an account.
+            var refused = await users.RefusalForAsync("email:" + email, email);
             try
             {
-                await mail.SendAsync(new EmailMessage([email], $"Your VerbaFlow sign-in code: {code}",
+                await mail.SendAsync(refused is not null
+                    ? new EmailMessage([email], "Signing in to VerbaFlow",
+                        $"You asked for a code to sign in to VerbaFlow. {refused}\n\n" +
+                        "If you did not ask to sign in to VerbaFlow, you can ignore this email.\n", [])
+                    : new EmailMessage([email], $"Your VerbaFlow sign-in code: {code}",
                     $"Your code to sign in to VerbaFlow is:\n\n    {code}\n\nType it on the VerbaFlow page within 10 minutes.\n\n" +
                     "If you did not ask to sign in to VerbaFlow, you can ignore this email: nobody can sign in without the code.\n", []), ct);
             }

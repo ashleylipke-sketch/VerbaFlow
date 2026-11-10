@@ -40,13 +40,13 @@ public class SignInHostTests : IDisposable
 
     public void Dispose() { _app.Dispose(); try { Directory.Delete(_dir, true); } catch { /* best effort */ } }
 
-    private string Token(string tenant = Tenant, string? roles = null, string audience = Client, string oid = "oid-ashley") => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+    private string Token(string tenant = Tenant, string? roles = null, string audience = Client, string oid = "oid-ashley", string email = "ashley@firm.example") => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
     {
         Issuer = $"https://login.microsoftonline.com/{tenant}/v2.0", Audience = audience, Expires = DateTime.UtcNow.AddMinutes(10),
         SigningCredentials = new SigningCredentials(_key, SecurityAlgorithms.HmacSha256),
         Claims = new Dictionary<string, object>
         {
-            ["tid"] = tenant, ["oid"] = oid, ["scp"] = "access_as_user", ["name"] = "Ashley Lipke", ["preferred_username"] = "ashley@firm.example",
+            ["tid"] = tenant, ["oid"] = oid, ["scp"] = "access_as_user", ["name"] = "Ashley Lipke", ["preferred_username"] = email,
             ["roles"] = roles is null ? Array.Empty<string>() : new[] { roles },
         },
     });
@@ -63,12 +63,12 @@ public class SignInHostTests : IDisposable
     {
         static VerbaFlow.Core.Domain.User U(string? signIn = null, string? oid = null, bool individual = false) =>
             new(Guid.NewGuid(), "A", "a@x.test", false, default, EntraObjectId: oid, Individual: individual, SignInId: signIn);
-        Assert.Equal("Google account", VerbaFlow.Api.Endpoints.SignedInWith(U("google:123", individual: true)));
-        Assert.Equal("Email address (a code sent by email)", VerbaFlow.Api.Endpoints.SignedInWith(U("email:a@x.test", individual: true)));
-        Assert.Equal("Personal Microsoft account", VerbaFlow.Api.Endpoints.SignedInWith(U($"microsoft:{VerbaFlow.Api.SignInOptions.ConsumersTenant}:o", individual: true)));
-        Assert.Contains("another organisation", VerbaFlow.Api.Endpoints.SignedInWith(U("microsoft:1111:o", individual: true)));
-        Assert.Contains("this organisation", VerbaFlow.Api.Endpoints.SignedInWith(U(oid: "oid-1")));
-        Assert.StartsWith("Test user", VerbaFlow.Api.Endpoints.SignedInWith(U()));
+        Assert.Equal("Google account", VerbaFlow.Core.Domain.SignInWays.Of(U("google:123", individual: true)));
+        Assert.Equal("Email address (a code sent by email)", VerbaFlow.Core.Domain.SignInWays.Of(U("email:a@x.test", individual: true)));
+        Assert.Equal("Personal Microsoft account", VerbaFlow.Core.Domain.SignInWays.Of(U($"microsoft:{VerbaFlow.Api.SignInOptions.ConsumersTenant}:o", individual: true)));
+        Assert.Contains("another organisation", VerbaFlow.Core.Domain.SignInWays.Of(U("microsoft:1111:o", individual: true)));
+        Assert.Contains("this organisation", VerbaFlow.Core.Domain.SignInWays.Of(U(oid: "oid-1")));
+        Assert.StartsWith("Test user", VerbaFlow.Core.Domain.SignInWays.Of(U()));
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public class SignInHostTests : IDisposable
         Assert.Equal((HttpStatusCode)202, (await Poll()).StatusCode);
 
         // A personal account sees the waiting Widget (typed in small letters without the dash works too) and agrees.
-        var personal = Token(tenant: "9188040d-6c67-4c5b-b112-36a304b66dad", oid: "oid-student");
+        var personal = Token(tenant: "9188040d-6c67-4c5b-b112-36a304b66dad", oid: "oid-student", email: "student@outlook.example");
         var seen = await (await Signed(HttpMethod.Get, $"/api/widget-link/{code.Replace("-", "").ToLowerInvariant()}", personal)).Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("Android keyboard", seen.GetProperty("device").GetString());
         Assert.Equal(HttpStatusCode.OK, (await Signed(HttpMethod.Post, $"/api/widget-link/{code}/approve", personal)).StatusCode);

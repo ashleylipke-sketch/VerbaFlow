@@ -73,6 +73,9 @@ public static class BillingEndpoints
         // The organisations using VerbaFlow: only VerbaFlow support sees and changes them.
         api.MapGet("/organisations", (HttpContext h, OrganisationService o, BillingService b) => o.ListAsync(h.Current(), b));
         api.MapPost("/organisations", async (HttpContext h, OrganisationService o, OrganisationBody body) => Results.Ok(await o.CreateAsync(h.Current(), body)));
+        // Personal accounts whose email address also signs in another way (support only): listed, and removed with their recordings.
+        api.MapGet("/accounts/shared-addresses", (HttpContext h, AccountService a) => a.SharedAddressesAsync(h.Current()));
+        api.MapPost("/accounts/{id:guid}/remove", async (HttpContext h, AccountService a, Guid id) => Results.Ok(new { recordingsDeleted = await a.RemoveAsync(h.Current(), id) }));
         api.MapPut("/organisations/{id:guid}", async (HttpContext h, OrganisationService o, Guid id, OrganisationBody body) => Results.Ok(await o.ChangeAsync(h.Current(), id, body)));
 
         // The stand-in's pretend payment pages (only while no payment service is set up).

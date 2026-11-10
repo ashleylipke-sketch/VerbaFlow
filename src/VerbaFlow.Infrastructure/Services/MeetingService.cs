@@ -622,6 +622,20 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         }
     }
 
+    /// <summary>
+    /// Deletes every recording a personal account owns, when VerbaFlow support removes the account (see AccountService). Returns
+    /// how many recordings were deleted; one still being converted is refused so nothing is half removed.
+    /// </summary>
+    public async Task<int> DeleteAllOwnedByAsync(User support, Guid ownerId, string reason)
+    {
+        var chains = (await stores.Items.ListAsync()).Where(i => i.OwnerId == ownerId && i.Individual).GroupBy(i => i.ChainId)
+            .Select(g => g.OrderBy(i => i.VersionNo).ToList()).Where(c => c.Any(i => i.Status != ItemStatus.Purged)).ToList();
+        if (chains.Any(c => c.Any(i => i.Processing == ProcessingState.Running)))
+            throw new DomainException("One of this account's recordings is being converted to text. Try again in a few minutes.");
+        foreach (var chain in chains) await PurgeChainAsync(support, chain, reason, null, []);
+        return chains.Count;
+    }
+
     /// <summary>Who deleted an item that the retention rules deleted.</summary>
     public static readonly Guid RetentionActor = Guid.Empty;
 

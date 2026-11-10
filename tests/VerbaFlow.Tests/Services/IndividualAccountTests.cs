@@ -115,6 +115,41 @@ public class IndividualAccountTests
         Assert.NotEqual(first.Id, other.Id);
     }
 
+    [Fact]
+    public async Task One_email_address_has_only_one_way_to_sign_in()
+    {
+        using var env = new Env();
+        var users = new EntraUsers(env.Stores, env.Clock);
+        // The organisation's own account keeps its address: a personal sign-in with it is refused, saying how to sign in.
+        var refused = await Assert.ThrowsAsync<ForbiddenException>(() =>
+            users.ResolvePersonalAsync(new PersonalIdentity("google:alice", "Alice", "ALICE@example.test", "Google")));
+        Assert.Contains("only one way to sign in", refused.Message);
+        // Personal accounts: the first way keeps the address, a second way is refused.
+        var google = await users.ResolvePersonalAsync(new PersonalIdentity("google:pat", "Pat", "pat@mail.test", "Google"));
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            users.ResolvePersonalAsync(new PersonalIdentity("email:pat@mail.test", null, "pat@mail.test", "email")));
+        Assert.Contains("Google", await users.RefusalForAsync("email:pat@mail.test", "pat@mail.test"));
+        Assert.Equal(google.Id, (await users.ResolvePersonalAsync(new PersonalIdentity("google:pat", "Pat", "pat@mail.test", "Google"))).Id);
+        Assert.Null(await users.RefusalForAsync(google));
+
+        // A personal account made before the organisation's own account for the same address can no longer sign in,
+        // and VerbaFlow support can remove it with its recordings.
+        var item = await env.ProcessedRecordingAsync(google);
+        var member = new User(Guid.NewGuid(), "Pat Member", "pat@mail.test", false, Capability.None, EntraObjectId: "oid-pat");
+        await env.Stores.Users.UpsertAsync(member.Id, member);
+        Assert.NotNull(await users.RefusalForAsync(google));
+        var support = new User(Guid.NewGuid(), "Support", "support@verbaflow.test", false, Capability.None, IsSupport: true);
+        var accounts = new AccountService(env.Stores, env.Meeting);
+        await Assert.ThrowsAsync<ForbiddenException>(() => accounts.SharedAddressesAsync(env.Carol));
+        var listed = Assert.Single(await accounts.SharedAddressesAsync(support));
+        Assert.Equal((google.Id, 1), (listed.Id, listed.Recordings));
+        await Assert.ThrowsAsync<DomainException>(() => accounts.RemoveAsync(support, member.Id));
+        Assert.Equal(1, await accounts.RemoveAsync(support, google.Id));
+        Assert.Null(await env.Stores.Users.GetAsync(google.Id));
+        Assert.Equal(ItemStatus.Purged, (await env.Item(item)).Status);
+        Assert.Empty(await accounts.SharedAddressesAsync(support));
+    }
+
     private static ClaimsPrincipal Token(params (string Type, string Value)[] claims) =>
         new(new ClaimsIdentity(claims.Select(c => new Claim(c.Type, c.Value)), "Bearer"));
 

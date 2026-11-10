@@ -48,7 +48,7 @@ public sealed class SignInOptions
     public bool Microsoft => !string.IsNullOrWhiteSpace(TenantId) && !string.IsNullOrWhiteSpace(ClientId);
     public bool Google => !string.IsNullOrWhiteSpace(GoogleClientId);
     /// <summary>Microsoft's own tenant id for personal Microsoft accounts.</summary>
-    public const string ConsumersTenant = "9188040d-6c67-4c5b-b112-36a304b66dad";
+    public const string ConsumersTenant = SignInWays.MicrosoftPersonalTenant;
     /// <summary>The permission the web app and the Widget ask Microsoft for: "use VerbaFlow as me".</summary>
     public string Scope => $"api://{ClientId}/access_as_user";
     /// <summary>The name of the app role that makes someone a VerbaFlow administrator, given in Microsoft Entra ID.</summary>
@@ -119,6 +119,8 @@ public static class SignIn
             var id = http.RequestServices.GetRequiredService<SessionTokens>().Read(authorization["Bearer ".Length..].Trim());
             user = id is { } uid ? await http.RequestServices.GetRequiredService<Stores>().Users.GetAsync(uid) : null;
             if (user is not { Individual: true }) return Results.Json(new { error = "Your sign-in has run out. Sign in again." }, statusCode: 401);
+            if (await http.RequestServices.GetRequiredService<EntraUsers>().RefusalForAsync(user) is { } refused)
+                return Results.Json(new { error = refused }, statusCode: 403);
             http.Items["session"] = true;
         }
         else if (options.Microsoft && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))

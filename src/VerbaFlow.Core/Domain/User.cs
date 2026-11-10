@@ -54,3 +54,54 @@ public sealed record User(Guid Id, string Name, string Email, bool IsAdmin, Capa
 
     public override int GetHashCode() => HashCode.Combine(Id, Name, Email, IsAdmin, EntraObjectId);
 }
+
+/// <summary>How people sign in, in plain words, and the rule that one email address has only one way to sign in.</summary>
+public static class SignInWays
+{
+    /// <summary>Microsoft's directory for personal Microsoft accounts (Outlook.com, Hotmail, Live).</summary>
+    public const string MicrosoftPersonalTenant = "9188040d-6c67-4c5b-b112-36a304b66dad";
+
+    /// <summary>How this person signs in (Your account page).</summary>
+    public static string Of(User u)
+    {
+        var id = u.SignInId ?? "";
+        if (id.StartsWith("google:", StringComparison.Ordinal)) return "Google account";
+        if (id.StartsWith("email:", StringComparison.Ordinal)) return "Email address (a code sent by email)";
+        if (id.StartsWith("microsoft:", StringComparison.Ordinal))
+            return id.StartsWith($"microsoft:{MicrosoftPersonalTenant}:", StringComparison.OrdinalIgnoreCase)
+                ? "Personal Microsoft account" : "Microsoft work or school account from another organisation";
+        if (u.EntraObjectId is not null) return "Microsoft work or school account (this organisation's)";
+        return "Test user (only on a computer set up for testing)";
+    }
+
+    /// <summary>The same way, to finish "sign in with …".</summary>
+    public static string With(User u)
+    {
+        var id = u.SignInId ?? "";
+        if (id.StartsWith("google:", StringComparison.Ordinal)) return "your Google account";
+        if (id.StartsWith("email:", StringComparison.Ordinal)) return "a code sent to your email address";
+        if (id.StartsWith("microsoft:", StringComparison.Ordinal))
+            return id.StartsWith($"microsoft:{MicrosoftPersonalTenant}:", StringComparison.OrdinalIgnoreCase)
+                ? "your personal Microsoft account" : "your Microsoft work or school account";
+        if (u.EntraObjectId is not null) return "your organisation's Microsoft account (on the sign-in page, choose \"Sign in with this organisation's Microsoft account\")";
+        return "the test user";
+    }
+
+    /// <summary>Whether two email addresses are the same one (capitals and spaces ignored; an empty address matches nothing).</summary>
+    public static bool SameAddress(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b) && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Someone else who already signs in with this email address another way, or null. One email address has one sign-in:
+    /// an organisation's own account always keeps it; a personal account keeps it only if it was there first.
+    /// </summary>
+    /// <param name="signInId">The personal sign-in being used (null for an organisation member, who is never refused).</param>
+    /// <param name="isNew">Whether this personal sign-in has no VerbaFlow account yet.</param>
+    public static User? TakenBy(IEnumerable<User> users, string? signInId, string? email, bool isNew) =>
+        signInId is null ? null : users.FirstOrDefault(u => !u.IsSupport && u.SignInId != signInId && SameAddress(u.Email, email)
+            && (isNew || !u.Individual));
+
+    /// <summary>The plain sentence for someone refused because their address already signs in another way.</summary>
+    public static string Refusal(string email, User other) =>
+        $"{email.Trim()} already signs in to VerbaFlow with {With(other)}. One email address can have only one way to sign in, so sign in that way.";
+}

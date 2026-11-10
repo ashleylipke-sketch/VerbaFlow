@@ -89,6 +89,7 @@ if (diarizationOn)
 }
 builder.Services.AddSingleton<VerbaFlow.Infrastructure.Services.FailureReporter>();
 builder.Services.AddSingleton<MeetingService>();
+builder.Services.AddSingleton<AccountService>();
 // Exported PDFs are signed: with the organisation's certificate (Signing:CertificatePath and Signing:CertificatePassword)
 // or, until there is one, a test certificate made in the data folder. Signing:Enabled=false switches it off.
 VerbaFlow.Infrastructure.Export.PdfSigner? pdfSigner = null;

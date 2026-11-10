@@ -21,7 +21,7 @@ public class BillingTests
     private static Plans Small() => Plans.With(k => k is "Billing:Plans:free:MinutesPerMonth" or "Billing:Plans:org-trial:MinutesPerMonth" ? "1" : null);
 
     private static async Task<User> Personal(Env env, string name = "Pat Person") =>
-        await new EntraUsers(env.Stores, env.Clock).ResolvePersonalAsync(new PersonalIdentity("google:" + name, name, "pat@gmail.test", "Google"));
+        await new EntraUsers(env.Stores, env.Clock).ResolvePersonalAsync(new PersonalIdentity("google:" + name, name, name.Split(' ')[0].ToLowerInvariant() + "@gmail.test", "Google"));
 
     [Fact]
     public void There_are_four_organisation_tiers_and_three_paid_personal_ones_and_settings_change_them()

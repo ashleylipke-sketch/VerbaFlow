@@ -88,7 +88,11 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
         {
             var name = Clean(who.Name, 200) is { Length: > 0 } n ? n : Clean(who.Email, 200) is { Length: > 0 } e ? e : "VerbaFlow user";
             var email = Clean(who.Email, 320) ?? "";
-            var existing = (await stores.Users.ListAsync()).FirstOrDefault(u => u.SignInId == who.SignInId);
+            var all = await stores.Users.ListAsync();
+            var existing = all.FirstOrDefault(u => u.SignInId == who.SignInId);
+            // One email address has one way to sign in (see SignInWays.TakenBy).
+            if (SignInWays.TakenBy(all, who.SignInId, existing?.Email is { Length: > 0 } had ? had : email, existing is null) is { } other)
+                throw new ForbiddenException(SignInWays.Refusal(existing?.Email is { Length: > 0 } h ? h : email, other));
             User user;
             if (existing is null)
             {
@@ -107,6 +111,23 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
             return user;
         }
         finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// The plain sentence refusing a personal account whose email address now belongs to someone else's sign-in (for example the
+    /// organisation's own Microsoft account, added after), or null when it may sign in. Used for VerbaFlow's own sign-ins, which
+    /// do not pass through <see cref="ResolvePersonalAsync"/> again.
+    /// </summary>
+    public async Task<string?> RefusalForAsync(User user) =>
+        user.Individual && SignInWays.TakenBy(await stores.Users.ListAsync(), user.SignInId ?? "", user.Email, false) is { } other
+            ? SignInWays.Refusal(user.Email, other) : null;
+
+    /// <summary>The plain sentence refusing a new sign-in with this address and way (before an email code is even sent), or null.</summary>
+    public async Task<string?> RefusalForAsync(string signInId, string email)
+    {
+        var all = await stores.Users.ListAsync();
+        var existing = all.FirstOrDefault(u => u.SignInId == signInId);
+        return SignInWays.TakenBy(all, signInId, email, existing is null) is { } other ? SignInWays.Refusal(email, other) : null;
     }
 
     private static string? Clean(string? s, int max)

@@ -58,6 +58,7 @@ export default function Organisations() {
             </tr>)}</tbody>
       </table>}
     </div>
+    <SharedAddresses />
     <div className="card">
       <h2>Add an organisation</h2>
       <div className="field"><label htmlFor="org-name">Name</label>
@@ -69,4 +70,52 @@ export default function Organisations() {
         (see docs/organisations.md).</p>
     </div>
   </>;
+}
+
+type Shared = { id: string; name: string; email: string; signedInWith: string; otherSignIn: string; recordings: number };
+
+/**
+ * Personal accounts whose email address also signs in another way. One address has one way to sign in, so these are refused
+ * at sign-in; support can remove them here (their recordings are deleted).
+ */
+function SharedAddresses() {
+  const [rows, setRows] = useState<Shared[] | null>(null);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState('');
+  const [asking, setAsking] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api.get<Shared[]>('/accounts/shared-addresses').then(setRows).catch(e => setError(e.message));
+  useEffect(() => { load(); }, []);
+  const remove = async (a: Shared) => {
+    setBusy(true); setError(''); setDone('');
+    try {
+      const r = await api.post(`/accounts/${a.id}/remove`) as { recordingsDeleted: number };
+      setDone(`Removed the ${a.signedInWith.toLowerCase()} for ${a.email}${r.recordingsDeleted ? ` and its ${r.recordingsDeleted} recording${r.recordingsDeleted === 1 ? '' : 's'}` : ''}.`);
+      setAsking(null); await load();
+    } catch (e: any) { setError(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="card">
+      <h2>Email addresses with two sign-ins</h2>
+      <p className="note">One email address can have only one way to sign in. These personal accounts share their address with another sign-in
+        (made before that rule, or before the organisation’s own account), so they can no longer sign in. Removing one deletes its recordings.</p>
+      {error && <div className="error" role="alert">{error}</div>}
+      {done && <p className="ok" role="status">{done}</p>}
+      {!rows ? <p className="note">Loading…</p> : rows.length === 0 ? <p className="note">None.</p> : <table className="list">
+        <thead><tr><th>Email address</th><th>Personal account</th><th>Also signs in with</th><th>Recordings</th><th></th></tr></thead>
+        <tbody>{rows.map(a => <tr key={a.id}>
+          <td data-label="Email address" className="wrap">{a.email}</td>
+          <td data-label="Personal account" className="wrap">{a.name}, {a.signedInWith}</td>
+          <td data-label="Also signs in with" className="wrap">{a.otherSignIn}</td>
+          <td data-label="Recordings">{a.recordings}</td>
+          <td>{asking === a.id
+            ? <>Remove it{a.recordings ? ` and delete its ${a.recordings} recording${a.recordings === 1 ? '' : 's'}` : ''}? This cannot be undone.{' '}
+                <button className="danger" disabled={busy} onClick={() => remove(a)}>Remove</button>{' '}
+                <button onClick={() => setAsking(null)}>Cancel</button></>
+            : <button onClick={() => { setAsking(a.id); setDone(''); }}>Remove…</button>}</td>
+        </tr>)}</tbody>
+      </table>}
+    </div>
+  );
 }

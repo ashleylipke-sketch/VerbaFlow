@@ -216,8 +216,10 @@ export async function outlookMailToken(): Promise<string> {
   if (!msal || !account) throw new Error('Sign in with your Microsoft account first.');
   try { return (await msal.acquireTokenSilent({ scopes: [GRAPH_MAIL], account })).accessToken; }
   catch (e) {
-    if (e instanceof InteractionRequiredAuthError) throw new NeedsPermission('Microsoft asks you to agree once that VerbaFlow may put drafts in your mailbox.');
-    throw new Error('Microsoft did not give permission. Try again.');
+    // Any refusal here (for example the browser blocking Microsoft's quiet check, which personal accounts often hit)
+    // is answered by asking the person in Microsoft's own window; only unexpected ones go to Support: errors.
+    if (!(e instanceof InteractionRequiredAuthError)) void reportProblem(e);
+    throw new NeedsPermission('Microsoft asks you to agree once that VerbaFlow may put drafts in your mailbox.');
   }
 }
 
@@ -225,7 +227,11 @@ export async function outlookMailToken(): Promise<string> {
 export async function askOutlookPermission(): Promise<string> {
   if (!msal || !account) throw new Error('Sign in with your Microsoft account first.');
   try { return (await msal.acquireTokenPopup({ scopes: [GRAPH_MAIL], account })).accessToken; }
-  catch { throw new Error('Permission was not given, so nothing was put in your drafts.'); }
+  catch (e) {
+    if ((e as { errorCode?: string })?.errorCode === 'user_cancelled') throw new Error('Permission was not given, so nothing was put in your drafts.');
+    const ref = await reportProblem(e);
+    throw new Error(`Microsoft did not give permission, so nothing was put in your drafts.${ref ? ` (Reference ${ref})` : ''}`);
+  }
 }
 
 /** Loads Google's script ahead, so the permission window can open straight from a click. */

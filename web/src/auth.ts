@@ -79,7 +79,9 @@ export async function startSignIn(): Promise<SignInInfo> {
       });
       await msal.initialize();
       const back = await msal.handleRedirectPromise();
-      account = back?.account ?? msal.getAllAccounts()[0] ?? null;
+      // A Google or email sign-in in this browser wins over a Microsoft account remembered from before; otherwise
+      // every call would quietly go as that Microsoft account.
+      account = back?.account ?? (vfToken ? null : msal.getAllAccounts()[0] ?? null);
       if (account) msal.setActiveAccount(account);
       if (location.pathname === RETURN_PATH) history.replaceState(null, '', '/' + location.hash);
     } catch (e) {
@@ -122,6 +124,12 @@ export const signInProblem = () => failure;
 /** How the person is signed in now, if at all. */
 export const signedIn = (): 'microsoft' | 'google' | 'test' | null => account ? 'microsoft' : vfToken ? 'google' : testUser ? 'test' : null;
 function setVfToken(t: string) { vfToken = t; write('vfToken', t); }
+/** Signed in with Google or an email code: any Microsoft account remembered in this browser is forgotten here. */
+function useOwnSignIn(t: string) {
+  setVfToken(t);
+  account = null;
+  if (info.microsoft) forgetMicrosoftState(info.microsoft.clientId, info.microsoft.tenantId);
+}
 
 let gis: Promise<void> | null = null;
 /** Loads Google's own sign-in script once. */
@@ -152,7 +160,7 @@ export async function showGoogleButton(el: HTMLElement, done: () => void, proble
         const body = await r.json().catch(() => ({}));
         if (!r.ok || !body.token) { problem(body.error ?? 'The Google sign-in did not work. Try again.'); return; }
         testUser = ''; write('devUser', '');
-        setVfToken(body.token);
+        useOwnSignIn(body.token);
         failure = '';
         done();
       } catch { problem('VerbaFlow could not be reached. Check your connection and try again.'); }
@@ -177,7 +185,7 @@ export async function signInWithEmailCode(email: string, code: string, name: str
     const body = await r.json().catch(() => ({}));
     if (!r.ok || !body.token) return body.error ?? 'The sign-in did not work. Try again.';
     testUser = ''; write('devUser', '');
-    setVfToken(body.token);
+    useOwnSignIn(body.token);
     failure = '';
     return null;
   } catch { return 'VerbaFlow could not be reached. Check your connection and try again.'; }

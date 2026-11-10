@@ -34,6 +34,30 @@ function write(key: string, value: string) { try { if (value) localStorage.setIt
 const RETURN_PATH = '/signin';
 const returnAddress = () => location.origin + RETURN_PATH;
 
+/**
+ * True when this page is Microsoft's small window (opened for Allow VerbaFlow to make Outlook drafts…) coming back
+ * with its answer. That window must hand the answer to the VerbaFlow page that opened it and close; if it started
+ * the app instead, the app used up the answer and the opener waited in vain (seen 2026-11-10: timed_out in the page,
+ * no_token_request_cache_error in the window).
+ */
+export function isMicrosoftPopupReturn(): boolean {
+  if (location.pathname !== RETURN_PATH) return false;
+  const find = (part: string) => new URLSearchParams(part.replace(/^[#?]/, '')).get('state');
+  const state = find(location.hash) ?? find(location.search);
+  if (!state) return false;
+  try {
+    const lib = state.split('|')[0].replace(/-/g, '+').replace(/_/g, '/');
+    const meta = JSON.parse(atob(lib + '='.repeat((4 - (lib.length % 4)) % 4)))?.meta;
+    return meta?.interactionType === 'popup';
+  } catch { return false; }
+}
+
+/** Hands Microsoft's answer to the page that opened this window, then closes the window. */
+export async function finishMicrosoftPopup(): Promise<void> {
+  const { broadcastResponseToMainFrame } = await import('@azure/msal-browser/redirect-bridge');
+  await broadcastResponseToMainFrame();
+}
+
 /** Runs once before the app shows: learns how to sign in, and finishes a Microsoft sign-in the browser has just come back from. */
 export async function startSignIn(): Promise<SignInInfo> {
   try { info = await (await fetch('/api/sign-in')).json(); }

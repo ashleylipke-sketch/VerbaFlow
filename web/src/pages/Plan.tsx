@@ -15,6 +15,12 @@ export default function PlanPage({ paid, organisation }: { paid?: boolean; organ
   const [customer, setCustomer] = useState('');
   const [saved, setSaved] = useState('');
   const [orgName, setOrgName] = useState('');
+  // The student check: open when someone chooses Student without one (then: buy or switch once checked), or to check again.
+  const [student, setStudent] = useState<null | { then: 'buy' | 'switch' | null }>(null);
+  const [studentEmail, setStudentEmail] = useState('');
+  const [studentCode, setStudentCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  useEffect(() => { if (student) document.getElementById('student-check')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [student]);
 
   const show = (v: PlanView) => { setView(v); setOrgPlan(v.planId); setCustomer(v.customerId ?? ''); };
   useEffect(() => { api.plan(organisation).then(show).catch(e => setError(e.message)); }, []);
@@ -25,6 +31,44 @@ export default function PlanPage({ paid, organisation }: { paid?: boolean; organ
     setBusy(what); setError('');
     try { location.href = (await f()).url; } catch (e: any) { setError(e.message); setBusy(''); }
   };
+  const day = (s: string) => new Date(s).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+  const change = async (p: { id: string; name: string; switch: string | null }, said: string) => {
+    if (!confirm(said)) return;
+    setBusy(p.id); setError(''); setSaved('');
+    try {
+      const was = view?.planId;
+      const v = await api.planChange(p.id); show(v);
+      setSaved(p.id === was ? `You stay on the ${p.name} plan.` : v.planId === p.id ? `You are now on the ${p.name} plan.` : v.nextPlanName ? `The ${v.nextPlanName} plan starts on ${day(v.nextPlanFrom!)}.` : `You stay on the ${v.planName} plan.`);
+    } catch (e: any) { setError(e.message); }
+    setBusy('');
+  };
+  const switchTo = (p: PlanView['plans'][number]) => {
+    if (!view) return;
+    if (p.studentCheckNeeded) { setStudent({ then: view.canBuy ? 'buy' : 'switch' }); return; }
+    if (view.canBuy) { go(p.id, () => api.planCheckout(p.id)); return; }
+    change(p, p.switch === 'now'
+      ? `Switch to ${p.name} now? Its minutes start today, and the difference in price for the rest of this month is charged to your card at once.`
+      : `Switch to ${p.name}? You keep ${view.planName} and its minutes until the month you paid for ends${view.status.startsWith('Renews on ') ? ` (${view.status.slice(10, -1)})` : ''}, and ${p.name} starts then. Nothing is refunded.`);
+  };
+  const sendCode = async () => {
+    setBusy('student'); setError('');
+    try { await api.studentStart(studentEmail.trim()); setCodeSent(true); } catch (e: any) { setError(e.message); }
+    setBusy('');
+  };
+  const confirmStudent = async () => {
+    setBusy('student'); setError('');
+    try {
+      const v = await api.studentFinish(studentEmail.trim(), studentCode.trim()); show(v);
+      const then = student?.then; setStudent(null); setCodeSent(false); setStudentCode('');
+      setSaved('Thank you: you are checked as a student for a year.');
+      const p = v.plans.find(x => x.id === 'personal-student');
+      if (p && !p.current && then === 'buy') { setBusy(''); go(p.id, () => api.planCheckout(p.id)); return; }
+      if (p && !p.current && then === 'switch' && p.switch) { setBusy(''); switchTo(p); return; }
+    } catch (e: any) { setError(e.message); }
+    setBusy('');
+  };
+  const current = view?.plans.find(p => p.current);
+
   const setOrganisation = async () => {
     setBusy('org'); setError(''); setSaved('');
     try { show(await api.setOrganisationPlan(orgPlan, customer.trim(), organisation)); setSaved('Saved.'); } catch (e: any) { setError(e.message); }
@@ -44,6 +88,8 @@ export default function PlanPage({ paid, organisation }: { paid?: boolean; organ
       {error && <div className="error" role="alert">{error}</div>}
       <p>{hours(view.minutesPerMonth)} of speech a month{view.organisation ? ', shared by everyone in the organisation' : ''}. {view.price !== '£0' && view.price}{view.people ? ` · For up to ${view.people} people` : ''}{view.extra ? ` · ${view.extra}, on the next invoice` : ''}</p>
       <p className="note">{view.status}</p>
+      {view.nextPlanName && view.nextPlanFrom && <p role="status">You are switching to <b>{view.nextPlanName}</b> on {day(view.nextPlanFrom)}. Until then you keep {view.planName} and its minutes.{' '}
+        {current && <button disabled={!!busy} onClick={() => change({ ...current, switch: null }, `Keep the ${current.name} plan? The switch to ${view.nextPlanName} is called off.`)}>Keep {current.name}</button>}</p>}
       <div aria-label="Minutes used this month" role="meter" aria-valuemin={0} aria-valuemax={view.minutesPerMonth} aria-valuenow={view.minutesUsed}
         style={{ height: 12, borderRadius: 6, background: 'var(--line)', overflow: 'hidden', margin: '12px 0 6px' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: barColour }} />
@@ -59,20 +105,51 @@ export default function PlanPage({ paid, organisation }: { paid?: boolean; organ
     <div className="card">
       <h2>Plans</h2>
       {view.pretend && !view.organisation && <p className="note">Card payments are not set up yet: choosing a plan opens a pretend payment page, and nothing is charged.</p>}
+      {view.canChange && <p className="note">Switching to a plan with more minutes starts at once, and the difference in price for the rest of this month is charged straight away. A plan with the same or fewer minutes starts when the month you paid for ends.</p>}
+      {saved && !view.organisation && <p className="ok" role="status">{saved}</p>}
       {view.organisation && <p className="note">Organisation plans are a monthly subscription, invoiced to the organisation. Minutes over the plan are never refused; they are added to the next month’s invoice. To change the plan, contact VerbaFlow.</p>}
       <div className="scroll"><table className="list">
         <thead><tr><th>Plan</th><th>Minutes a month</th><th>Price</th>{view.organisation && <><th>People</th><th>Extra hours</th></>}<th></th></tr></thead>
         <tbody>{view.plans.map(p => <tr key={p.id}>
-          <td data-label="Description"><b>{p.name}</b>{p.current && <span className="tag" style={{ marginLeft: 8 }}>Your plan</span>}</td>
+          <td data-label="Description"><b>{p.name}</b>{p.current && <span className="tag" style={{ marginLeft: 8 }}>Your plan</span>}
+            {p.next && view.nextPlanFrom && <span className="tag" style={{ marginLeft: 8 }}>From {new Date(view.nextPlanFrom).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>}
+            {p.id === 'personal-student' && <div className="note">For students: needs a school, college or university email address.</div>}</td>
           <td data-label="Minutes">{hours(p.minutesPerMonth)}</td>
           <td data-label="Price">{p.price}</td>
           {view.organisation && <><td data-label="People">{p.people ? `up to ${p.people}` : ''}</td><td data-label="Extra" className="wrap">{p.extra ?? 'not allowed (stops at the limit)'}</td></>}
           <td data-label="Actions">{view.canBuy && !p.current && p.price !== '£0' &&
-            <div className="actions"><button className="primary" disabled={!!busy} onClick={() => go(p.id, () => api.planCheckout(p.id))}>{busy === p.id ? 'Opening…' : `Choose ${p.name}`}</button></div>}</td>
+            <div className="actions"><button className="primary" disabled={!!busy} onClick={() => switchTo(p)}>{busy === p.id ? 'Opening…' : `Choose ${p.name}`}</button></div>}
+            {p.switch && !p.next && <div className="actions"><button className={p.switch === 'now' ? 'primary' : ''} disabled={!!busy} onClick={() => switchTo(p)}>
+              {busy === p.id ? 'Switching…' : `Switch to ${p.name}`}</button></div>}</td>
         </tr>)}</tbody>
       </table></div>
-      {!view.organisation && !view.canBuy && !view.canManage && view.planId !== 'free' && <p className="note">To change plans, use Manage the plan.</p>}
+      {!view.organisation && !view.canBuy && !view.canChange && view.planId !== 'free' && <p className="note">To change plans, use Manage the plan.</p>}
     </div>
+
+    {!view.organisation && (student || view.student) && <div className="card" id="student-check">
+      <h2>Student check</h2>
+      {view.student && !student && <>
+        <p>{view.student.runOut ? 'Your student check ran out' : 'Checked as a student'} with an address at <b>{view.student.domain}</b>{view.student.runOut ? ` on ${day(view.student.until)}.` : `, until ${day(view.student.until)}.`}</p>
+        {view.student.askAgain && <div className="actions"><button className="primary" onClick={() => setStudent({ then: null })}>Check again</button></div>}
+      </>}
+      {student && <>
+        <p>The Student plan is for people studying at a school, college or university. Type the email address your place of study gave you
+          (for example ending in .ac.uk, .ac.za or .edu): VerbaFlow emails it a 6-digit code. The check lasts a year. Only the part after the @ is kept.</p>
+        <div className="field"><label htmlFor="student-email">Your student email address</label>
+          <input id="student-email" type="email" value={studentEmail} onChange={e => { setStudentEmail(e.target.value); setCodeSent(false); }} style={{ maxWidth: 360 }} autoComplete="email" /></div>
+        {!codeSent ? <div className="actions"><button className="primary" onClick={sendCode} disabled={busy === 'student' || !studentEmail.trim()}>{busy === 'student' ? 'Sending…' : 'Email me a code'}</button>{' '}
+            <button onClick={() => { setStudent(null); setCodeSent(false); }}>Cancel</button></div>
+          : <>
+            <p className="ok" role="status">A code is on its way to {studentEmail.trim()}. It lasts 10 minutes (check the junk folder too).</p>
+            <div className="field"><label htmlFor="student-code">Code</label>
+              <input id="student-code" inputMode="numeric" autoComplete="one-time-code" value={studentCode} onChange={e => setStudentCode(e.target.value)} style={{ maxWidth: 160 }}
+                onKeyDown={e => { if (e.key === 'Enter' && studentCode.trim()) confirmStudent(); }} /></div>
+            <div className="actions"><button className="primary" onClick={confirmStudent} disabled={busy === 'student' || !studentCode.trim()}>{busy === 'student' ? 'Checking…' : 'Confirm'}</button>{' '}
+              <button onClick={sendCode} disabled={busy === 'student'}>Send a new code</button>{' '}
+              <button onClick={() => { setStudent(null); setCodeSent(false); }}>Cancel</button></div>
+          </>}
+      </>}
+    </div>}
 
     {(view.canSetPlan || view.setInSettings) && view.organisation && <div className="card">
       <h2>Set the organisation’s plan (VerbaFlow support)</h2>

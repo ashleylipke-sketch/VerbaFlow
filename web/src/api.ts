@@ -123,18 +123,24 @@ export type Workload = {
   department: string | null; departments: { id: string; name: string }[]; canSeeAll: boolean;
 };
 
-export type PlanOption = { id: string; name: string; minutesPerMonth: number; price: string; people: number | null; extra: string | null; current: boolean };
+export type PlanOption = { id: string; name: string; minutesPerMonth: number; price: string; people: number | null; extra: string | null; current: boolean;
+  switch: 'now' | 'renewal' | null; studentCheckNeeded: boolean; next: boolean };
 export type PlanView = {
   organisation: boolean; planId: string; planName: string; price: string; minutesPerMonth: number; people: number | null; extra: string | null;
   minutesUsed: number; minutesLeft: number; extraMinutes: number; extraCharge: string | null; resetsOn: string; status: string; warning: string | null;
   canBuy: boolean; canManage: boolean; canSetPlan: boolean; customerId: string | null; setInSettings: boolean; pretend: boolean;
   plans: PlanOption[]; recent: { at: string; what: string; who: string | null; seconds: number; itemId: string | null }[]; peopleThisMonth: number | null;
+  canChange: boolean; nextPlanName: string | null; nextPlanFrom: string | null;
+  student: { domain: string; until: string; askAgain: boolean; runOut: boolean } | null;
 };
 
 export const api = {
   plan: (organisation?: string) => call<PlanView>('GET', '/plan' + (organisation ? `?organisation=${encodeURIComponent(organisation)}` : '')),
   planCheckout: (plan: string) => call<{ url: string }>('POST', '/plan/checkout', { plan }),
   planManage: () => call<{ url: string }>('POST', '/plan/manage'),
+  planChange: (plan: string) => call<PlanView>('POST', '/plan/change', { plan }),
+  studentStart: (email: string) => call<{ sent: boolean }>('POST', '/plan/student/start', { email }),
+  studentFinish: (email: string, code: string) => call<PlanView>('POST', '/plan/student/finish', { email, code }),
   setOrganisationPlan: (plan: string, customerId: string, organisation?: string) => call<PlanView>('POST', '/plan/organisation', { plan, customerId, organisation }),
   organisations: () => call<OrganisationRow[]>('GET', '/organisations'),
   addOrganisation: (name: string, tenantId: string) => call<unknown>('POST', '/organisations', { name, tenantId }),

@@ -70,6 +70,7 @@ public sealed class SqliteDatabase : Database
             CREATE TABLE IF NOT EXISTS doc_plans(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_usage(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS doc_organisations(id TEXT PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS doc_student_checks(id TEXT PRIMARY KEY, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS audit_events(
                 seq INTEGER PRIMARY KEY, at TEXT NOT NULL, actor_id TEXT, capacity TEXT NOT NULL, product TEXT NOT NULL,
                 item_id TEXT, type TEXT NOT NULL, details TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL);

@@ -24,6 +24,9 @@ public sealed class StandInPayments(TimeProvider clock) : IPayments
     public Task<PaymentPage> ManageAsync(PlanRecord record, string returnUrl, CancellationToken ct) =>
         Task.FromResult(new PaymentPage("/#/plan/pretend-manage", record.SubscriptionId ?? ""));
 
+    public Task<PaymentNotice?> ChangeAsync(PlanRecord record, Plan to, bool now, CancellationToken ct) =>
+        Task.FromResult<PaymentNotice?>(now ? new PaymentNotice("pretend.changed", record.AccountId, to.Id, PlanStatus.Active, null, null, null, false) : null);
+
     /// <summary>The stand-in has no signed notices; its pages call <see cref="Pay"/> and <see cref="Cancel"/> instead.</summary>
     public PaymentNotice? Read(string body, string? signature) => null;
 

@@ -72,6 +72,7 @@ public sealed class Stores
     /// <summary>Minutes of speech turned into text, one record per person per month.</summary>
     public DocTable<UsageMonth> Usage { get; }
     public DocTable<Organisation> Organisations { get; }
+    public DocTable<StudentCheck> StudentChecks { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -116,6 +117,7 @@ public sealed class Stores
         Plans = new(db, "doc_plans");
         Usage = new(db, "doc_usage");
         Organisations = new(db, "doc_organisations");
+        StudentChecks = new(db, "doc_student_checks");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

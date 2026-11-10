@@ -296,6 +296,12 @@ public interface IPayments
     Task<PaymentPage> CheckoutAsync(VerbaFlow.Core.Domain.User user, Guid account, VerbaFlow.Core.Domain.Plan plan, string returnUrl, CancellationToken ct);
     /// <summary>A page where the person changes their card or cancels.</summary>
     Task<PaymentPage> ManageAsync(VerbaFlow.Core.Domain.PlanRecord record, string returnUrl, CancellationToken ct);
+    /// <summary>
+    /// Moves a paid plan to another paid plan on the same card. <paramref name="now"/>: from today, paying the difference for the
+    /// rest of the month at once; otherwise the new price applies from the next renewal and nothing is charged or refunded now.
+    /// Returns the notice when the service answers at once (the stand-in); null when its signed notice will follow.
+    /// </summary>
+    Task<PaymentNotice?> ChangeAsync(VerbaFlow.Core.Domain.PlanRecord record, VerbaFlow.Core.Domain.Plan to, bool now, CancellationToken ct);
     /// <summary>Reads a notice the service sent; null when its signature does not check out.</summary>
     PaymentNotice? Read(string body, string? signature);
 }

@@ -20,7 +20,7 @@ public sealed record Plan(string Id, string Name, int MinutesPerMonth, string Pr
 /// <summary>The plans on offer: one free personal plan ("free") and one organisation trial ("org-trial"), plus paid ones.</summary>
 public sealed class Plans
 {
-    public const string FreeId = "free", TrialId = "org-trial";
+    public const string FreeId = "free", TrialId = "org-trial", StudentId = "personal-student", PersonalBasicId = "personal-basic";
 
     public Plans(IReadOnlyList<Plan> all)
     {
@@ -85,10 +85,54 @@ public enum PlanStatus { Active, PastDue, Cancelled }
 /// <summary>
 /// An account's paid plan, kept by account id (a personal account's user id, or <see cref="BillingAccounts.Organisation"/>). Card details are never seen by VerbaFlow: the payment service keeps them and
 /// says when a plan starts, renews or ends. <see cref="CancelAtPeriodEnd"/>: the person has cancelled and keeps the plan until
-/// <see cref="PeriodEnd"/>.
+/// <see cref="PeriodEnd"/>. <see cref="NextPlanId"/>: a smaller plan the person switched to, which starts at <see cref="NextPlanFrom"/>
+/// (the end of the month already paid for); until then they keep the plan they paid for.
 /// </summary>
 public sealed record PlanRecord(Guid AccountId, string PlanId, PlanStatus Status, string Service, string? CustomerId, string? SubscriptionId,
-    DateTimeOffset? PeriodEnd, bool CancelAtPeriodEnd, DateTimeOffset UpdatedAt);
+    DateTimeOffset? PeriodEnd, bool CancelAtPeriodEnd, DateTimeOffset UpdatedAt, string? NextPlanId = null, DateTimeOffset? NextPlanFrom = null);
+
+/// <summary>
+/// A personal account showed it belongs to a student: a code sent to a school, college or university email address was typed back.
+/// Only the address's domain and a SHA-256 of the address are kept (the hash stops one address serving many accounts).
+/// Good for <see cref="StudentEmails.Valid"/> after the check; the Student plan needs a check that has not run out.
+/// </summary>
+public sealed record StudentCheck(Guid UserId, string Domain, string AddressHash, DateTimeOffset CheckedAt, DateTimeOffset Until);
+
+/// <summary>Which email addresses count as a student's (a school, college or university address).</summary>
+public static class StudentEmails
+{
+    public static readonly TimeSpan Valid = TimeSpan.FromDays(365);
+    /// <summary>How long before the check runs out the plan page asks for it again.</summary>
+    public static readonly TimeSpan AskAgainBefore = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// True for addresses at an education domain: ending in .edu, or with "edu" or "ac" just before a country ending
+    /// (.edu.au, .ac.uk, .ac.za, .ac.nz, .edu.za...), or at one of <paramref name="extra"/> (settings Billing:StudentDomains:
+    /// many universities, for example in Europe, use plain domains such as uni-heidelberg.de). A domain in <paramref name="extra"/>
+    /// also covers its subdomains (student.uva.nl under uva.nl).
+    /// </summary>
+    public static bool IsStudentAddress(string email, IEnumerable<string>? extra = null)
+    {
+        var at = email.LastIndexOf('@');
+        if (at < 1) return false;
+        var domain = email[(at + 1)..].Trim().TrimEnd('.').ToLowerInvariant();
+        var parts = domain.Split('.');
+        if (parts.Length < 2 || parts.Any(p => p.Length == 0)) return false;
+        if (parts[^1] == "edu") return true;
+        if (parts.Length >= 3 && parts[^1].Length == 2 && parts[^2] is "edu" or "ac") return true;
+        foreach (var raw in extra ?? [])
+        {
+            var d = raw.Trim().TrimStart('@', '.').TrimEnd('.').ToLowerInvariant();
+            if (d.Length > 0 && (domain == d || domain.EndsWith("." + d))) return true;
+        }
+        return false;
+    }
+
+    public static string DomainOf(string email) => email[(email.LastIndexOf('@') + 1)..].Trim().ToLowerInvariant();
+
+    public static string Hash(string email) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("student:" + email.Trim().ToLowerInvariant())));
+}
 
 /// <summary>One use of speech in a month: what it was and how long.</summary>
 public sealed record UsageEntry(DateTimeOffset At, string Kind, int Ms, Guid? ItemId, Guid? UserId = null);

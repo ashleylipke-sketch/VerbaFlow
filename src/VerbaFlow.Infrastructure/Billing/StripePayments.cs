@@ -52,9 +52,30 @@ public sealed class StripePayments(HttpClient http, StripeOptions options, Plans
         return new PaymentPage(doc.GetProperty("url").GetString()!, doc.GetProperty("id").GetString()!);
     }
 
-    private async Task<JsonElement> PostAsync(string path, IEnumerable<KeyValuePair<string, string>> form, CancellationToken ct)
+    public async Task<PaymentNotice?> ChangeAsync(PlanRecord record, Plan to, bool now, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, Api + path) { Content = new FormUrlEncodedContent(form) };
+        var sub = record.SubscriptionId ?? throw new InvalidOperationException("The plan has no Stripe subscription.");
+        var path = "subscriptions/" + Uri.EscapeDataString(sub);
+        var current = await SendAsync(HttpMethod.Get, path, null, ct);
+        var item = current.GetProperty("items").GetProperty("data")[0].GetProperty("id").GetString()!;
+        await PostAsync(path, [
+            new("items[0][id]", item),
+            new("items[0][price]", to.StripePriceId ?? throw new InvalidOperationException($"Plan {to.Id} has no Stripe price.")),
+            // Bigger plan: the difference for the rest of the month is charged at once, and the change fails if the card does.
+            // Smaller plan: no charge or refund now; the next renewal is at the new price.
+            new("proration_behavior", now ? "always_invoice" : "none"),
+            new("payment_behavior", now ? "error_if_incomplete" : "allow_incomplete"),
+            new("metadata[plan]", to.Id),
+        ], ct);
+        return null; // Stripe's signed notice (customer.subscription.updated) follows
+    }
+
+    private Task<JsonElement> PostAsync(string path, IEnumerable<KeyValuePair<string, string>> form, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, path, form, ct);
+
+    private async Task<JsonElement> SendAsync(HttpMethod method, string path, IEnumerable<KeyValuePair<string, string>>? form, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(method, Api + path) { Content = form is null ? null : new FormUrlEncodedContent(form) };
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.SecretKey);
         using var res = await http.SendAsync(req, ct);
         var text = await res.Content.ReadAsStringAsync(ct);

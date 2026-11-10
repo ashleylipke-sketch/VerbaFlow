@@ -4,7 +4,12 @@ using VerbaFlow.Core.Providers;
 
 namespace VerbaFlow.Infrastructure.Services;
 
-public sealed record PlanOption(string Id, string Name, int MinutesPerMonth, string Price, int? People, string? Extra, bool Current);
+/// <param name="Switch">For a personal account on a paid plan: "now" (a bigger plan starts at once) or "renewal" (a smaller one starts when the month paid for ends).</param>
+public sealed record PlanOption(string Id, string Name, int MinutesPerMonth, string Price, int? People, string? Extra, bool Current,
+    string? Switch = null, bool StudentCheckNeeded = false, bool Next = false);
+
+/// <summary>A personal account's student check: the school's domain, until when it holds, and whether it is time to check again.</summary>
+public sealed record StudentView(string Domain, DateTimeOffset Until, bool AskAgain, bool RunOut);
 
 /// <summary>The organisation's subscription when it is set in settings (Billing:OrganisationPlan, Billing:OrganisationCustomerId).</summary>
 public sealed record OrganisationPlanSetting(string? PlanId, string? CustomerId);
@@ -14,7 +19,8 @@ public sealed record UsageRow(DateTimeOffset At, string What, string? Who, int S
 public sealed record PlanView(bool Organisation, string PlanId, string PlanName, string Price, int MinutesPerMonth, int? People, string? Extra,
     double MinutesUsed, double MinutesLeft, double ExtraMinutes, string? ExtraCharge, DateTimeOffset ResetsOn, string Status, string? Warning,
     bool CanBuy, bool CanManage, bool CanSetPlan, string? CustomerId, bool SetInSettings, bool Pretend,
-    IReadOnlyList<PlanOption> Plans, IReadOnlyList<UsageRow> Recent, int? PeopleThisMonth);
+    IReadOnlyList<PlanOption> Plans, IReadOnlyList<UsageRow> Recent, int? PeopleThisMonth,
+    bool CanChange = false, string? NextPlanName = null, DateTimeOffset? NextPlanFrom = null, StudentView? Student = null);
 
 /// <summary>
 /// Plans and fair use. Every use of speech turned into text (a conversion, Speech mode, the Widget) counts against an account: a
@@ -26,7 +32,7 @@ public sealed record PlanView(bool Organisation, string PlanId, string PlanName,
 /// The account's people are told at 80% and 100% (administrators, for the organisation's).
 /// </summary>
 public sealed class BillingService(Stores stores, Plans plans, IPayments payments, TimeProvider clock, bool enabled = true,
-    IUsageMeter? meter = null, OrganisationPlanSetting? orgSetting = null)
+    IUsageMeter? meter = null, OrganisationPlanSetting? orgSetting = null, IReadOnlyList<string>? studentDomains = null)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     public static readonly int[] WarnAt = [80, 100];
@@ -59,8 +65,15 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
                 new PlanRecord(account, fixedPlan, PlanStatus.Active, "settings", orgSetting.CustomerId, null, null, false, clock.GetUtcNow()));
         var r = await stores.Plans.GetAsync(account);
         if (r is { CancelAtPeriodEnd: true, PeriodEnd: { } end } && end <= clock.GetUtcNow()) return (plans.FreeFor(isOrg), r);
+        r = Settle(r);
         return (plans.Of(r, isOrg), r);
     }
+
+    /// <summary>A smaller plan the person switched to starts once the month they paid for has ended: the record as it stands now.</summary>
+    private PlanRecord? Settle(PlanRecord? r) =>
+        r is { NextPlanId: { } next, NextPlanFrom: { } from } && from <= clock.GetUtcNow()
+            ? r with { PlanId = plans.Find(next) is { ForOrganisation: false, Free: false } ? next : r.PlanId, NextPlanId = null, NextPlanFrom = null }
+            : r;
 
     public async Task<long> UsedMsAsync(Guid account) =>
         (await stores.Usage.GetAsync(UsageMonth.IdOf(account, UsageMonth.MonthOf(clock.GetUtcNow()))))?.Ms ?? 0;
@@ -165,13 +178,23 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
             _ => e.Kind,
         };
         int? peopleThisMonth = org ? (usage?.Entries ?? []).Select(e => e.UserId).Where(u => u is not null).Distinct().Count() : null;
+        var canChange = !org && CanChange(plan, r);
+        var next = !org && paid ? PendingNext(plan, r) : null;
+        var student = org ? null : await StudentViewAsync(user.Id);
+        var studentOk = student is { RunOut: false };
+        if (!org && plan.Id == Plans.StudentId && paid && student is { AskAgain: true } sv)
+            warning ??= sv.RunOut
+                ? $"Your student check has run out. Check your student email again to keep the Student price; otherwise the plan moves to Basic when the month ends."
+                : $"Your student check runs out on {sv.Until:d MMMM yyyy}. Check your student email again to keep the Student price.";
         return new PlanView(org, plan.Id, plan.Name, plan.Price, plan.MinutesPerMonth, plan.People, ExtraText(plan),
             usedMin, Math.Max(0, Math.Round(plan.MinutesPerMonth - usedMin, 1)), extraMin, extraCharge, ResetDate(), status, warning,
             !org && plan.Free, !org && paid && r!.CustomerId is not null, org && user.IsSupport && !fixedInSettings,
             org && user.IsSupport ? r?.CustomerId : null, org && fixedInSettings, org ? meter?.Pretend ?? true : payments.Pretend,
-            [.. plans.For(org).Select(p => new PlanOption(p.Id, p.Name, p.MinutesPerMonth, p.Price, p.People, ExtraText(p), p.Id == plan.Id))],
+            [.. plans.For(org).Select(p => new PlanOption(p.Id, p.Name, p.MinutesPerMonth, p.Price, p.People, ExtraText(p), p.Id == plan.Id,
+                canChange && !p.Free && p.Id != plan.Id ? (Bigger(p, plan) ? "now" : "renewal") : null,
+                !org && p.Id == Plans.StudentId && !studentOk, next?.Id == p.Id))],
             [.. entries.Select(e => new UsageRow(e.At, What(e), org && e.UserId is { } u ? people.GetValueOrDefault(u) : null, (int)Math.Round(e.Ms / 1000.0), e.ItemId))],
-            peopleThisMonth);
+            peopleThisMonth, canChange, next?.Name, next is null ? null : r!.NextPlanFrom, student);
     }
 
     public async Task<PaymentPage> CheckoutAsync(User user, string? planId, string origin, CancellationToken ct = default)
@@ -184,11 +207,145 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
         if (!payments.Pretend && (plan.StripePriceId is not { Length: > 0 } price || price.StartsWith("stand-in-")))
             throw new DomainException($"The {plan.Name} plan cannot be bought yet. Please try again later.");
         var (current, _) = await PlanOfAsync(account);
-        if (!current.Free) throw new DomainException("There is already a paid plan. To change it, use Manage the plan.");
+        if (!current.Free) throw new DomainException("There is already a paid plan. Use Switch on the plan you want instead.");
+        if (plan.Id == Plans.StudentId && !await IsStudentAsync(user.Id))
+            throw new DomainException("The Student plan needs a student email address. Check yours first.");
         var page = await payments.CheckoutAsync(user, account, plan, origin + "/#/plan", ct);
         await stores.Audit.AppendAsync(user.Id, "user", "platform", null, "plan.checkout_started",
             AuditChain.Details(("account", "personal"), ("plan", plan.Id), ("paymentService", payments.Name), ("reference", page.Reference)));
         return page;
+    }
+
+    /// <summary>A bigger plan (more minutes) starts at once; the same or fewer minutes wait for the end of the month paid for.</summary>
+    private static bool Bigger(Plan to, Plan from) => to.MinutesPerMonth > from.MinutesPerMonth;
+
+    /// <summary>A paid personal plan that is not being cancelled, held with the payment service, can move to another paid plan.</summary>
+    private static bool CanChange(Plan plan, PlanRecord? r) =>
+        !plan.Free && r is { Status: PlanStatus.Active or PlanStatus.PastDue, CancelAtPeriodEnd: false, SubscriptionId: not null };
+
+    /// <summary>The smaller plan waiting to start, when there is one.</summary>
+    private Plan? PendingNext(Plan current, PlanRecord? r) =>
+        r is { NextPlanId: { } n, NextPlanFrom: { } from } && from > clock.GetUtcNow() && n != current.Id && plans.Find(n) is { ForOrganisation: false, Free: false } p ? p : null;
+
+    /// <summary>
+    /// Moves a personal account's paid plan to another paid plan, on the same card. A bigger plan starts at once and the difference for
+    /// the rest of the month is charged now; a smaller one starts when the month already paid for ends (nothing refunded, the minutes
+    /// paid for stay until then). Choosing the plan one is on takes back a switch that has not started yet.
+    /// </summary>
+    public async Task<PlanView> ChangePlanAsync(User user, string? planId, CancellationToken ct = default)
+    {
+        var account = ManagedBy(user);
+        if (await IsOrgAsync(account)) throw new DomainException("The organisation's plan is invoiced monthly. To change it, contact VerbaFlow.");
+        if (plans.Find(planId) is not { ForOrganisation: false } to) throw new DomainException("Choose a plan.");
+        var (current, r) = await PlanOfAsync(account);
+        if (current.Free || r is null) throw new DomainException("There is no paid plan yet. Choose a plan to start one.");
+        if (to.Free) throw new DomainException("To go back to the Free plan, cancel under Manage the plan. The plan you paid for carries on until the month ends.");
+        if (r.CancelAtPeriodEnd) throw new DomainException("The plan is cancelled. To switch to another plan, first keep the plan under Manage the plan.");
+        if (!CanChange(current, r)) throw new DomainException("The plan cannot be switched at the moment. Please try again later.");
+        if (!payments.Pretend && (to.StripePriceId is not { Length: > 0 } price || price.StartsWith("stand-in-")))
+            throw new DomainException($"The {to.Name} plan cannot be bought yet. Please try again later.");
+        var pending = PendingNext(current, r);
+        if (to.Id == current.Id)
+        {
+            if (pending is null) throw new DomainException($"You are already on the {to.Name} plan.");
+            // Take back the switch: the next renewal stays at this plan's price.
+            await payments.ChangeAsync(r, current, false, ct);
+            await SetNextAsync(account, null, null);
+            await AuditChangeAsync(user, current, to, "kept");
+            return await ViewAsync(user);
+        }
+        if (to.Id == Plans.StudentId && !await IsStudentAsync(user.Id))
+            throw new DomainException("The Student plan needs a student email address. Check yours first.");
+        if (Bigger(to, current))
+        {
+            var notice = await payments.ChangeAsync(r, to, true, ct);
+            await SetNextAsync(account, null, null);
+            if (notice is not null) await ApplyAsync(notice);
+            await AuditChangeAsync(user, current, to, "now");
+        }
+        else
+        {
+            await payments.ChangeAsync(r, to, false, ct);
+            var from = r.PeriodEnd is { } e && e > clock.GetUtcNow() ? e : clock.GetUtcNow();
+            await SetNextAsync(account, to.Id, from);
+            await AuditChangeAsync(user, current, to, "at renewal");
+        }
+        return await ViewAsync(user);
+    }
+
+    private async Task SetNextAsync(Guid account, string? next, DateTimeOffset? from)
+    {
+        await gate.WaitAsync();
+        try
+        {
+            if (Settle(await stores.Plans.GetAsync(account)) is { } fresh)
+                await stores.Plans.UpsertAsync(account, fresh with { NextPlanId = next, NextPlanFrom = from, UpdatedAt = clock.GetUtcNow() });
+        }
+        finally { gate.Release(); }
+    }
+
+    private Task AuditChangeAsync(User user, Plan from, Plan to, string when) =>
+        stores.Audit.AppendAsync(user.Id, "user", "platform", null, "plan.switch_requested",
+            AuditChain.Details(("account", "personal"), ("from", from.Id), ("to", to.Id), ("starts", when), ("paymentService", payments.Name)));
+
+    /// <summary>Whether an address counts as a school, college or university one (including the domains added in settings).</summary>
+    public bool IsStudentAddress(string email) => StudentEmails.IsStudentAddress(email, studentDomains);
+
+    /// <summary>The person's student check, if it has not run out.</summary>
+    public async Task<bool> IsStudentAsync(Guid userId) => await stores.StudentChecks.GetAsync(userId) is { } c && c.Until > clock.GetUtcNow();
+
+    private async Task<StudentView?> StudentViewAsync(Guid userId) => await stores.StudentChecks.GetAsync(userId) is { } c
+        ? new StudentView(c.Domain, c.Until, c.Until - clock.GetUtcNow() <= StudentEmails.AskAgainBefore, c.Until <= clock.GetUtcNow())
+        : null;
+
+    /// <summary>
+    /// The person typed back the code sent to their student address: they count as a student for a year. One address serves one
+    /// account. A Student plan that was about to move to Basic because the check had run out stays Student.
+    /// </summary>
+    public async Task<PlanView> RecordStudentAsync(User user, string email, CancellationToken ct = default)
+    {
+        if (!user.Individual) throw new ForbiddenException("Only a personal account can choose the Student plan.");
+        if (!IsStudentAddress(email)) throw new DomainException("That address does not look like a school, college or university address.");
+        var hash = StudentEmails.Hash(email);
+        var now = clock.GetUtcNow();
+        if ((await stores.StudentChecks.ListAsync()).Any(c => c.AddressHash == hash && c.UserId != user.Id && c.Until > now))
+            throw new DomainException("That student address is already used for another VerbaFlow account.");
+        var check = new StudentCheck(user.Id, StudentEmails.DomainOf(email), hash, now, now + StudentEmails.Valid);
+        await stores.StudentChecks.UpsertAsync(user.Id, check);
+        await stores.Audit.AppendAsync(user.Id, "user", "platform", null, "plan.student_checked",
+            AuditChain.Details(("domain", check.Domain), ("until", check.Until.ToString("yyyy-MM-dd"))));
+        var (plan, r) = await PlanOfAsync(user.Id);
+        if (plan.Id == Plans.StudentId && r is { NextPlanId: Plans.PersonalBasicId } && PendingNext(plan, r) is not null)
+        {
+            await payments.ChangeAsync(r, plan, false, ct);
+            await SetNextAsync(user.Id, null, null);
+            await stores.Audit.AppendAsync(user.Id, "user", "platform", null, "plan.switch_requested",
+                AuditChain.Details(("account", "personal"), ("from", plan.Id), ("to", plan.Id), ("starts", "kept (student checked again)"), ("paymentService", payments.Name)));
+        }
+        return await ViewAsync(user);
+    }
+
+    /// <summary>
+    /// Student plans whose student check has run out move to Basic when the month paid for ends (run every few minutes; the
+    /// person is told on the plan page from 30 days before and can check again to stay on Student).
+    /// </summary>
+    public async Task<int> StudentRenewalsAsync(CancellationToken ct = default)
+    {
+        if (!enabled || plans.Find(Plans.PersonalBasicId) is not { } basic) return 0;
+        var moved = 0;
+        if (!payments.Pretend && (basic.StripePriceId is not { Length: > 0 } bp || bp.StartsWith("stand-in-"))) return 0;
+        foreach (var r in (await stores.Plans.ListAsync()).Select(Settle).OfType<PlanRecord>())
+        {
+            if (r.PlanId != Plans.StudentId || r.NextPlanId is not null || !CanChange(plans.Find(r.PlanId)!, r)) continue;
+            if (await IsStudentAsync(r.AccountId) || await stores.Users.GetAsync(r.AccountId) is not { Individual: true }) continue;
+            await payments.ChangeAsync(r, basic, false, ct);
+            var from = r.PeriodEnd is { } e && e > clock.GetUtcNow() ? e : clock.GetUtcNow();
+            await SetNextAsync(r.AccountId, basic.Id, from);
+            await stores.Audit.AppendAsync(null, "system", "platform", null, "plan.student_check_expired",
+                AuditChain.Details(("account", r.AccountId.ToString()), ("from", r.PlanId), ("to", basic.Id), ("starts", from.ToString("yyyy-MM-dd"))));
+            moved++;
+        }
+        return moved;
     }
 
     public async Task<PaymentPage> ManageAsync(User user, string origin, CancellationToken ct = default)
@@ -291,15 +448,24 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
             else if (n.SubscriptionId is not null || n.CustomerId is not null)
                 r = (await stores.Plans.ListAsync()).FirstOrDefault(p => (n.SubscriptionId != null && p.SubscriptionId == n.SubscriptionId)
                     || (n.SubscriptionId == null && p.CustomerId == n.CustomerId));
+            r = Settle(r);
             var accountId = n.AccountId ?? r?.AccountId;
             if (accountId is not { } id || await IsOrgAsync(id)) return; // not one of ours (the organisation is invoiced, not bought by card)
             var org = false;
             if (await stores.Users.GetAsync(id) is not { Individual: true }) return;
             var planId = n.PlanId ?? r?.PlanId;
             if (plans.Find(planId) is not { } found || found.ForOrganisation != org) planId = r?.PlanId ?? plans.FreeFor(org).Id;
+            // A switch to a smaller plan: the service already bills the new price from the renewal, but the plan paid for stays
+            // until then. Once that time has come (or the service reports another plan), the switch is done.
+            string? nextPlan = r?.NextPlanId; DateTimeOffset? nextFrom = r?.NextPlanFrom;
+            if (nextPlan is not null && r is not null)
+            {
+                if (planId == nextPlan) planId = r.PlanId;
+                else if (planId != r.PlanId) { nextPlan = null; nextFrom = null; } // changed some other way (the service's own page)
+            }
             var next = new PlanRecord(id, planId!, n.Status ?? r?.Status ?? PlanStatus.Active, payments.Name,
                 n.CustomerId ?? r?.CustomerId, n.SubscriptionId ?? r?.SubscriptionId, n.PeriodEnd ?? r?.PeriodEnd,
-                n.CancelAtPeriodEnd ?? r?.CancelAtPeriodEnd ?? false, clock.GetUtcNow());
+                n.CancelAtPeriodEnd ?? r?.CancelAtPeriodEnd ?? false, clock.GetUtcNow(), nextPlan, nextFrom);
             if (r is not null && r with { UpdatedAt = next.UpdatedAt } == next) return; // nothing changed (the service repeats itself)
             await stores.Plans.UpsertAsync(id, next);
             await stores.Audit.AppendAsync(null, "system", "platform", null, "plan.changed",

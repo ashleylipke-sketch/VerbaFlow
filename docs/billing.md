@@ -14,10 +14,29 @@ The count starts again on the 1st of each month (UTC). Page: **More ▾ → Your
 |---|---|---|
 | Free | 30 minutes | £0 |
 | Basic | 5 hours | £6.99 a month |
-| Student | 5 hours | £3.99 a month (nobody checks that the person is a student yet) |
+| Student | 5 hours | £3.99 a month (needs a student email address, checked once a year) |
 | Professional | 20 hours | £14.99 a month |
 
 When the minutes are used up, new conversions wait (they show as "Conversion failed" with the reason, and **Retry** works once there are minutes again) and new Speech mode or Widget sessions are refused with a plain sentence. Speech already under way is never cut off. The person is told at 80% and 100% (bell and email, group "Plan").
+
+### Switching plans
+Someone on a paid personal plan switches on **Your plan** with **Switch to …**, on the same card:
+- **A plan with more minutes** starts at once. The difference in price for the rest of the month is charged straight away (if the card is refused, nothing changes and they are told to check the card under Manage the plan).
+- **A plan with the same or fewer minutes** starts when the month they paid for ends. They keep the plan they paid for and its minutes until then; nothing is refunded. Until then the page shows "You are switching to … on …" with **Keep …** to call it off.
+- Going back to **Free** is done by cancelling under **Manage the plan**.
+- A cancelled plan cannot be switched: keep it first under Manage the plan.
+
+History: `plan.switch_requested` (from, to, starts: now / at renewal / kept), then `plan.changed` when the payment service confirms.
+
+### Student check
+The Student plan needs a school, college or university email address. Choosing Student opens **Student check**: the person types that address, VerbaFlow emails it a 6-digit code (10 minutes, same limits as email sign-in), they type it back, and the plan carries on (to the pretend payment page, or the switch).
+- Counted as a student address: ending in `.edu`, or `.ac.` / `.edu.` before a country ending (`.ac.uk`, `.ac.za`, `.ac.nz`, `.edu.au`…).
+- Many universities (for example in Europe) use plain addresses such as `uni-heidelberg.de`. Add them in settings, separated by commas (each also covers its sub-addresses such as `stud.uni-heidelberg.de`):
+  ```
+  dotnet user-secrets set "Billing:StudentDomains" "uni-heidelberg.de,uva.nl"
+  ```
+- The check lasts a year. From 30 days before it runs out, the page asks to check again. Once it has run out, the plan moves to **Basic** when the month paid for ends (checked every 5 minutes; History `plan.student_check_expired`); checking again before then keeps Student.
+- One student address serves one account. Only the part after the @ and a fingerprint (SHA-256) of the address are kept, never the address; History `plan.student_checked` (domain, until).
 
 ## Organisations: invoiced monthly
 | Plan | Minutes a month (shared) | Price (placeholder) | People | Extra hours |
@@ -53,13 +72,11 @@ Never paste a key into a chat. Use `dotnet user-secrets` (or the online app's se
 3. **Organisation extra minutes:** Billing → Meters → Create meter, event name `verbaflow_speech_seconds`, aggregation Sum. Then for each organisation plan make a product with a monthly fixed price (e.g. £49) plus a usage price on that meter, graduated: the first tier (the included minutes, in seconds: 100 hours = 360,000) at £0, then the extra-hour price divided by 3,600 per second. Make the organisation a customer, subscribe it, and put its `cus_…` reference on the Plan page as VerbaFlow support. Set `Stripe:MeterEventName` to the meter's event name.
 4. Developers → API keys: set `Stripe:SecretKey`.
 5. Developers → Webhooks → Add endpoint `https://<VerbaFlow address>/api/payments/stripe`, events `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`. Set `Stripe:WebhookSecret` to its signing secret (`whsec_…`).
-6. Settings → Billing → Customer portal: switch on cancelling, updating the card and switching between the personal plans.
+6. Settings → Billing → Customer portal: switch on cancelling and updating the card. Leave switching plans off there: VerbaFlow's own Switch buttons apply the rules above (bigger at once, smaller at renewal, Student only after the student check).
 7. Restart VerbaFlow. The start-up line `Billing:` says what is in use.
 
 VerbaFlow sends the organisation's seconds to the meter every 5 minutes; each sending has its own identifier, so a repeat is counted once.
 
 ## Not built yet
-- More than one organisation on one VerbaFlow (each installation is one organisation).
-- Checking that a Student is a student.
-- Switching between paid personal plans inside VerbaFlow (use Manage the plan, Stripe's page).
-- Real Stripe has not been tried.
+- A way for VerbaFlow support to mark someone a student whose address is not recognised (add their university in `Billing:StudentDomains` instead).
+- Real Stripe has not been tried, including switching plans.

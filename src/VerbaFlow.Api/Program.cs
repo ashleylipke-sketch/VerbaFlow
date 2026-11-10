@@ -141,7 +141,9 @@ if (stripe.SecretKey.Length > 0 && meterEvent.Length > 0)
 else builder.Services.AddSingleton<IUsageMeter, VerbaFlow.Infrastructure.Billing.StandInUsageMeter>();
 var orgPlan = new OrganisationPlanSetting(builder.Configuration["Billing:OrganisationPlan"]?.Trim(), builder.Configuration["Billing:OrganisationCustomerId"]?.Trim());
 builder.Services.AddSingleton(sp => new BillingService(sp.GetRequiredService<Stores>(), plans, sp.GetRequiredService<IPayments>(),
-    sp.GetRequiredService<TimeProvider>(), billingOn, sp.GetRequiredService<IUsageMeter>(), orgPlan));
+    sp.GetRequiredService<TimeProvider>(), billingOn, sp.GetRequiredService<IUsageMeter>(), orgPlan,
+    (builder.Configuration["Billing:StudentDomains"] ?? "").Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries)));
+builder.Services.AddSingleton(sp => new StudentCodes(sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<LiveSessions>();
 builder.Services.AddSingleton<ProcessingService>(sp => new ProcessingService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<ISpeechService>(),
     sp.GetRequiredService<IAiOutputService>(), sp.GetRequiredService<IAudioEnhancer>(), sp.GetRequiredService<TimeProvider>(),

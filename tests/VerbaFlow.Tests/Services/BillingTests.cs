@@ -84,6 +84,8 @@ public class BillingTests
         await Assert.ThrowsAsync<ForbiddenException>(() => billing.ViewAsync(env.Alice)); // not an administrator
         await Assert.ThrowsAsync<DomainException>(() => billing.CheckoutAsync(pat, "basic", "http://x")); // an organisation plan
 
+        await Assert.ThrowsAsync<DomainException>(() => billing.CheckoutAsync(pat, "personal-student", "http://x")); // not checked as a student
+        await billing.RecordStudentAsync(pat, "pat@uni.ac.uk");
         var page = await billing.CheckoutAsync(pat, "personal-student", "http://x");
         Assert.Null(pay.Pay(env.Alice.Id, page.Reference)); // someone else's page
         await billing.ApplyAsync(pay.Pay(pat.Id, page.Reference)!);
@@ -210,5 +212,106 @@ public class BillingTests
         sessions.Discard(pat, s2.Id);
         await sessions.LastCount;
         await Assert.ThrowsAsync<PlanLimitException>(() => sessions.StartAsync(pat, "en-GB"));
+    }
+
+    [Fact]
+    public void Student_addresses_are_school_college_or_university_ones()
+    {
+        Assert.True(StudentEmails.IsStudentAddress("a@ed.ac.uk"));
+        Assert.True(StudentEmails.IsStudentAddress("a@myuct.ac.za"));
+        Assert.True(StudentEmails.IsStudentAddress("a@mit.edu"));
+        Assert.True(StudentEmails.IsStudentAddress("a@student.unimelb.edu.au"));
+        Assert.False(StudentEmails.IsStudentAddress("a@gmail.com"));
+        Assert.False(StudentEmails.IsStudentAddress("a@ac.uk"));
+        Assert.False(StudentEmails.IsStudentAddress("a@uni-heidelberg.de"));
+        Assert.True(StudentEmails.IsStudentAddress("a@stud.uni-heidelberg.de", ["uni-heidelberg.de"]));
+        Assert.False(StudentEmails.IsStudentAddress("a@notuni-heidelberg.de", ["uni-heidelberg.de"]));
+    }
+
+    private static async Task<(BillingService Billing, StandInPayments Pay, User Pat)> Paying(Env env, string plan)
+    {
+        var pay = new StandInPayments(env.Clock);
+        var billing = new BillingService(env.Stores, Plans.Default(), pay, env.Clock);
+        var pat = await Personal(env);
+        if (plan == Plans.StudentId) await billing.RecordStudentAsync(pat, "pat@uni.ac.uk");
+        var page = await billing.CheckoutAsync(pat, plan, "http://x");
+        await billing.ApplyAsync(pay.Pay(pat.Id, page.Reference)!);
+        return (billing, pay, pat);
+    }
+
+    [Fact]
+    public async Task A_bigger_plan_starts_at_once_and_a_smaller_one_when_the_month_paid_for_ends()
+    {
+        using var env = new Env();
+        var (billing, pay, pat) = await Paying(env, "personal-basic");
+        var view = await billing.ViewAsync(pat);
+        Assert.True(view.CanChange);
+        Assert.Equal(("now", "renewal"), (view.Plans.Single(p => p.Id == "personal-professional").Switch, view.Plans.Single(p => p.Id == "personal-student").Switch));
+        Assert.Null(view.Plans.Single(p => p.Id == "free").Switch);
+
+        // Bigger: at once.
+        view = await billing.ChangePlanAsync(pat, "personal-professional");
+        Assert.Equal(("Professional", 1_200), (view.PlanName, view.MinutesPerMonth));
+
+        // Smaller: the minutes paid for stay until the month ends; it can be taken back.
+        view = await billing.ChangePlanAsync(pat, "personal-basic");
+        Assert.Equal(("Professional", "Basic"), (view.PlanName, view.NextPlanName));
+        Assert.True(view.Plans.Single(p => p.Id == "personal-basic").Next);
+        view = await billing.ChangePlanAsync(pat, "personal-professional");
+        Assert.Null(view.NextPlanName);
+        await Assert.ThrowsAsync<DomainException>(() => billing.ChangePlanAsync(pat, "personal-professional")); // already on it
+        await Assert.ThrowsAsync<DomainException>(() => billing.ChangePlanAsync(pat, "free")); // that is cancelling
+        await Assert.ThrowsAsync<DomainException>(() => billing.ChangePlanAsync(pat, "business")); // an organisation plan
+        await Assert.ThrowsAsync<DomainException>(() => billing.ChangePlanAsync(pat, "personal-student")); // not checked as a student
+
+        await billing.ChangePlanAsync(pat, "personal-basic");
+        var renews = (await env.Stores.Plans.GetAsync(pat.Id))!.PeriodEnd!.Value;
+        env.Clock.Now = renews.AddMinutes(1);
+        view = await billing.ViewAsync(pat);
+        Assert.Equal(("Basic", (string?)null), (view.PlanName, view.NextPlanName));
+        // A later notice from the payment service keeps it Basic.
+        await billing.ApplyAsync(new PaymentNotice("renewed", pat.Id, null, PlanStatus.Active, null, null, renews.AddMonths(1), false));
+        Assert.Equal("Basic", (await billing.ViewAsync(pat)).PlanName);
+        Assert.Equal(4, (await env.Stores.Audit.ListAsync()).Count(a => a.Type == "plan.switch_requested"));
+
+        // A cancelled plan is not switched; the free plan is reached by cancelling.
+        await billing.ApplyAsync(pay.Cancel(pat.Id, "end"));
+        Assert.False((await billing.ViewAsync(pat)).CanChange);
+        await Assert.ThrowsAsync<DomainException>(() => billing.ChangePlanAsync(pat, "personal-professional"));
+        // The organisation's people cannot switch personal plans.
+        await Assert.ThrowsAsync<ForbiddenException>(() => billing.ChangePlanAsync(env.Alice, "personal-professional"));
+    }
+
+    [Fact]
+    public async Task The_student_plan_needs_a_student_address_checked_each_year()
+    {
+        using var env = new Env();
+        var (billing, _, pat) = await Paying(env, Plans.StudentId);
+        Assert.Equal(("Student", "uni.ac.uk"), ((await billing.ViewAsync(pat)).PlanName, (await billing.ViewAsync(pat)).Student!.Domain));
+        Assert.DoesNotContain(await env.Stores.Audit.ListAsync(), a => a.Details.Contains("pat@uni.ac.uk")); // only the domain is kept
+
+        // One address, one account; not an organisation's people; not any address.
+        var kim = await Personal(env, "Kim Person");
+        await Assert.ThrowsAsync<DomainException>(() => billing.RecordStudentAsync(kim, "PAT@uni.ac.uk"));
+        await Assert.ThrowsAsync<DomainException>(() => billing.RecordStudentAsync(kim, "kim@gmail.com"));
+        await Assert.ThrowsAsync<ForbiddenException>(() => billing.RecordStudentAsync(env.Alice, "alice@uni.ac.uk"));
+
+        // A month before the check runs out the page asks again; once it has, the plan moves to Basic at the next renewal.
+        env.Clock.Now = env.Clock.Now.AddDays(340);
+        Assert.Contains("runs out on", (await billing.ViewAsync(pat)).Warning);
+        env.Clock.Now = env.Clock.Now.AddDays(30);
+        await billing.ApplyAsync(new PaymentNotice("renewed", pat.Id, null, PlanStatus.Active, null, null, env.Clock.Now.AddDays(20), false));
+        Assert.Equal(0, await new BillingService(env.Stores, Plans.Default(), new StandInPayments(env.Clock), env.Clock, enabled: false).StudentRenewalsAsync());
+        Assert.Equal(1, await billing.StudentRenewalsAsync());
+        Assert.Equal(0, await billing.StudentRenewalsAsync()); // once
+        var view = await billing.ViewAsync(pat);
+        Assert.Equal(("Student", "Basic"), (view.PlanName, view.NextPlanName));
+        Assert.Contains("has run out", view.Warning);
+        Assert.True(view.Plans.Single(p => p.Id == Plans.StudentId).StudentCheckNeeded);
+
+        // Checking again keeps the Student plan.
+        view = await billing.RecordStudentAsync(pat, "pat@uni.ac.uk");
+        Assert.Equal(("Student", (string?)null), (view.PlanName, view.NextPlanName));
+        Assert.Contains(await env.Stores.Audit.ListAsync(), a => a.Type == "plan.student_check_expired");
     }
 }

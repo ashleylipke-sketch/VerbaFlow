@@ -16,6 +16,7 @@ import SavedTextPage from './pages/SavedText';
 import LetterheadPage from './pages/Letterhead';
 import RetentionPage from './pages/Retention';
 import WorkloadPage from './pages/Workload';
+import PlanPage, { PretendPay, PretendManage } from './pages/Plan';
 import DepartmentsPage from './pages/Departments';
 import MinutesTemplatesPage from './pages/MinutesTemplates';
 import EmailServicePage from './pages/EmailService';
@@ -150,6 +151,9 @@ export default function App() {
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />
           : path === '/workload' ? <WorkloadPage />
+          : path.startsWith('/plan/pretend-pay/') ? <PretendPay reference={path.slice('/plan/pretend-pay/'.length)} />
+          : path === '/plan/pretend-manage' ? <PretendManage />
+          : path === '/plan' || path.startsWith('/plan?') ? <PlanPage key={path} paid={path.includes('paid=1')} />
           : path === '/departments' ? <DepartmentsPage />
           : path.startsWith('/search') ? <SearchPage key={path} query={new URLSearchParams(path.split('?')[1] ?? '')} />
           : path === '/meet' ? <Meet />
@@ -175,15 +179,16 @@ function MoreMenu({ path, admin, support, lead, individual }: { path: string; ad
     return () => { removeEventListener('mousedown', away); removeEventListener('keydown', esc); };
   }, [open]);
   // Someone with a personal account keeps their own vocabulary and saved text; there are no departments or workload.
-  const pages: [string, string][] = individual ? [['/vocabulary', 'Your vocabulary'], ['/saved-text', 'Your saved text'], ['/sign-off', 'Your sign-off']] : [
+  const pages: [string, string][] = individual ? [['/plan', 'Your plan'], ['/vocabulary', 'Your vocabulary'], ['/saved-text', 'Your saved text'], ['/sign-off', 'Your sign-off']] : [
     ...(admin ? [] : [...(lead ? [['/workload', 'Workload']] : []), ['/sign-off', 'Your sign-off'], ['/departments', 'Departments']] as [string, string][]),
     ...(admin ? [
       ['/workload', 'Workload'],
       ['/vocabulary', 'Vocabulary'], ['/saved-text', 'Saved text'], ['/letterhead', 'Letterhead and your sign-off'],
       ['/minutes-templates', 'Minutes templates'],
       ['/retention', 'Retention'], ['/departments', 'Departments'], ['/reopen', 'Reopen and delete requests'],
-      ['/email', 'Email'],
+      ['/email', 'Email'], ['/plan', 'Plan'],
     ] as [string, string][] : []),
+    ...(support && !admin ? [['/plan', 'Plan'] as [string, string]] : []),
     ...(support ? [['/support', 'Support: errors'] as [string, string]] : []),
   ];
   const here = pages.some(([p]) => p === path);

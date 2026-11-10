@@ -121,7 +121,21 @@ export type Workload = {
   department: string | null; departments: { id: string; name: string }[]; canSeeAll: boolean;
 };
 
+export type PlanOption = { id: string; name: string; minutesPerMonth: number; price: string; people: number | null; extra: string | null; current: boolean };
+export type PlanView = {
+  organisation: boolean; planId: string; planName: string; price: string; minutesPerMonth: number; people: number | null; extra: string | null;
+  minutesUsed: number; minutesLeft: number; extraMinutes: number; extraCharge: string | null; resetsOn: string; status: string; warning: string | null;
+  canBuy: boolean; canManage: boolean; canSetPlan: boolean; customerId: string | null; setInSettings: boolean; pretend: boolean;
+  plans: PlanOption[]; recent: { at: string; what: string; who: string | null; seconds: number; itemId: string | null }[]; peopleThisMonth: number | null;
+};
+
 export const api = {
+  plan: () => call<PlanView>('GET', '/plan'),
+  planCheckout: (plan: string) => call<{ url: string }>('POST', '/plan/checkout', { plan }),
+  planManage: () => call<{ url: string }>('POST', '/plan/manage'),
+  setOrganisationPlan: (plan: string, customerId: string) => call<PlanView>('POST', '/plan/organisation', { plan, customerId }),
+  pretendPay: (reference: string) => call<PlanView>('POST', `/plan/pretend/${encodeURIComponent(reference)}/pay`),
+  pretendCancel: (how: 'end' | 'keep' | 'now') => call<PlanView>('POST', '/plan/pretend/cancel', { how }),
   users: () => call<UserView[]>('GET', '/users'),
   languages: () => call<{ max: number; languages: Lang[] }>('GET', '/languages'),
   me: () => call<UserView>('GET', '/me'),

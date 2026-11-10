@@ -273,3 +273,41 @@ public interface ICalendarReader
     Task<IReadOnlyList<VerbaFlow.Core.Domain.CalendarMeeting>> ReadAsync(VerbaFlow.Core.Domain.CalendarSettings settings,
         VerbaFlow.Core.Domain.User user, DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
 }
+
+/// <summary>A page at the payment service where the person pays, or manages (changes card, cancels) a plan.</summary>
+public sealed record PaymentPage(string Url, string Reference);
+
+/// <summary>
+/// What the payment service said happened to someone's plan (from its signed notice). PlanId null means "keep the plan it was".
+/// </summary>
+public sealed record PaymentNotice(string Kind, Guid? AccountId, string? PlanId, VerbaFlow.Core.Domain.PlanStatus? Status, string? CustomerId,
+    string? SubscriptionId, DateTimeOffset? PeriodEnd, bool? CancelAtPeriodEnd);
+
+/// <summary>
+/// Card payments for plans (a personal account's, or the organisation's) (Stripe, or a stand-in that pretends). VerbaFlow never sees card details.
+/// Failures are ProviderExceptions with technical text, for support only.
+/// </summary>
+public interface IPayments
+{
+    string Name { get; }
+    /// <summary>True for the stand-in: nothing is really charged.</summary>
+    bool Pretend { get; }
+    /// <summary>A page where the person pays for the account's plan; the service sends them back to <paramref name="returnUrl"/>.</summary>
+    Task<PaymentPage> CheckoutAsync(VerbaFlow.Core.Domain.User user, Guid account, VerbaFlow.Core.Domain.Plan plan, string returnUrl, CancellationToken ct);
+    /// <summary>A page where the person changes their card or cancels.</summary>
+    Task<PaymentPage> ManageAsync(VerbaFlow.Core.Domain.PlanRecord record, string returnUrl, CancellationToken ct);
+    /// <summary>Reads a notice the service sent; null when its signature does not check out.</summary>
+    PaymentNotice? Read(string body, string? signature);
+}
+
+/// <summary>
+/// Passes an invoiced organisation's minutes to the payment service, which adds the ones over the plan to the next invoice
+/// (Stripe: a meter, with a price whose first tier is the included minutes at no charge). <paramref name="key"/> makes a repeat
+/// of the same sending count once.
+/// </summary>
+public interface IUsageMeter
+{
+    string Name { get; }
+    bool Pretend { get; }
+    Task SendAsync(string customerId, long seconds, DateTimeOffset at, string key, CancellationToken ct);
+}

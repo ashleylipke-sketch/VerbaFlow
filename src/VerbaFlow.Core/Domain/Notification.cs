@@ -19,7 +19,7 @@ public sealed record NotificationState(Guid Id, long LastSeq, DateTimeOffset? Du
 
 public static class NotificationGroups
 {
-    public const string Work = "work", Ready = "ready", Due = "due", Approvals = "approvals", Notes = "notes";
+    public const string Work = "work", Ready = "ready", Due = "due", Approvals = "approvals", Notes = "notes", Plan = "plan";
 
     /// <summary>The groups in the order shown, with what each covers. Approvals only reach administrators.</summary>
     public static readonly IReadOnlyList<(string Key, string Label, bool AdminsOnly)> All =
@@ -28,6 +28,7 @@ public static class NotificationGroups
         (Ready, "A recording is ready, could not be converted, or a note-taker could not record", false),
         (Notes, "Someone left a note or a comment on a recording you work on", false),
         (Due, "Due tomorrow, due today or overdue", false),
+        (Plan, "Most or all of this month's minutes on your plan are used", false),
         (Approvals, "A reopen, delete or retention change needs an administrator to agree", true),
     ];
 }

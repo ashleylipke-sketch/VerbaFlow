@@ -84,6 +84,7 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
         if (policy is not null && !actor.Individual && IsBlocked(s, policy.BlockedSites))
             throw new DomainException("Your administrator has switched the Widget off here.");
         var (session, ticket) = await live.StartAsync(actor, spokenLanguages);
+        session.UsageKind = "widget";
         var w = new WidgetSession(Guid.NewGuid(), actor.Id, s, DeviceOf(device), string.Join(",", session.Languages), clock.GetUtcNow(), session.Id);
         await stores.WidgetSessions.UpsertAsync(w.Id, w);
         await Audit(actor, "user", "widget.started", ("session", w.Id), ("site", s), ("device", w.Device), ("languages", w.Languages));
@@ -99,6 +100,7 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
         var w = await RequireOpenAsync(actor, id);
         live.Discard(actor, w.LiveId);
         var (session, ticket) = await live.StartAsync(actor, w.Languages);
+        session.UsageKind = "widget";
         await stores.WidgetSessions.UpsertAsync(id, w with { LiveId = session.Id, Listens = w.Listens + 1 });
         return new WidgetStart(id, session.Id, ticket, live.EngineName);
     }

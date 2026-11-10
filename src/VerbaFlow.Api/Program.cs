@@ -117,12 +117,35 @@ if (speech.IsConfigured && ffmpegFound)
 // Speech mode: live text as the person speaks, through Azure AI Speech real-time recognition when it is set up.
 if (speech.IsConfigured) builder.Services.AddSingleton<ILiveSpeech>(_ => new VerbaFlow.Infrastructure.Azure.AzureLiveSpeech(speech));
 else builder.Services.AddSingleton<ILiveSpeech, VerbaFlow.Infrastructure.StandIns.StandInLiveSpeech>();
+// Billing: plans and fair use. Personal accounts pay by card through Stripe (Stripe:SecretKey, Stripe:WebhookSecret, each plan's
+// Billing:Plans:<id>:StripePriceId), else a pretend payment page. The organisation is invoiced monthly: its plan is set in
+// settings (Billing:OrganisationPlan, Billing:OrganisationCustomerId) or by VerbaFlow support, and its minutes are passed to
+// Stripe's meter (Stripe:MeterEventName) for the next invoice. Billing:Enabled=false switches the limits and counting off.
+var plans = Plans.With(k => builder.Configuration[k]);
+var stripe = new VerbaFlow.Infrastructure.Billing.StripeOptions(builder.Configuration["Stripe:SecretKey"] ?? "", builder.Configuration["Stripe:WebhookSecret"] ?? "");
+var meterEvent = (builder.Configuration["Stripe:MeterEventName"] ?? "").Trim();
+var billingOn = builder.Configuration.GetValue("Billing:Enabled", true);
+builder.Services.AddSingleton(plans);
+if (stripe.IsConfigured)
+{
+    builder.Services.AddSingleton(stripe);
+    builder.Services.AddHttpClient<IPayments, VerbaFlow.Infrastructure.Billing.StripePayments>(c => c.Timeout = TimeSpan.FromSeconds(30));
+}
+else builder.Services.AddSingleton<IPayments, StandInPayments>();
+if (stripe.SecretKey.Length > 0 && meterEvent.Length > 0)
+    builder.Services.AddHttpClient<IUsageMeter, VerbaFlow.Infrastructure.Billing.StripeUsageMeter>(c => c.Timeout = TimeSpan.FromSeconds(30))
+        .AddTypedClient<IUsageMeter>(http => new VerbaFlow.Infrastructure.Billing.StripeUsageMeter(http, stripe.SecretKey, meterEvent));
+else builder.Services.AddSingleton<IUsageMeter, VerbaFlow.Infrastructure.Billing.StandInUsageMeter>();
+var orgPlan = new OrganisationPlanSetting(builder.Configuration["Billing:OrganisationPlan"]?.Trim(), builder.Configuration["Billing:OrganisationCustomerId"]?.Trim());
+builder.Services.AddSingleton(sp => new BillingService(sp.GetRequiredService<Stores>(), plans, sp.GetRequiredService<IPayments>(),
+    sp.GetRequiredService<TimeProvider>(), billingOn, sp.GetRequiredService<IUsageMeter>(), orgPlan));
 builder.Services.AddSingleton<LiveSessions>();
 builder.Services.AddSingleton<ProcessingService>(sp => new ProcessingService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<ISpeechService>(),
     sp.GetRequiredService<IAiOutputService>(), sp.GetRequiredService<IAudioEnhancer>(), sp.GetRequiredService<TimeProvider>(),
     sp.GetRequiredService<VerbaFlow.Infrastructure.Services.FailureReporter>(), sp.GetService<ISpeakerDiarizer>(), sp.GetService<VerbaFlow.Infrastructure.Services.DiarizationOptions>(),
-    sp.GetService<IDictationSpeech>()));
+    sp.GetService<IDictationSpeech>(), sp.GetRequiredService<BillingService>()));
 builder.Services.AddHostedService<ProcessingWorker>();
+if (billingOn && !string.Equals(builder.Configuration["Billing:Worker"], "false", StringComparison.OrdinalIgnoreCase)) builder.Services.AddHostedService<UsageWorker>();
 // Meet: a note-taker joins online meetings (Zoom, Google Meet, Teams, Webex) through Recall.ai when it is set up.
 var noteTaker = new VerbaFlow.Infrastructure.MeetingBots.RecallOptions(builder.Configuration["Meet:ApiKey"] ?? "",
     (builder.Configuration["Meet:Region"] ?? "").Trim().ToLowerInvariant(),
@@ -231,6 +254,10 @@ else app.Logger.LogInformation("Signing: off (Signing:Enabled=false)");
 if (signIn.PersonalAccounts || signIn.Google)
     app.Logger.LogInformation("Own drafts: Email… can put the file in " + (signIn.PersonalAccounts ? "Outlook.com drafts (personal Microsoft accounts)" : "")
         + (signIn.PersonalAccounts && signIn.Google ? " and " : "") + (signIn.Google ? "Gmail drafts (anyone with Gmail)" : ""));
+app.Logger.LogInformation(!billingOn ? "Billing: off (Billing:Enabled=false), no limits"
+    : "Billing: on; personal plans paid " + (stripe.IsConfigured ? "by card through Stripe" : "on a pretend payment page (Stripe not set up, nothing is charged)")
+    + "; organisation plan " + (orgPlan.PlanId is { Length: > 0 } op ? op + " (from settings)" : "set by VerbaFlow support")
+    + "; extra minutes " + (stripe.SecretKey.Length > 0 && meterEvent.Length > 0 ? "sent to Stripe's meter " + meterEvent : "kept here only (no Stripe meter set up)"));
 app.Logger.LogInformation("Database: {Database}; files in {DataDir}", database.Describe, dataDir);
 app.Logger.LogInformation(signIn.Microsoft
     ? "Sign-in: Microsoft work accounts (Entra ID, directory {Tenant})" + (signIn.PersonalAccounts ? ", personal and other organisations' Microsoft accounts as personal accounts" : "")
@@ -245,17 +272,17 @@ if (signIn.TestUsers) await DevUsers.SeedAsync(app.Services.GetRequiredService<S
 app.UseExceptionHandler(new ExceptionHandlerOptions
 {
     // Expected answers ("not ready yet", "not allowed", a plain refusal) are not errors, so they are not printed in the server window.
-    SuppressDiagnosticsCallback = c => c.Exception is DomainException or ForbiddenException or NotFoundException,
+    SuppressDiagnosticsCallback = c => c.Exception is DomainException or ForbiddenException or NotFoundException or PlanLimitException,
     ExceptionHandler = async ctx =>
 {
     var ex = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
     ctx.Response.StatusCode = ex switch
     {
-        ForbiddenException => 403, NotFoundException => 404, DomainException => 400, _ => 500
+        ForbiddenException => 403, NotFoundException => 404, DomainException or PlanLimitException => 400, _ => 500
     };
     ctx.Response.ContentType = "application/json";
     string message;
-    if (ex is DomainException or ForbiddenException or NotFoundException) message = ex.Message;
+    if (ex is DomainException or ForbiddenException or NotFoundException or PlanLimitException) message = ex.Message;
     else
     {
         // Anything unexpected: the customer gets a plain message and a reference. Support gets the detail under the same reference.
@@ -304,6 +331,7 @@ api.MapWorkloadEndpoints();
 api.MapAttachmentEndpoints();
 api.MapNoteEndpoints();
 api.MapCommentEndpoints();
+app.MapBillingEndpoints(api);
 app.MapLiveSocket();
 app.MapPlayback();
 app.MapFallbackToFile("index.html");

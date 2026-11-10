@@ -12,13 +12,23 @@ namespace VerbaFlow.Infrastructure.Services;
 /// </summary>
 public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiOutputService ai, IAudioEnhancer enhancer,
     TimeProvider clock, FailureReporter reporter, ISpeakerDiarizer? diarizer = null, DiarizationOptions? diarization = null,
-    IDictationSpeech? wordForWord = null)
+    IDictationSpeech? wordForWord = null, BillingService? billing = null)
 {
 
     public async Task ProcessAsync(Guid itemId, CancellationToken ct = default)
     {
         var item = await stores.RequireItemAsync(itemId);
         if (item.Processing != ProcessingState.Running || item.IsLocked) return;
+        // An account whose plan has no minutes left this month waits: the recording is kept and Retry works later.
+        if (billing is not null)
+            try { await billing.EnsureMinutesLeftAsync(item); }
+            catch (PlanLimitException limit)
+            {
+                item.FailProcessing(limit.Message);
+                await stores.Items.UpsertAsync(itemId, item);
+                await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.failed", AuditChain.Details(("kind", "plan-limit")));
+                return;
+            }
         await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.started",
             AuditChain.Details(("enhancer", enhancer.Name)));
         try
@@ -271,6 +281,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             if (item.LengthMs == 0 && result.Segments.Count > 0) item.SetLength(result.Segments.Max(s => s.EndMs));
             item.CompleteProcessing();
             await stores.Items.UpsertAsync(itemId, item);
+            // The recording's length counts against the plan, except when the text heard live was used (already counted).
+            if (billing is not null && dictationService != "live") await billing.RecordAsync(item, "recording", item.LengthMs);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames), ("personAudio", personAudio), ("introductions", introductions),

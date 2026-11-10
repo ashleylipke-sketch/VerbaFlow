@@ -116,7 +116,15 @@ public sealed class LiveSession
     /// <summary>Where the audio of the current connection starts, so its times can be put on the recording's clock.</summary>
     public int Offset(int generation) { lock (_gate) return generation == _generation ? _fromMs : -1; }
 
-    public void Heard(int generation, int bytes) { lock (_gate) if (generation == _generation) _bytes += bytes; }
+    public void Heard(int generation, int bytes) { lock (_gate) { _allBytes += bytes; if (generation == _generation) _bytes += bytes; } }
+
+    private long _allBytes;
+    /// <summary>All the audio sent to the speech service on every connection (16 kHz, 16-bit: 32 bytes a millisecond), for plans.</summary>
+    public int HeardMs { get { lock (_gate) return (int)Math.Min(int.MaxValue, _allBytes / 32); } }
+    /// <summary>What the minutes are counted as: "live" (Speech mode) or "widget".</summary>
+    public string UsageKind { get; set; } = "live";
+    /// <summary>Whose minutes this session's speech counts against (see BillingAccounts).</summary>
+    public Guid Account { get; init; }
 
     public bool AddFinal(int generation, Segment phrase)
     {
@@ -192,7 +200,7 @@ public sealed class LiveSession
 /// Live sessions in memory. A browser opens one, then connects to it with a single-use ticket (a browser cannot send the
 /// sign-in header on a live connection). Sessions not used for six hours are forgotten.
 /// </summary>
-public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider clock)
+public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider clock, BillingService? billing = null)
 {
     private readonly ConcurrentDictionary<Guid, LiveSession> _sessions = new();
     private readonly ConcurrentDictionary<string, (Guid Session, DateTimeOffset Until)> _tickets = new();
@@ -208,8 +216,10 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
             throw new DomainException("Choose the language you will speak. Speech mode cannot detect it automatically.");
         if (languages.Length > SpokenLanguageCatalogue.MaxPerRecording)
             throw new DomainException($"Choose at most {SpokenLanguageCatalogue.MaxPerRecording} languages.");
+        // A plan whose minutes are used up starts no new live speech (speech already under way is never cut off).
+        if (billing is not null) await billing.EnsureMinutesLeftAsync(user);
         var (phrases, saved) = await DictationContext.LoadAsync(stores, user.Space);
-        var s = new LiveSession { OwnerId = user.Id, Languages = languages, Engine = live.Name, Phrases = phrases, Saved = saved, LastUsed = clock.GetUtcNow() };
+        var s = new LiveSession { OwnerId = user.Id, Account = BillingAccounts.Of(user), Languages = languages, Engine = live.Name, Phrases = phrases, Saved = saved, LastUsed = clock.GetUtcNow() };
         if (carryOn is not null) s.Seed(carryOn, carryOnLengthMs);
         _sessions[s.Id] = s;
         return (s, Ticket(s));
@@ -232,6 +242,7 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
         if (!_sessions.TryGetValue(id, out var s) || s.OwnerId != user.Id) return null;
         _sessions.TryRemove(id, out _);
         s.Close();
+        Count(s);
         return s.ToTranscript(itemId);
     }
 
@@ -246,7 +257,21 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
 
     public void Discard(User user, Guid id)
     {
-        if (_sessions.TryGetValue(id, out var s) && s.OwnerId == user.Id && _sessions.TryRemove(id, out _)) s.Close();
+        if (_sessions.TryGetValue(id, out var s) && s.OwnerId == user.Id && _sessions.TryRemove(id, out _)) { s.Close(); Count(s); }
+    }
+
+    /// <summary>The last counting of a finished session's minutes (tests wait for it).</summary>
+    public Task LastCount { get; private set; } = Task.CompletedTask;
+
+    /// <summary>A session that has ended: the audio its speech service heard counts against the plan.</summary>
+    private void Count(LiveSession s)
+    {
+        if (billing is null || s.HeardMs <= 0) return;
+        LastCount = Task.Run(async () =>
+        {
+            try { await billing.RecordAsync(s.Account, s.OwnerId, s.UsageKind, s.HeardMs); }
+            catch { /* counting must never break speech; a missed count is the account's gain */ }
+        });
     }
 
     public Task<ILiveRecognition> RecogniseAsync(LiveSession s, int fromMs, CancellationToken ct) => live.StartAsync(new LiveOptions(s.Languages, s.Phrases, fromMs), ct);
@@ -270,6 +295,6 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
     {
         var now = clock.GetUtcNow();
         foreach (var (k, t) in _tickets) if (t.Until < now) _tickets.TryRemove(k, out _);
-        foreach (var (k, s) in _sessions) if (s.LastUsed < now.AddHours(-6) && _sessions.TryRemove(k, out _)) s.Close();
+        foreach (var (k, s) in _sessions) if (s.LastUsed < now.AddHours(-6) && _sessions.TryRemove(k, out _)) { s.Close(); Count(s); }
     }
 }

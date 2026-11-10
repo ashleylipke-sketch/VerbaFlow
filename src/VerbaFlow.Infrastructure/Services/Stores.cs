@@ -67,6 +67,10 @@ public sealed class Stores
     public DocTable<TextComment> Comments { get; }
     /// <summary>Machine translations of a recording's text, by translation id.</summary>
     public DocTable<Translation> Translations { get; }
+    /// <summary>Personal accounts' plans (free or paid), by user id.</summary>
+    public DocTable<PlanRecord> Plans { get; }
+    /// <summary>Minutes of speech turned into text, one record per person per month.</summary>
+    public DocTable<UsageMonth> Usage { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -108,6 +112,8 @@ public sealed class Stores
         Notes = new(db, "doc_item_notes");
         Comments = new(db, "doc_text_comments");
         Translations = new(db, "doc_translations");
+        Plans = new(db, "doc_plans");
+        Usage = new(db, "doc_usage");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

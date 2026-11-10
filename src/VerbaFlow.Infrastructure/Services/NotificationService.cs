@@ -173,6 +173,19 @@ public sealed class NotificationService(Stores stores, IEmailSender email, TimeP
                 return ToAdmins($"{c.Who(actor)} agreed the new retention rules.", "#/retention");
             case "processing.completed" when item is not null && item.Mode != ItemMode.Speech:
                 return To([item.OwnerId], NotificationGroups.Ready, $"{c.Title(item.Id)} is ready to check.", item.Id, ItemLink(item.Id));
+            case "processing.failed" when item is not null && Text(d, "kind") == "plan-limit":
+                return To([item.OwnerId], NotificationGroups.Ready,
+                    $"{c.Title(item.Id)} is waiting: this month's minutes are used up. It can be converted once there are minutes again (Retry on the recording).", item.Id, ItemLink(item.Id));
+            case "plan.usage_warning" when d.TryGetValue("percent", out var pv) && pv.ToString() is var pct:
+            {
+                var org = Text(d, "account") == "organisation";
+                var who = org ? c.Admins.Select(a => (Guid?)a.Id) : [Guid.TryParse(Text(d, "account"), out var g) ? g : null];
+                var invoiced = org && Text(d, "plan") is { } pl && pl != Plans.TrialId;
+                var text = (org ? "Your organisation has" : "You have") + (pct == "100"
+                    ? invoiced ? " used this month's included minutes. Extra minutes will be on the next invoice." : " used all of this month's minutes. New conversions will wait until next month or a bigger plan."
+                    : $" used {pct}% of this month's minutes.");
+                return To(who, NotificationGroups.Plan, text, null, "#/plan");
+            }
             case "processing.failed" when item is not null:
                 return To([item.OwnerId], NotificationGroups.Ready,
                     $"{c.Title(item.Id)} could not be converted to text. Open it to try again.", item.Id, ItemLink(item.Id));

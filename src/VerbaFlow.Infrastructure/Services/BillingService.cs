@@ -34,7 +34,8 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
     public Plans Plans => plans;
     public IPayments Payments => payments;
 
-    private static bool IsOrg(Guid account) => account == BillingAccounts.Organisation;
+    /// <summary>Whether the account is an organisation's (the first one's, or one VerbaFlow support added) rather than a personal one.</summary>
+    private async Task<bool> IsOrgAsync(Guid account) => account == Organisations.Default || await stores.Organisations.GetAsync(account) is not null;
 
     private static string Minutes(int m) => m % 60 == 0 && m >= 60 ? $"{m / 60:N0} hour{(m == 60 ? "" : "s")}" : $"{m} minutes";
 
@@ -52,12 +53,13 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
     /// <summary>The plan an account is on now: a paid plan that was cancelled and has run out counts as the free one.</summary>
     public async Task<(Plan Plan, PlanRecord? Record)> PlanOfAsync(Guid account)
     {
-        if (IsOrg(account) && orgSetting?.PlanId is { Length: > 0 } fixedPlan)
+        var isOrg = await IsOrgAsync(account);
+        if (account == Organisations.Default && orgSetting?.PlanId is { Length: > 0 } fixedPlan)
             return (plans.Find(fixedPlan) is { ForOrganisation: true } p ? p : plans.FreeFor(true),
                 new PlanRecord(account, fixedPlan, PlanStatus.Active, "settings", orgSetting.CustomerId, null, null, false, clock.GetUtcNow()));
         var r = await stores.Plans.GetAsync(account);
-        if (r is { CancelAtPeriodEnd: true, PeriodEnd: { } end } && end <= clock.GetUtcNow()) return (plans.FreeFor(IsOrg(account)), r);
-        return (plans.Of(r, IsOrg(account)), r);
+        if (r is { CancelAtPeriodEnd: true, PeriodEnd: { } end } && end <= clock.GetUtcNow()) return (plans.FreeFor(isOrg), r);
+        return (plans.Of(r, isOrg), r);
     }
 
     public async Task<long> UsedMsAsync(Guid account) =>
@@ -72,8 +74,8 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
         var used = await UsedMsAsync(account);
         if (used < plan.IncludedMs) return;
         await stores.Audit.AppendAsync(userId, userId is null ? "system" : "user", "platform", null, "plan.limit_reached",
-            AuditChain.Details(("account", IsOrg(account) ? "organisation" : "personal"), ("plan", plan.Id), ("minutesUsed", (int)(used / 60_000))));
-        throw new PlanLimitException(LimitSentence(plan, IsOrg(account)));
+            AuditChain.Details(("account", await IsOrgAsync(account) ? "organisation" : "personal"), ("plan", plan.Id), ("minutesUsed", (int)(used / 60_000))));
+        throw new PlanLimitException(LimitSentence(plan, await IsOrgAsync(account)));
     }
 
     public Task EnsureMinutesLeftAsync(User user) => EnsureMinutesLeftAsync(BillingAccounts.Of(user), user.Id);
@@ -105,26 +107,30 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
         finally { gate.Release(); }
         if (crossed is { } p)
             await stores.Audit.AppendAsync(null, "system", "platform", null, "plan.usage_warning",
-                AuditChain.Details(("account", IsOrg(account) ? "organisation" : account.ToString()), ("percent", p), ("plan", plan.Id)));
+                AuditChain.Details(("account", await IsOrgAsync(account) ? "organisation" : account.ToString()), ("organisation", await IsOrgAsync(account) ? account : null),
+                    ("percent", p), ("plan", plan.Id)));
     }
 
     public Task RecordAsync(User user, string kind, int ms, Guid? itemId = null) => RecordAsync(BillingAccounts.Of(user), user.Id, kind, ms, itemId);
     public Task RecordAsync(Item item, string kind, int ms) => RecordAsync(BillingAccounts.Of(item), item.OwnerId, kind, ms, item.Id);
 
     /// <summary>The account a person may see and manage: their own personal one, or the organisation's for its administrators.</summary>
-    private static Guid ManagedBy(User user)
+    private static Guid ManagedBy(User user, Guid? organisation = null)
     {
         if (user.Individual) return user.Id;
-        if (user.IsAdmin || user.IsSupport) return BillingAccounts.Organisation;
+        if (user.IsSupport) return organisation ?? Organisations.Default;
+        if (user.IsAdmin) return user.Org!.Value;
         throw new ForbiddenException("Only administrators can see the organisation's plan.");
     }
 
     private static string? ExtraText(Plan p) => p.ExtraPerHour is { } x ? $"£{x:0.00} for each extra hour" : null;
 
-    public async Task<PlanView> ViewAsync(User user)
+    public async Task<PlanView> ViewAsync(User user, Guid? organisation = null)
     {
-        var account = ManagedBy(user);
-        var org = IsOrg(account);
+        var account = ManagedBy(user, organisation);
+        var org = await IsOrgAsync(account);
+        if (!org && account != user.Id) throw new NotFoundException("That organisation does not exist.");
+        var fixedInSettings = account == Organisations.Default && orgSetting?.PlanId is { Length: > 0 };
         var (plan, r) = await PlanOfAsync(account);
         var usage = await stores.Usage.GetAsync(UsageMonth.IdOf(account, UsageMonth.MonthOf(clock.GetUtcNow())));
         var usedMin = Math.Round((usage?.Ms ?? 0) / 60_000.0, 1);
@@ -161,8 +167,8 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
         int? peopleThisMonth = org ? (usage?.Entries ?? []).Select(e => e.UserId).Where(u => u is not null).Distinct().Count() : null;
         return new PlanView(org, plan.Id, plan.Name, plan.Price, plan.MinutesPerMonth, plan.People, ExtraText(plan),
             usedMin, Math.Max(0, Math.Round(plan.MinutesPerMonth - usedMin, 1)), extraMin, extraCharge, ResetDate(), status, warning,
-            !org && plan.Free, !org && paid && r!.CustomerId is not null, org && user.IsSupport && orgSetting?.PlanId is not { Length: > 0 },
-            org && user.IsSupport ? r?.CustomerId : null, org && orgSetting?.PlanId is { Length: > 0 }, org ? meter?.Pretend ?? true : payments.Pretend,
+            !org && plan.Free, !org && paid && r!.CustomerId is not null, org && user.IsSupport && !fixedInSettings,
+            org && user.IsSupport ? r?.CustomerId : null, org && fixedInSettings, org ? meter?.Pretend ?? true : payments.Pretend,
             [.. plans.For(org).Select(p => new PlanOption(p.Id, p.Name, p.MinutesPerMonth, p.Price, p.People, ExtraText(p), p.Id == plan.Id))],
             [.. entries.Select(e => new UsageRow(e.At, What(e), org && e.UserId is { } u ? people.GetValueOrDefault(u) : null, (int)Math.Round(e.Ms / 1000.0), e.ItemId))],
             peopleThisMonth);
@@ -171,7 +177,7 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
     public async Task<PaymentPage> CheckoutAsync(User user, string? planId, string origin, CancellationToken ct = default)
     {
         var account = ManagedBy(user);
-        if (IsOrg(account)) throw new DomainException("The organisation's plan is invoiced monthly. To change it, contact VerbaFlow.");
+        if (await IsOrgAsync(account)) throw new DomainException("The organisation's plan is invoiced monthly. To change it, contact VerbaFlow.");
         var plan = plans.Find(planId);
         if (plan is null || plan.ForOrganisation) throw new DomainException("Choose a plan.");
         if (plan.Free) throw new DomainException("This plan needs no payment. To leave a paid plan, use Manage or cancel.");
@@ -181,14 +187,14 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
         if (!current.Free) throw new DomainException("There is already a paid plan. To change it, use Manage the plan.");
         var page = await payments.CheckoutAsync(user, account, plan, origin + "/#/plan", ct);
         await stores.Audit.AppendAsync(user.Id, "user", "platform", null, "plan.checkout_started",
-            AuditChain.Details(("account", IsOrg(account) ? "organisation" : "personal"), ("plan", plan.Id), ("paymentService", payments.Name), ("reference", page.Reference)));
+            AuditChain.Details(("account", "personal"), ("plan", plan.Id), ("paymentService", payments.Name), ("reference", page.Reference)));
         return page;
     }
 
     public async Task<PaymentPage> ManageAsync(User user, string origin, CancellationToken ct = default)
     {
         var account = ManagedBy(user);
-        if (IsOrg(account)) throw new DomainException("The organisation's plan is invoiced monthly. To change it, contact VerbaFlow.");
+        if (await IsOrgAsync(account)) throw new DomainException("The organisation's plan is invoiced monthly. To change it, contact VerbaFlow.");
         var (plan, r) = await PlanOfAsync(account);
         if (plan.Free || r?.CustomerId is null) throw new DomainException("There is no paid plan, so there is nothing to manage.");
         return await payments.ManageAsync(r, origin + "/#/plan", ct);
@@ -210,15 +216,16 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
     /// VerbaFlow support sets the organisation's subscription: its plan and the payment service's customer it is invoiced as.
     /// Not when settings already name it (settings win).
     /// </summary>
-    public async Task<PlanView> SetOrganisationPlanAsync(User user, string? planId, string? customerId)
+    public async Task<PlanView> SetOrganisationPlanAsync(User user, string? planId, string? customerId, Guid? organisation = null)
     {
         if (!user.IsSupport) throw new ForbiddenException("Only VerbaFlow support can change the organisation's plan.");
-        if (orgSetting?.PlanId is { Length: > 0 }) throw new DomainException("The organisation's plan is set in VerbaFlow's settings, so it cannot be changed here.");
+        var account = organisation ?? Organisations.Default;
+        if (!await IsOrgAsync(account)) throw new NotFoundException("That organisation does not exist.");
+        if (account == Organisations.Default && orgSetting?.PlanId is { Length: > 0 }) throw new DomainException("The organisation's plan is set in VerbaFlow's settings, so it cannot be changed here.");
         if (plans.Find(planId) is not { ForOrganisation: true } plan) throw new DomainException("Choose one of the organisation plans.");
         var customer = string.IsNullOrWhiteSpace(customerId) ? null : customerId.Trim();
         if (customer is not null && (customer.Length > 100 || !System.Text.RegularExpressions.Regex.IsMatch(customer, "^[A-Za-z0-9_-]+$")))
             throw new DomainException("The customer reference is letters, numbers, _ and - only (for example cus_ABC123).");
-        var account = BillingAccounts.Organisation;
         await gate.WaitAsync();
         try
         {
@@ -227,8 +234,8 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
         }
         finally { gate.Release(); }
         await stores.Audit.AppendAsync(user.Id, "support", "platform", null, "plan.changed",
-            AuditChain.Details(("account", "organisation"), ("plan", plan.Id), ("status", "Active"), ("paymentService", "invoice"), ("customerLinked", customer is not null && !plan.Free)));
-        return await ViewAsync(user);
+            AuditChain.Details(("account", "organisation"), ("organisation", account), ("plan", plan.Id), ("status", "Active"), ("paymentService", "invoice"), ("customerLinked", customer is not null && !plan.Free)));
+        return await ViewAsync(user, account);
     }
 
     /// <summary>
@@ -239,20 +246,29 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
     public async Task<int> SendUsageAsync(CancellationToken ct = default)
     {
         if (!enabled || meter is null) return 0;
-        var (_, record) = await PlanOfAsync(BillingAccounts.Organisation);
+        var sent = 0;
+        foreach (var account in (IReadOnlyList<Guid>)[Organisations.Default, .. (await stores.Organisations.ListAsync()).Select(o => o.Id)])
+            sent += await SendUsageAsync(account, ct);
+        return sent;
+    }
+
+    private async Task<int> SendUsageAsync(Guid account, CancellationToken ct)
+    {
+        var (_, record) = await PlanOfAsync(account);
         if (record?.CustomerId is not { Length: > 0 } customer) return 0;
         var now = clock.GetUtcNow();
         var sent = 0;
         foreach (var month in new[] { UsageMonth.MonthOf(now.AddMonths(-1)), UsageMonth.MonthOf(now) })
         {
-            var id = UsageMonth.IdOf(BillingAccounts.Organisation, month);
+            var id = UsageMonth.IdOf(account, month);
             var m = await stores.Usage.GetAsync(id);
             if (m is null || m.UnsentMs < 1000) continue;
             var seconds = m.UnsentMs / 1000;
             var number = m.Sendings + 1;
             var at = month == UsageMonth.MonthOf(now) ? now
                 : new DateTimeOffset(DateTime.ParseExact(month + "-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), TimeSpan.Zero).AddMonths(1).AddSeconds(-1);
-            await meter.SendAsync(customer, seconds, at, $"vf-{month}-{number}", ct);
+            var key = account == Organisations.Default ? $"vf-{month}-{number}" : $"vf-{account:N}-{month}-{number}";
+            await meter.SendAsync(customer, seconds, at, key, ct);
             await gate.WaitAsync(ct);
             try
             {
@@ -276,7 +292,7 @@ public sealed class BillingService(Stores stores, Plans plans, IPayments payment
                 r = (await stores.Plans.ListAsync()).FirstOrDefault(p => (n.SubscriptionId != null && p.SubscriptionId == n.SubscriptionId)
                     || (n.SubscriptionId == null && p.CustomerId == n.CustomerId));
             var accountId = n.AccountId ?? r?.AccountId;
-            if (accountId is not { } id || IsOrg(id)) return; // not one of ours (the organisation is invoiced, not bought by card)
+            if (accountId is not { } id || await IsOrgAsync(id)) return; // not one of ours (the organisation is invoiced, not bought by card)
             var org = false;
             if (await stores.Users.GetAsync(id) is not { Individual: true }) return;
             var planId = n.PlanId ?? r?.PlanId;

@@ -36,26 +36,29 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
 
     private sealed record Planned(Item Newest, List<Item> Chain, string Action, DateTimeOffset DueAt, int AfterDays, string Why);
 
-    public async Task<RetentionPolicy> PolicyAsync() => await stores.Retention.GetAsync(RetentionPolicy.Id) ?? RetentionPolicy.KeepEverything;
+    /// <summary>An organisation's rules (<see cref="User.Org"/>; null = the first organisation).</summary>
+    public async Task<RetentionPolicy> PolicyAsync(Guid? organisation = null) => await stores.Retention.GetAsync(Key(organisation)) ?? RetentionPolicy.KeepEverything;
+
+    private static Guid Key(Guid? organisation) => Organisations.Key(organisation, RetentionPolicy.Id);
 
     public async Task<RetentionOverview> OverviewAsync(User actor)
     {
-        var p = await PolicyAsync();
+        // A personal account has no retention rules: its owner deletes recordings themselves.
+        var p = actor.Individual ? RetentionPolicy.KeepEverything : await PolicyAsync(actor.Org);
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
         string Name(Guid id) => users.GetValueOrDefault(id, "?");
         IReadOnlyList<RetentionDueRow> due = [];
         IReadOnlyList<RetentionHoldRow> holds = [];
-        if (actor.IsAdmin)
+        if (actor.IsAdmin && !actor.Individual)
         {
             var now = clock.GetUtcNow();
-            due = (await PlanAsync(p)).Where(x => x.DueAt <= now + ShowAhead).OrderBy(x => x.DueAt)
+            due = (await PlanAsync(p, actor.Org)).Where(x => x.DueAt <= now + ShowAhead).OrderBy(x => x.DueAt)
                 .Select(x => new RetentionDueRow(x.Newest.Id, x.Newest.Name, x.Newest.Mode.ToString(), StatusLabels.For(x.Newest.Mode, x.Newest.Status), x.Action, x.DueAt)).ToList();
             var items = await stores.Items.ListAsync();
             holds = (await stores.RetentionHolds.ListAsync()).Select(h =>
-            {
-                var newest = items.Where(i => i.ChainId == h.ChainId).OrderByDescending(i => i.VersionNo).FirstOrDefault();
-                return new RetentionHoldRow(newest?.Id ?? h.ChainId, newest?.Name ?? "?", Name(h.By), h.At, h.Reason);
-            }).OrderBy(h => h.Name).ToList();
+                (Hold: h, Newest: items.Where(i => i.ChainId == h.ChainId).OrderByDescending(i => i.VersionNo).FirstOrDefault()))
+                .Where(x => x.Newest is not null && actor.SameOrganisation(x.Newest))
+                .Select(x => new RetentionHoldRow(x.Newest!.Id, x.Newest.Name, Name(x.Hold.By), x.Hold.At, x.Hold.Reason)).OrderBy(h => h.Name).ToList();
         }
         var proposal = p.Proposal is { } pr ? new RetentionProposalView(pr.Meetings, pr.Dictations, Name(pr.ProposedBy), pr.At, pr.Note, pr.ProposedBy == actor.Id) : null;
         return new(p.Meetings, p.Dictations, p.AgreedAt, (p.AgreedBy ?? []).Select(Name).ToList(), p.AppliesFrom, proposal, actor.IsAdmin, due, holds);
@@ -69,12 +72,12 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
         var dictationRules = change.Dictations ?? new RetentionRules();
         meetingsRules.Check("Meetings");
         dictationRules.Check("Dictations");
-        var p = await PolicyAsync();
+        var p = await PolicyAsync(admin.Org);
         if (p.Proposal is not null) throw new DomainException("A change is already waiting for a second administrator. Agree to it, reject it or withdraw it first.");
         if (p.Meetings == meetingsRules && p.Dictations == dictationRules) throw new DomainException("These are the rules already in use.");
         var note = string.IsNullOrWhiteSpace(change.Note) ? null : change.Note.Trim();
         if (note?.Length > 500) throw new DomainException("The note is too long (500 characters at most).");
-        await stores.Retention.UpsertAsync(RetentionPolicy.Id, p with { Proposal = new RetentionProposal(meetingsRules, dictationRules, admin.Id, clock.GetUtcNow(), note) });
+        await stores.Retention.UpsertAsync(Key(admin.Org), p with { Proposal = new RetentionProposal(meetingsRules, dictationRules, admin.Id, clock.GetUtcNow(), note) });
         await Audit(admin, null, "retention.proposed", Details(meetingsRules, dictationRules, ("note", note)));
         return await OverviewAsync(admin);
     }
@@ -83,12 +86,12 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
     public async Task<RetentionOverview> AgreeAsync(User admin)
     {
         RequireAdmin(admin);
-        var p = await PolicyAsync();
+        var p = await PolicyAsync(admin.Org);
         var pr = p.Proposal ?? throw new DomainException("There is no change waiting.");
         if (pr.ProposedBy == admin.Id) throw new DomainException("A different administrator must agree to the change you proposed.");
         var now = clock.GetUtcNow();
         var agreed = new RetentionPolicy(pr.Meetings, pr.Dictations, now, [pr.ProposedBy, admin.Id], now + RetentionPolicy.Grace, null);
-        await stores.Retention.UpsertAsync(RetentionPolicy.Id, agreed);
+        await stores.Retention.UpsertAsync(Key(admin.Org), agreed);
         await Audit(admin, null, "retention.agreed", Details(pr.Meetings, pr.Dictations, ("appliesFrom", agreed.AppliesFrom)));
         return await OverviewAsync(admin);
     }
@@ -97,9 +100,9 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
     public async Task<RetentionOverview> DropProposalAsync(User admin)
     {
         RequireAdmin(admin);
-        var p = await PolicyAsync();
+        var p = await PolicyAsync(admin.Org);
         var pr = p.Proposal ?? throw new DomainException("There is no change waiting.");
-        await stores.Retention.UpsertAsync(RetentionPolicy.Id, p with { Proposal = null });
+        await stores.Retention.UpsertAsync(Key(admin.Org), p with { Proposal = null });
         await Audit(admin, null, pr.ProposedBy == admin.Id ? "retention.withdrawn" : "retention.rejected");
         return await OverviewAsync(admin);
     }
@@ -109,7 +112,7 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
     {
         RequireAdmin(admin);
         var item = await stores.RequireItemAsync(itemId);
-        if (item.Individual) throw new NotFoundException("That item does not exist.");
+        if (!admin.SameOrganisation(item)) throw new NotFoundException("That item does not exist.");
         if (item.Status == ItemStatus.Purged) throw new DomainException("This recording has already been deleted.");
         if (string.IsNullOrWhiteSpace(reason)) throw new DomainException("Say why this recording must be kept (for example a legal case or a complaint).");
         if (reason.Trim().Length > 500) throw new DomainException("The reason is too long (500 characters at most).");
@@ -123,6 +126,7 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
     {
         RequireAdmin(admin);
         var item = await stores.RequireItemAsync(itemId);
+        if (!admin.SameOrganisation(item)) throw new NotFoundException("That item does not exist.");
         if (!await stores.RetentionHolds.DeleteAsync(item.ChainId)) throw new DomainException("This recording is not on hold.");
         await Audit(admin, item.Id, "retention.released");
         return await ForItemAsync(admin, itemId);
@@ -140,25 +144,33 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
         if (hold is not null)
         {
             var by = (await stores.Users.GetAsync(hold.By))?.Name ?? "an administrator";
-            return new($"On hold: the retention rules will not delete this recording (put on hold by {by} on {hold.At:d MMM yyyy}).", true, hold.Reason, actor.IsAdmin);
+            return new($"On hold: the retention rules will not delete this recording (put on hold by {by} on {hold.At:d MMM yyyy}).", true, hold.Reason, PermissionEvaluator.AdminOf(actor, item));
         }
-        var planned = (await PlanAsync(await PolicyAsync())).Where(x => x.Chain.Any(c => c.Id == itemId)).OrderBy(x => x.DueAt).ToList();
+        var planned = (await PlanAsync(await PolicyAsync(item.Org), item.Org)).Where(x => x.Chain.Any(c => c.Id == itemId)).OrderBy(x => x.DueAt).ToList();
         var parts = new List<string>();
         if (removed is not null) parts.Add(removed);
         foreach (var x in planned)
             parts.Add(x.Action == Delete
                 ? $"Under the retention rules this recording will be deleted on {x.DueAt:d MMM yyyy}."
                 : $"Under the retention rules its sound will be removed on {x.DueAt:d MMM yyyy}; the text is kept.");
-        return new(parts.Count == 0 ? null : string.Join(" ", parts), false, null, actor.IsAdmin);
+        return new(parts.Count == 0 ? null : string.Join(" ", parts), false, null, PermissionEvaluator.AdminOf(actor, item));
     }
 
     /// <summary>Deletes what the rules say is due. Run every hour by the worker. Returns how many recordings were changed.</summary>
     public async Task<int> ApplyAsync(CancellationToken ct = default)
     {
-        var p = await PolicyAsync();
+        var done = 0;
+        foreach (var org in (await stores.Organisations.ListAsync()).Select(o => o.Id).Prepend(Organisations.Default))
+            done += await ApplyAsync(org, ct);
+        return done;
+    }
+
+    private async Task<int> ApplyAsync(Guid organisation, CancellationToken ct)
+    {
+        var p = await PolicyAsync(organisation);
         var now = clock.GetUtcNow();
         var done = 0;
-        foreach (var x in (await PlanAsync(p)).Where(x => x.DueAt <= now).OrderBy(x => x.DueAt))
+        foreach (var x in (await PlanAsync(p, organisation)).Where(x => x.DueAt <= now).OrderBy(x => x.DueAt))
         {
             ct.ThrowIfCancellationRequested();
             if (x.Chain.Any(i => i.Processing == ProcessingState.Running)) continue; // next time
@@ -189,7 +201,7 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
     }
 
     /// <summary>What the rules will do to each recording, and when (never before the rules apply).</summary>
-    private async Task<List<Planned>> PlanAsync(RetentionPolicy p)
+    private async Task<List<Planned>> PlanAsync(RetentionPolicy p, Guid? organisation)
     {
         var list = new List<Planned>();
         if (p.Meetings.KeepsEverything && p.Dictations.KeepsEverything) return list;
@@ -204,7 +216,7 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
         {
             var newest = chain[^1];
             // The organisation's rules do not reach recordings in personal accounts: their owners delete them themselves.
-            if (newest.Individual || newest.Status == ItemStatus.Purged || holds.Contains(newest.ChainId)) continue;
+            if (newest.Org != (organisation ?? Organisations.Default) || newest.Status == ItemStatus.Purged || holds.Contains(newest.ChainId)) continue;
             var rules = p.For(newest);
             var what = newest.IsDictation ? "dictations" : "meetings";
             if (newest.Status == ItemStatus.Completed && newest.ApprovedAt is { } approved)
@@ -249,5 +261,5 @@ public sealed class RetentionService(Stores stores, MeetingService meetings, Tim
     }
 
     private Task Audit(User actor, Guid? itemId, string type, params (string, object?)[] details) =>
-        stores.Audit.AppendAsync(actor.Id, "admin", Product, itemId, type, AuditChain.Details(details));
+        stores.Audit.AppendAsync(actor.Id, "admin", Product, itemId, type, AuditChain.Details(Organisations.With(details, actor.Org)));
 }

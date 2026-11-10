@@ -100,8 +100,15 @@ public sealed class NotificationService(Stores stores, IEmailSender email, TimeP
         IEnumerable<Notice> To(IEnumerable<Guid?> people, string group, string text, Guid? itemId, string link) =>
             people.OfType<Guid>().Distinct().Where(p => p != actor && c.Users.ContainsKey(p))
                 .Select(p => new Notice(key, p, group, text, itemId, link));
+        // The organisation the event is about: its recording's, else the one History names, else the actor's.
+        var eventOrg = item?.Org
+            ?? (GuidOf(d, "originalItemId") is { } oid && c.Items.TryGetValue(oid, out var original) ? original.Org : null)
+            ?? GuidOf(d, "organisation")
+            ?? (actor is { } aid && c.Users.TryGetValue(aid, out var au) ? au.Org : null)
+            ?? Organisations.Default;
+        var admins = c.Admins.Where(a => a.Org == eventOrg).ToList();
         IEnumerable<Notice> ToAdmins(string text, string link, IEnumerable<Guid>? except = null) =>
-            To(c.Admins.Select(a => (Guid?)a.Id).Where(a => except is null || !except.Contains(a!.Value)), NotificationGroups.Approvals, text, e.ItemId, link);
+            To(admins.Select(a => (Guid?)a.Id).Where(a => except is null || !except.Contains(a!.Value)), NotificationGroups.Approvals, text, e.ItemId, link);
 
         switch (e.Type)
         {
@@ -179,7 +186,7 @@ public sealed class NotificationService(Stores stores, IEmailSender email, TimeP
             case "plan.usage_warning" when d.TryGetValue("percent", out var pv) && pv.ToString() is var pct:
             {
                 var org = Text(d, "account") == "organisation";
-                var who = org ? c.Admins.Select(a => (Guid?)a.Id) : [Guid.TryParse(Text(d, "account"), out var g) ? g : null];
+                var who = org ? admins.Select(a => (Guid?)a.Id) : [Guid.TryParse(Text(d, "account"), out var g) ? g : null];
                 var invoiced = org && Text(d, "plan") is { } pl && pl != Plans.TrialId;
                 var text = (org ? "Your organisation has" : "You have") + (pct == "100"
                     ? invoiced ? " used this month's included minutes. Extra minutes will be on the next invoice." : " used all of this month's minutes. New conversions will wait until next month or a bigger plan."

@@ -82,10 +82,13 @@ public static class Endpoints
 
     public static void MapMeetingEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/me", (HttpContext h) => h.Current() is var u ? new
+        api.MapGet("/me", async (HttpContext h, OrganisationService orgs) => h.Current() is var u ? new
         {
             u.Id, u.Name, u.Email, u.IsAdmin, u.Grants, u.Department, u.IsSupport, u.EntraObjectId, u.GroupIds, u.Individual,
             RunsDepartment = u.Leads.Count > 0, // a department admin: they see the Workload page for their departments
+            // The organisation's name, shown in the header once there are several organisations.
+            Organisation = u.Individual || u.IsSupport ? null : await orgs.NameAsync(u.OrganisationId),
+            SeveralOrganisations = (await orgs.IdsAsync()).Count > 1,
         } : null);
         api.MapGet("/languages", () => new { max = SpokenLanguageCatalogue.MaxPerRecording, languages = SpokenLanguageCatalogue.All });
         // Technical error detail for VerbaFlow support and developers only. Customers, including their administrators, are refused.
@@ -130,7 +133,7 @@ public static class Endpoints
         api.MapPut("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id, SavedTextBody b) => Results.Ok(await t.ChangeAsync(h.Current(), id, b.Code, b.Text)));
         api.MapDelete("/saved-text/{id:guid}", async (HttpContext h, SavedTextService t, Guid id) => { await t.RemoveAsync(h.Current(), id); return Results.NoContent(); });
         // The letterhead belongs to the organisation: someone with a personal account has none (their letters go on a plain page).
-        api.MapGet("/letterhead", async (HttpContext h, LetterheadService l) => h.Current().Individual ? Letterhead.Empty : await l.GetAsync());
+        api.MapGet("/letterhead", async (HttpContext h, LetterheadService l) => h.Current().Individual ? Letterhead.Empty : await l.GetAsync(h.Current().Org));
         // An administrator looks at the stored file to check it; it is the organisation's own letterhead, not customer content.
         api.MapGet("/letterhead/sample", async (HttpContext h, LetterheadService l, string? format, bool? preview) =>
         {
@@ -144,7 +147,7 @@ public static class Endpoints
         {
             if (!h.Current().IsAdmin) throw new ForbiddenException("Only administrators can open the letterhead file.");
             var k = kind == "pdf" ? LetterheadService.Pdf : LetterheadService.Word;
-            var bytes = await l.ReadAsync(k) ?? throw new NotFoundException("There is no letterhead of that kind.");
+            var bytes = await l.ReadAsync(k, h.Current().Org) ?? throw new NotFoundException("There is no letterhead of that kind.");
             return Results.File(bytes, k == LetterheadService.Pdf ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 k == LetterheadService.Pdf ? "letterhead.pdf" : "letterhead.docx");
         });
@@ -159,8 +162,8 @@ public static class Endpoints
         {
             // The templates are the organisation's: someone with a personal account exports with VerbaFlow's standard layout.
             var individual = h.Current().Individual;
-            var lh = individual ? Letterhead.Empty : await l.GetAsync();
-            return new { templates = individual ? [] : (await m.ListAsync()).Select(TemplateView), canChange = h.Current().IsAdmin,
+            var lh = individual ? Letterhead.Empty : await l.GetAsync(h.Current().Org);
+            return new { templates = individual ? [] : (await m.ListAsync(h.Current().Org)).Select(TemplateView), canChange = h.Current().IsAdmin,
                 standard = TemplateView(MinutesTemplate.Standard), fonts = MinutesTemplate.Fonts,
                 wordLetterhead = lh.Word is not null, pdfLetterhead = lh.Pdf is not null };
         });
@@ -176,7 +179,7 @@ public static class Endpoints
         api.MapGet("/minutes-templates/{id:guid}/logo", async (HttpContext h, MinutesTemplateService m, Guid id) =>
         {
             OrganisationOnly(h);
-            var t = await m.PickAsync(id);
+            var t = await m.PickAsync(h.Current().Org, id);
             var bytes = await m.LogoAsync(t) ?? throw new NotFoundException("This template has no logo.");
             return Results.File(bytes, t.LogoType == "png" ? "image/png" : "image/jpeg");
         });

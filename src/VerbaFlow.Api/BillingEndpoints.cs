@@ -9,7 +9,7 @@ namespace VerbaFlow.Api;
 public static class BillingEndpoints
 {
     public sealed record CheckoutBody(string? Plan);
-    public sealed record OrganisationPlanBody(string? Plan, string? CustomerId);
+    public sealed record OrganisationPlanBody(string? Plan, string? CustomerId, Guid? Organisation = null);
     public sealed record PretendCancelBody(string? How);
 
     /// <summary>Where the payment pages send the person back to: the configured address online, else the address they used.</summary>
@@ -18,13 +18,18 @@ public static class BillingEndpoints
 
     public static void MapBillingEndpoints(this WebApplication app, RouteGroupBuilder api)
     {
-        api.MapGet("/plan", (HttpContext h, BillingService b) => b.ViewAsync(h.Current()));
+        api.MapGet("/plan", (HttpContext h, BillingService b, Guid? organisation) => b.ViewAsync(h.Current(), organisation));
         api.MapPost("/plan/checkout", async (HttpContext h, BillingService b, IConfiguration c, CheckoutBody body, CancellationToken ct) =>
             Results.Ok(new { url = (await b.CheckoutAsync(h.Current(), body.Plan, Origin(h, c), ct)).Url }));
         api.MapPost("/plan/manage", async (HttpContext h, BillingService b, IConfiguration c, CancellationToken ct) =>
             Results.Ok(new { url = (await b.ManageAsync(h.Current(), Origin(h, c), ct)).Url }));
         api.MapPost("/plan/organisation", (HttpContext h, BillingService b, OrganisationPlanBody body) =>
-            b.SetOrganisationPlanAsync(h.Current(), body.Plan, body.CustomerId));
+            b.SetOrganisationPlanAsync(h.Current(), body.Plan, body.CustomerId, body.Organisation));
+
+        // The organisations using VerbaFlow: only VerbaFlow support sees and changes them.
+        api.MapGet("/organisations", (HttpContext h, OrganisationService o, BillingService b) => o.ListAsync(h.Current(), b));
+        api.MapPost("/organisations", async (HttpContext h, OrganisationService o, OrganisationBody body) => Results.Ok(await o.CreateAsync(h.Current(), body)));
+        api.MapPut("/organisations/{id:guid}", async (HttpContext h, OrganisationService o, Guid id, OrganisationBody body) => Results.Ok(await o.ChangeAsync(h.Current(), id, body)));
 
         // The stand-in's pretend payment pages (only while no payment service is set up).
         api.MapPost("/plan/pretend/{reference}/pay", async (HttpContext h, BillingService b, string reference) =>

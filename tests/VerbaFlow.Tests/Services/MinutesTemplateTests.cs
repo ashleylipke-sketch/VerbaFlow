@@ -43,8 +43,8 @@ public class MinutesTemplateTests
         var second = await t.CreateAsync(env.Carol, Input(name: "Board", isDefault: true));
         Assert.True(second.IsDefault);
         Assert.False((await env.Stores.MinutesTemplates.GetAsync(first.Id))!.IsDefault);
-        Assert.Equal("Board", (await t.PickAsync(null)).Name);
-        Assert.Equal("VerbaFlow standard", (await t.PickAsync(Guid.Empty)).Name);
+        Assert.Equal("Board", (await t.PickAsync(null, null)).Name);
+        Assert.Equal("VerbaFlow standard", (await t.PickAsync(null, Guid.Empty)).Name);
         var history = (await env.Stores.Audit.ListAsync(null)).Where(a => a.Type.StartsWith("minutes-template.")).ToList();
         Assert.Equal(2, history.Count);
         Assert.True((await env.Stores.Audit.VerifyAsync()).Ok);

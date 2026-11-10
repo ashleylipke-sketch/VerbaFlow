@@ -70,7 +70,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
         try
         {
             var same = (await stores.NoteTakers.ListAsync())
-                .Where(n => n.IsActive && n.MeetingKey == key && (n.JoinAt - joinAt).Duration() <= SameMeetingWindow)
+                .Where(n => n.IsActive && n.MeetingKey == key && n.OrganisationId == Organisations.Stored(actor.Org) && (n.JoinAt - joinAt).Duration() <= SameMeetingWindow)
                 .OrderBy(n => n.CreatedAt).FirstOrDefault();
             if (same is not null)
             {
@@ -91,7 +91,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
                 await Audit(actor, "user", "meet.booking_failed", ("platform", platform), ("reference", rep.Reference), ("via", via));
                 throw new DomainException($"The note-taker could not be booked. Try again in a few minutes, and contact support if it happens again. Reference: {rep.Reference}.");
             }
-            var nt = new NoteTaker(id, [actor.Id], name, url, key, platform, joinAt, languages, now, NoteTakerState.Scheduled, botId, now);
+            var nt = new NoteTaker(id, [actor.Id], name, url, key, platform, joinAt, languages, now, NoteTakerState.Scheduled, botId, now) { OrganisationId = Organisations.Stored(actor.Org) };
             await stores.NoteTakers.UpsertAsync(id, nt);
             await Audit(actor, "user", "meet.booked", ("noteTaker", id), ("platform", platform), ("joinAt", joinAt), ("languages", languages), ("engine", service.Name), ("via", via));
             return new(await RowAsync(actor, nt), false, false);
@@ -109,7 +109,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
         try
         {
             var nt = await stores.NoteTakers.GetAsync(id) ?? throw new NotFoundException("That note-taker booking does not exist.");
-            if (!nt.Requesters.Contains(actor.Id) && !actor.IsAdmin) throw new ForbiddenException("Only someone who asked for this note-taker, or an administrator, can call it off.");
+            if (!nt.Requesters.Contains(actor.Id) && !AdminOver(actor, nt)) throw new ForbiddenException("Only someone who asked for this note-taker, or an administrator, can call it off.");
             if (!nt.IsActive) throw new DomainException("This note-taker has already finished.");
             if (nt.Requesters.Contains(actor.Id) && nt.Requesters.Count > 1)
             {
@@ -126,7 +126,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
             }
             var cancelled = nt with { State = NoteTakerState.Cancelled, StateAt = clock.GetUtcNow() };
             await stores.NoteTakers.UpsertAsync(id, cancelled);
-            await Audit(actor, actor.IsAdmin && !nt.Requesters.Contains(actor.Id) ? "admin" : "user", "meet.cancelled", ("noteTaker", id), ("platform", nt.Platform), ("via", via));
+            await Audit(actor, AdminOver(actor, nt) && !nt.Requesters.Contains(actor.Id) ? "admin" : "user", "meet.cancelled", ("noteTaker", id), ("platform", nt.Platform), ("via", via));
             return await RowAsync(actor, cancelled);
         }
         finally { gate.Release(); }
@@ -136,7 +136,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
     public async Task<IReadOnlyList<NoteTakerRow>> ListAsync(User actor)
     {
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name);
-        return (await stores.NoteTakers.ListAsync()).Where(n => actor.IsAdmin || n.Requesters.Contains(actor.Id))
+        return (await stores.NoteTakers.ListAsync()).Where(n => AdminOver(actor, n) || n.Requesters.Contains(actor.Id))
             .OrderByDescending(n => n.JoinAt).Take(200).Select(n => Row(actor, n, users)).ToList();
     }
 
@@ -303,13 +303,16 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
         _ => "Called off",
     };
 
+    /// <summary>Whether the person is an administrator of the organisation the booking was made in.</summary>
+    private static bool AdminOver(User actor, NoteTaker n) => actor.IsAdmin && !actor.Individual && n.OrganisationId == Organisations.Stored(actor.Org);
+
     private async Task<NoteTakerRow> RowAsync(User actor, NoteTaker n) =>
         Row(actor, n, (await stores.Users.ListAsync()).ToDictionary(u => u.Id, u => u.Name));
 
     private static NoteTakerRow Row(User actor, NoteTaker n, Dictionary<Guid, string> users) =>
         new(n.Id, n.Name, n.Platform, n.JoinAt, n.State.ToString(), LabelOf(n.State), n.FailureReason, n.ItemId,
             users.GetValueOrDefault(n.OwnerId, "?"), n.Requesters.Skip(1).Select(r => users.GetValueOrDefault(r, "?")).ToList(),
-            n.OwnerId == actor.Id, n.Requesters.Contains(actor.Id), n.IsActive && (n.Requesters.Contains(actor.Id) || actor.IsAdmin), n.CreatedAt,
+            n.OwnerId == actor.Id, n.Requesters.Contains(actor.Id), n.IsActive && (n.Requesters.Contains(actor.Id) || AdminOver(actor, n)), n.CreatedAt,
             n.CheckedAt, n.IsFinished ? null : n.Waiting);
 
     /// <summary>Up to three known spoken languages, comma-separated, or "auto".</summary>

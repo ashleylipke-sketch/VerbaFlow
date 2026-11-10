@@ -71,6 +71,7 @@ public sealed class Stores
     public DocTable<PlanRecord> Plans { get; }
     /// <summary>Minutes of speech turned into text, one record per person per month.</summary>
     public DocTable<UsageMonth> Usage { get; }
+    public DocTable<Organisation> Organisations { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -114,6 +115,7 @@ public sealed class Stores
         Translations = new(db, "doc_translations");
         Plans = new(db, "doc_plans");
         Usage = new(db, "doc_usage");
+        Organisations = new(db, "doc_organisations");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

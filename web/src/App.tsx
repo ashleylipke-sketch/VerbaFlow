@@ -26,6 +26,7 @@ import SearchPage from './pages/Search';
 import WidgetPage from './pages/Widget';
 import Meet from './pages/Meet';
 import Support from './pages/Support';
+import Organisations from './pages/Organisations';
 import LinkWidget from './pages/LinkWidget';
 import SignOffCard from './SignOffCard';
 
@@ -56,7 +57,7 @@ export default function App() {
   }, []);
   // The test users to pick from (only on the owner's computer); the server lists them to anyone while test users are on.
   useEffect(() => {
-    if (info.testUsers) fetch('/api/users', { headers: { 'X-Dev-User': 'alice' } }).then(r => r.json()).then(setUsers).catch(() => setUsers([]));
+    if (info.testUsers) fetch('/api/sign-in/test-users').then(r => r.json()).then(setUsers).catch(() => setUsers([]));
   }, []);
   useEffect(() => {
     setMe(null);
@@ -95,13 +96,13 @@ export default function App() {
         {me && <Bell path={path} />}
         <span className="note signin">
           {way === 'microsoft' || way === 'google'
-            ? <>Signed in as {me?.name || microsoftName()}{me?.isAdmin ? ' (admin)' : ''}{me?.individual ? ' (personal account)' : ''} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>Sign out</a></>
+            ? <>Signed in as {me?.name || microsoftName()}{me?.isAdmin ? ' (admin)' : ''}{me?.individual ? ' (personal account)' : ''}{me?.severalOrganisations && me.organisation ? `, ${me.organisation}` : ''} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>Sign out</a></>
             : info.testUsers
               ? <label title="Test users: only on this computer, while VerbaFlow runs in Development">
-                {way ? 'Test user ' : 'Test sign-in '}
+                {way ? 'Test user ' : 'Test sign-in '}{way && me?.severalOrganisations && me.organisation ? `(${me.organisation}) ` : ''}
                 <select value={way ? getTestUser() : ''} onChange={e => pickTest(e.target.value)}>
                   <option value="">Choose…</option>
-                  {users.map(u => <option key={u.id} value={key(u)}>{u.name}{u.isAdmin ? ' (admin)' : ''}{u.isSupport ? ' (support)' : ''}</option>)}
+                  {users.map(u => <option key={u.id} value={key(u)}>{u.name}{u.isAdmin && !u.name.includes('Admin') ? ' (admin)' : ''}{u.isSupport ? ' (support)' : ''}</option>)}
                 </select>
                 {info.microsoft && <> · <a href="#" onClick={e => { e.preventDefault(); signInWithMicrosoft(); }}>Sign in with Microsoft</a></>}
               </label>
@@ -153,7 +154,9 @@ export default function App() {
           : path === '/workload' ? <WorkloadPage />
           : path.startsWith('/plan/pretend-pay/') ? <PretendPay reference={path.slice('/plan/pretend-pay/'.length)} />
           : path === '/plan/pretend-manage' ? <PretendManage />
-          : path === '/plan' || path.startsWith('/plan?') ? <PlanPage key={path} paid={path.includes('paid=1')} />
+          : path === '/plan' || path.startsWith('/plan?') ? <PlanPage key={path} paid={path.includes('paid=1')}
+              organisation={new URLSearchParams(path.split('?')[1] ?? '').get('organisation') ?? undefined} />
+          : path === '/organisations' ? <Organisations />
           : path === '/departments' ? <DepartmentsPage />
           : path.startsWith('/search') ? <SearchPage key={path} query={new URLSearchParams(path.split('?')[1] ?? '')} />
           : path === '/meet' ? <Meet />
@@ -189,7 +192,7 @@ function MoreMenu({ path, admin, support, lead, individual }: { path: string; ad
       ['/email', 'Email'], ['/plan', 'Plan'],
     ] as [string, string][] : []),
     ...(support && !admin ? [['/plan', 'Plan'] as [string, string]] : []),
-    ...(support ? [['/support', 'Support: errors'] as [string, string]] : []),
+    ...(support ? [['/organisations', 'Organisations'] as [string, string], ['/support', 'Support: errors'] as [string, string]] : []),
   ];
   const here = pages.some(([p]) => p === path);
   return (

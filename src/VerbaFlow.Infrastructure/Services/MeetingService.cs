@@ -34,7 +34,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var id = Guid.NewGuid();
         var now = clock.GetUtcNow();
         var item = Item.CreateRecorded(id, actor.Id, up.Name, up.LengthMs, up.OutputLanguage, now, up.Mode);
-        if (actor.Individual) item.MarkIndividual();
+        item.BelongTo(actor);
         if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
         if (dictation) item.SetDocumentType(up.DocumentType);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
@@ -84,7 +84,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             CheckDictation(up.Name, up.DocumentType);
             if (up.LengthMs <= 0) throw new DomainException("The dictation has no length.");
             item = Item.CreateDraft(Guid.NewGuid(), actor.Id, up.Name!, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), up.Mode);
-            if (actor.Individual) item.MarkIndividual();
+            item.BelongTo(actor);
             if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
             item.SetDocumentType(up.DocumentType);
             item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
@@ -182,7 +182,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var id = Guid.NewGuid();
         var name = string.IsNullOrWhiteSpace(up.Name) ? Path.GetFileNameWithoutExtension(up.FileName) : up.Name!;
         var item = Item.CreateImported(id, actor.Id, name, up.LengthMs, up.OutputLanguage, clock.GetUtcNow(), SafeName(up.FileName), up.SourceNote, up.Mode);
-        if (actor.Individual) item.MarkIndividual();
+        item.BelongTo(actor);
         if (!string.IsNullOrWhiteSpace(up.ClientReference)) item.UpdateDetails(null, up.ClientReference, null, null, null, false);
         if (up.Mode == ItemMode.Dictate) item.SetDocumentType(up.DocumentType);
         item.SetSpokenLanguages(up.SpokenLanguages ?? up.OutputLanguage);
@@ -212,6 +212,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         var now = clock.GetUtcNow();
         var note = $"{up.Platform} meeting, recorded by the note-taker {up.NoteTakerName}";
         var item = Item.CreateFromOnlineMeeting(id, owner.Id, up.Requesters.Skip(1), up.Name, now, note, SafeName(up.FileName));
+        item.BelongTo(owner);
         item.SetSpokenLanguages(up.SpokenLanguages);
         item.AddMarker(new TimelineMarker { Type = MarkerType.ConsentNotice, OffsetMs = 0, ActorId = owner.Id, At = now,
             Note = $"The note-taker joined as a visible participant named {up.NoteTakerName} and announced the recording in the meeting chat" });
@@ -363,6 +364,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
             throw new DomainException("A recording in a personal account cannot be given to someone else.");
         if (!item.Individual && target is { Individual: true })
             throw new DomainException("That person uses VerbaFlow with a personal account, so the organisation's recordings cannot be given to them.");
+        if (!item.Individual && target is { Individual: false } && target.Org != item.Org)
+            throw new DomainException("That person is in another organisation, so this recording cannot be given to them.");
         var previous = item.AssignedUserId;
         var isReassignment = previous is not null && previous != toUserId && previous != item.OwnerId;
         if (isReassignment && string.IsNullOrWhiteSpace(reason))
@@ -437,6 +440,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     public async Task<Guid?> ApproveReopenAsync(User admin, Guid requestId)
     {
         var req = await stores.Reopen.GetAsync(requestId) ?? throw new NotFoundException("That request does not exist.");
+        await RequireSameOrganisationAsync(admin, req.ItemId);
         req.Approve(admin);
         await Audit(admin, "admin", null, "reopen.approved", ("requestId", requestId), ("originalItemId", req.ItemId));
         if (!req.IsApproved) { await stores.Reopen.UpsertAsync(requestId, req); return null; }
@@ -470,6 +474,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     public async Task RejectReopenAsync(User admin, Guid requestId, string reason)
     {
         var req = await stores.Reopen.GetAsync(requestId) ?? throw new NotFoundException("That request does not exist.");
+        await RequireSameOrganisationAsync(admin, req.ItemId);
         req.Reject(admin, reason);
         await stores.Reopen.UpsertAsync(requestId, req);
         await Audit(admin, "admin", null, "reopen.rejected", ("requestId", requestId), ("originalItemId", req.ItemId), ("reason", reason));
@@ -480,7 +485,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (!actor.IsAdmin) throw new ForbiddenException("Only administrators can see reopen requests.");
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id);
         var items = (await stores.Items.ListAsync()).ToDictionary(i => i.Id);
-        return (await stores.Reopen.ListAsync()).Where(r => items.GetValueOrDefault(r.ItemId)?.Individual != true).OrderByDescending(r => r.CreatedAt).Select(r => new ReopenView(
+        return (await stores.Reopen.ListAsync()).Where(r => items.GetValueOrDefault(r.ItemId) is { } i && actor.SameOrganisation(i)).OrderByDescending(r => r.CreatedAt).Select(r => new ReopenView(
             r.Id, r.ItemId, items.GetValueOrDefault(r.ItemId)?.Name ?? "?", r.Reason,
             users.GetValueOrDefault(r.RequestedBy)?.Name ?? "?", r.Approvals.Count,
             r.Approvals.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), r.IsOpen,
@@ -529,6 +534,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     {
         var req = await stores.Deletes.GetAsync(requestId) ?? throw new NotFoundException("That request does not exist.");
         if ((await stores.Items.GetAsync(req.ItemId))?.Individual == true) throw new ForbiddenException("This recording is in a personal account.");
+        await RequireSameOrganisationAsync(admin, req.ItemId);
         req.Approve(admin);
         if (req.IsApproved)
         {
@@ -549,6 +555,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     public async Task RejectDeleteAsync(User admin, Guid requestId, string reason)
     {
         var req = await stores.Deletes.GetAsync(requestId) ?? throw new NotFoundException("That request does not exist.");
+        await RequireSameOrganisationAsync(admin, req.ItemId);
         req.Reject(admin, reason);
         await stores.Deletes.UpsertAsync(requestId, req);
         await Audit(admin, "admin", req.ItemId, "delete.rejected", ("requestId", requestId), ("reason", req.RejectionReason));
@@ -559,7 +566,7 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         if (!actor.IsAdmin) throw new ForbiddenException("Only administrators can see delete requests.");
         var users = (await stores.Users.ListAsync()).ToDictionary(u => u.Id);
         var items = (await stores.Items.ListAsync()).ToDictionary(i => i.Id);
-        return (await stores.Deletes.ListAsync()).Where(r => items.GetValueOrDefault(r.ItemId)?.Individual != true).OrderByDescending(r => r.CreatedAt).Select(r => new DeleteRequestView(
+        return (await stores.Deletes.ListAsync()).Where(r => items.GetValueOrDefault(r.ItemId) is { } i && actor.SameOrganisation(i)).OrderByDescending(r => r.CreatedAt).Select(r => new DeleteRequestView(
             r.Id, r.ItemId, items.GetValueOrDefault(r.ItemId)?.Name ?? "?", r.Reason,
             users.GetValueOrDefault(r.RequestedBy)?.Name ?? "?", r.Approvals.Count,
             r.Approvals.Select(a => users.GetValueOrDefault(a)?.Name ?? "?").ToList(), r.IsOpen,
@@ -937,6 +944,13 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
         return await stores.Audit.ListAsync(itemId);
     }
 
+    /// <summary>Requests about another organisation's recordings are answered as if they did not exist.</summary>
+    private async Task RequireSameOrganisationAsync(User admin, Guid itemId)
+    {
+        var item = await stores.Items.GetAsync(itemId);
+        if (item is null || !item.Individual && !admin.SameOrganisation(item)) throw new NotFoundException("That request does not exist.");
+    }
+
     public async Task<AuditVerification> VerifyAuditAsync(User actor)
     {
         if (!actor.IsAdmin) throw new ForbiddenException("Only administrators can verify the audit trail.");
@@ -949,8 +963,8 @@ public sealed class MeetingService(Stores stores, IMalwareScanner scanner, Proce
     /// </summary>
     public async Task<IReadOnlyList<UserView>> ListUsersAsync(User actor)
     {
-        var departments = (await stores.Departments.ListAsync()).OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-        return (await stores.Users.ListAsync()).Where(u => actor.Individual ? u.Id == actor.Id : !u.Individual).Select(u => new UserView(u.Id, u.Name, u.Email, u.IsAdmin, u.IsSupport,
+        var departments = (await stores.Departments.ListAsync()).Where(d => d.InOrganisationOf(actor)).OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        return (await stores.Users.ListAsync()).Where(u => actor.Individual ? u.Id == actor.Id : actor.SameOrganisation(u)).Select(u => new UserView(u.Id, u.Name, u.Email, u.IsAdmin, u.IsSupport,
             u.IsSupport ? [] : departments.Where(d => d.Has(u)).Select(d => d.Name).ToList())).ToList();
     }
 

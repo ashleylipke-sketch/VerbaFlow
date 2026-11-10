@@ -2,21 +2,24 @@ import { useEffect, useState } from 'react';
 import { api, type PlanView } from '../api';
 
 const hours = (m: number) => m >= 60 && m % 60 === 0 ? `${(m / 60).toLocaleString()} hour${m === 60 ? '' : 's'}` : `${m.toLocaleString()} minutes`;
-const minutes = (m: number) => m >= 60 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${m.toLocaleString(undefined, { maximumFractionDigits: 1 })} min`;
+const minutes = (m: number) => Math.round(m) >= 60 ? `${Math.floor(Math.round(m) / 60)} h ${Math.round(m) % 60} min` : `${m.toLocaleString(undefined, { maximumFractionDigits: 1 })} min`;
 const when = (s: string) => new Date(s).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const length = (s: number) => s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 
 /** Your plan (personal accounts) or the organisation's plan (administrators and VerbaFlow support): minutes used, plans, paying. */
-export default function PlanPage({ paid }: { paid?: boolean }) {
+export default function PlanPage({ paid, organisation }: { paid?: boolean; organisation?: string }) {
   const [view, setView] = useState<PlanView | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [orgPlan, setOrgPlan] = useState('');
   const [customer, setCustomer] = useState('');
   const [saved, setSaved] = useState('');
+  const [orgName, setOrgName] = useState('');
 
   const show = (v: PlanView) => { setView(v); setOrgPlan(v.planId); setCustomer(v.customerId ?? ''); };
-  useEffect(() => { api.plan().then(show).catch(e => setError(e.message)); }, []);
+  useEffect(() => { api.plan(organisation).then(show).catch(e => setError(e.message)); }, []);
+  // VerbaFlow support looks at one organisation at a time: say which.
+  useEffect(() => { if (organisation) api.organisations().then(r => setOrgName(r.find(o => o.id === organisation)?.name ?? '')).catch(() => {}); }, []);
 
   const go = async (what: string, f: () => Promise<{ url: string }>) => {
     setBusy(what); setError('');
@@ -24,7 +27,7 @@ export default function PlanPage({ paid }: { paid?: boolean }) {
   };
   const setOrganisation = async () => {
     setBusy('org'); setError(''); setSaved('');
-    try { show(await api.setOrganisationPlan(orgPlan, customer.trim())); setSaved('Saved.'); } catch (e: any) { setError(e.message); }
+    try { show(await api.setOrganisationPlan(orgPlan, customer.trim(), organisation)); setSaved('Saved.'); } catch (e: any) { setError(e.message); }
     setBusy('');
   };
 
@@ -35,7 +38,8 @@ export default function PlanPage({ paid }: { paid?: boolean }) {
 
   return <>
     <div className="card">
-      <h2>{view.organisation ? 'Your organisation’s plan' : 'Your plan'}: {view.planName}</h2>
+      <h2>{orgName ? `${orgName}’s plan` : view.organisation ? 'Your organisation’s plan' : 'Your plan'}: {view.planName}</h2>
+      {organisation && <p><a href="#/organisations">← Organisations</a></p>}
       {paid && <p className="ok" role="status">Thank you. The plan starts as soon as the payment service confirms it, usually within a minute.</p>}
       {error && <div className="error" role="alert">{error}</div>}
       <p>{hours(view.minutesPerMonth)} of speech a month{view.organisation ? ', shared by everyone in the organisation' : ''}. {view.price !== '£0' && view.price}{view.people ? ` · For up to ${view.people} people` : ''}{view.extra ? ` · ${view.extra}, on the next invoice` : ''}</p>

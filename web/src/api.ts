@@ -55,7 +55,9 @@ export type NotificationRow = { id: string; text: string; group: string; itemId:
 export type NotificationList = { unread: number; items: NotificationRow[] };
 export type NotificationSettings = { hasEmail: boolean; email: string | null; emailReal: boolean; groups: { key: string; label: string; email: boolean }[] };
 export type BulkResult = { id: string; name: string; done: boolean; problem: string | null };
-export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean; runsDepartment?: boolean; departments?: string[]; individual?: boolean };
+export type UserView = { id: string; name: string; email: string; isAdmin: boolean; isSupport: boolean; runsDepartment?: boolean; departments?: string[]; individual?: boolean;
+  organisation?: string | null; severalOrganisations?: boolean };
+export type OrganisationRow = { id: string; name: string; tenantId: string | null; first: boolean; people: number; admins: number; plan: string; createdAt: string | null };
 export type SupportError = { id: string; reference: string; area: string; kind: string; itemId: string | null; detail: string; at: string };
 export type AuditEvent = { seq: number; at: string; actorId: string | null; capacity: string; type: string; details: string; hash: string };
 
@@ -130,10 +132,13 @@ export type PlanView = {
 };
 
 export const api = {
-  plan: () => call<PlanView>('GET', '/plan'),
+  plan: (organisation?: string) => call<PlanView>('GET', '/plan' + (organisation ? `?organisation=${encodeURIComponent(organisation)}` : '')),
   planCheckout: (plan: string) => call<{ url: string }>('POST', '/plan/checkout', { plan }),
   planManage: () => call<{ url: string }>('POST', '/plan/manage'),
-  setOrganisationPlan: (plan: string, customerId: string) => call<PlanView>('POST', '/plan/organisation', { plan, customerId }),
+  setOrganisationPlan: (plan: string, customerId: string, organisation?: string) => call<PlanView>('POST', '/plan/organisation', { plan, customerId, organisation }),
+  organisations: () => call<OrganisationRow[]>('GET', '/organisations'),
+  addOrganisation: (name: string, tenantId: string) => call<unknown>('POST', '/organisations', { name, tenantId }),
+  changeOrganisation: (id: string, name: string, tenantId: string) => call<unknown>('PUT', `/organisations/${id}`, { name, tenantId }),
   pretendPay: (reference: string) => call<PlanView>('POST', `/plan/pretend/${encodeURIComponent(reference)}/pay`),
   pretendCancel: (how: 'end' | 'keep' | 'now') => call<PlanView>('POST', '/plan/pretend/cancel', { how }),
   users: () => call<UserView[]>('GET', '/users'),

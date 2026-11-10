@@ -49,7 +49,7 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
 
     public async Task<WidgetPolicyView> GetPolicyAsync(User actor)
     {
-        var p = await stores.WidgetPolicy.GetAsync(WidgetPolicy.RowId) ?? new WidgetPolicy([]);
+        var p = (actor.Individual ? null : await stores.WidgetPolicy.GetAsync(PolicyKey(actor))) ?? new WidgetPolicy([]);
         var by = p.ChangedBy is { } id ? (await stores.Users.GetAsync(id))?.Name : null;
         return new WidgetPolicyView(p.BlockedSites, actor.IsAdmin, by, p.ChangedAt);
     }
@@ -66,9 +66,9 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
             if (!clean.Contains(s)) clean.Add(s);
         }
         if (clean.Count > MaxBlockedSites) throw new DomainException($"At most {MaxBlockedSites} websites and programs can be listed.");
-        var before = (await stores.WidgetPolicy.GetAsync(WidgetPolicy.RowId))?.BlockedSites ?? [];
+        var before = (await stores.WidgetPolicy.GetAsync(PolicyKey(actor)))?.BlockedSites ?? [];
         clean.Sort(StringComparer.Ordinal);
-        await stores.WidgetPolicy.UpsertAsync(WidgetPolicy.RowId, new WidgetPolicy(clean, actor.Id, clock.GetUtcNow()));
+        await stores.WidgetPolicy.UpsertAsync(PolicyKey(actor), new WidgetPolicy(clean, actor.Id, clock.GetUtcNow()));
         await Audit(actor, "admin", "widget.policy_changed", ("blockedSites", clean.Count),
             ("added", string.Join(",", clean.Except(before))), ("removed", string.Join(",", before.Except(clean))));
         return await GetPolicyAsync(actor);
@@ -79,7 +79,7 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
     {
         var s = SiteOf(site);
         if (s.Length == 0) throw new DomainException("The Widget only works on websites and Windows programs.");
-        var policy = await stores.WidgetPolicy.GetAsync(WidgetPolicy.RowId);
+        var policy = actor.Individual ? null : await stores.WidgetPolicy.GetAsync(PolicyKey(actor));
         // The organisation's blocked list is for its own people; a personal account is not under it.
         if (policy is not null && !actor.Individual && IsBlocked(s, policy.BlockedSites))
             throw new DomainException("Your administrator has switched the Widget off here.");
@@ -187,10 +187,10 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
     {
         var all = await stores.Users.ListAsync();
         var users = all.ToDictionary(u => u.Id, u => u.Name);
-        // Administrators see the organisation's uses, never those of people with personal accounts.
-        var personal = all.Where(u => u.Individual).Select(u => u.Id).ToHashSet();
+        // Administrators see their own organisation's uses, never those of people with personal accounts or in other organisations.
+        var theirs = all.Where(u => actor.IsAdmin && actor.SameOrganisation(u)).Select(u => u.Id).ToHashSet();
         var now = clock.GetUtcNow();
-        return (await stores.WidgetSessions.ListAsync()).Where(w => w.UserId == actor.Id || actor.IsAdmin && !personal.Contains(w.UserId))
+        return (await stores.WidgetSessions.ListAsync()).Where(w => w.UserId == actor.Id || theirs.Contains(w.UserId))
             .OrderByDescending(w => w.StartedAt).Take(take)
             .Select(w => new WidgetSessionRow(w.Id, actor.IsAdmin ? users.GetValueOrDefault(w.UserId) : null, w.Site, w.Device, w.Languages,
                 w.StartedAt, w.EndedAt, w.Outcome ?? (now - w.StartedAt > TimeSpan.FromHours(6) ? "not finished" : "open"), w.Listens, w.SpokenMs, w.Words))
@@ -230,10 +230,12 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
         }
     }
 
+    private static Guid PolicyKey(User actor) => Organisations.Key(actor.Org, WidgetPolicy.RowId);
+
     private Task Audit(User actor, string capacity, string type, params (string, object?)[] details)
     {
         RequireContentFree(details);
-        return stores.Audit.AppendAsync(actor.Id, capacity, Product, null, type, AuditChain.Details(details));
+        return stores.Audit.AppendAsync(actor.Id, capacity, Product, null, type, AuditChain.Details(Organisations.With(details, actor.Org)));
     }
 
     [GeneratedRegex("^VF-[A-Z0-9]{4,12}$")]

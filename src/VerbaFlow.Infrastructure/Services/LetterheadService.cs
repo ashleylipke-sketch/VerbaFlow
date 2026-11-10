@@ -18,12 +18,17 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
     public const string Word = "word", Pdf = "pdf";
     public const int MinSpaceMm = 5, MaxSpaceMm = 120;
 
-    public async Task<Letterhead> GetAsync() => await stores.Letterhead.GetAsync(Letterhead.SingleId) ?? Letterhead.Empty;
+    /// <summary>The letterhead of an organisation (<see cref="User.Org"/> or <see cref="Item.Org"/>; null = the first organisation).</summary>
+    public async Task<Letterhead> GetAsync(Guid? organisation = null)
+    {
+        var key = Organisations.Key(organisation, Letterhead.SingleId);
+        return await stores.Letterhead.GetAsync(key) ?? Letterhead.Empty with { Id = key };
+    }
 
     /// <summary>The stored file for Word or PDF, or null when none is set (or its file is missing).</summary>
-    public async Task<byte[]?> ReadAsync(string kind)
+    public async Task<byte[]?> ReadAsync(string kind, Guid? organisation = null)
     {
-        var l = await GetAsync();
+        var l = await GetAsync(organisation);
         var f = kind == Word ? l.Word : l.Pdf;
         if (f is null) return null;
         var path = PathFor(f.Sha256, kind);
@@ -47,7 +52,7 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
 
         var name = Path.GetFileName(fileName ?? "") is { Length: > 0 } n ? (n.Length > 120 ? n[..120] : n) : kind == Word ? "letterhead.docx" : "letterhead.pdf";
         var file = new LetterheadFile(sha, name, bytes.LongLength, actor.Id, clock.GetUtcNow());
-        var current = await GetAsync();
+        var current = await GetAsync(actor.Org);
         var previous = kind == Word ? current.Word : current.Pdf;
         var next = kind == Word ? current with { Word = file } : current with { Pdf = file };
         await stores.Letterhead.UpsertAsync(next.Id, next);
@@ -59,7 +64,7 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
     {
         RequireAdmin(actor);
         kind = Kind(kind);
-        var current = await GetAsync();
+        var current = await GetAsync(actor.Org);
         var previous = kind == Word ? current.Word : current.Pdf;
         if (previous is null) return current;
         var next = kind == Word ? current with { Word = null } : current with { Pdf = null };
@@ -75,7 +80,7 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
         foreach (var (v, what) in new[] { (topFirst, "top of the first page"), (topNext, "top of the pages after"), (bottom, "bottom"), (sides, "sides") })
             if (v < MinSpaceMm || v > MaxSpaceMm) throw new DomainException($"The space at the {what} must be between {MinSpaceMm} and {MaxSpaceMm} mm.");
         if (sides * 2 > 150) throw new DomainException("The spaces at the sides leave no room for the text. Make them smaller.");
-        var current = await GetAsync();
+        var current = await GetAsync(actor.Org);
         var next = current with { PdfTopFirstMm = topFirst, PdfTopNextMm = topNext, PdfBottomMm = bottom, PdfSideMm = sides,
             PdfRepeatFirstPage = repeatFirstPage ?? current.PdfRepeatFirstPage };
         await stores.Letterhead.UpsertAsync(next.Id, next);
@@ -88,7 +93,7 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
     /// It ends with the viewer's own sign-off (as on an approved letter) when they have one switched on.</summary>
     public async Task<byte[]> SampleAsync(string format, User? viewer = null)
     {
-        var l = await GetAsync();
+        var l = await GetAsync(viewer?.Org);
         var letter = new Export.LetterDocument("Sample letter", clock.GetLocalNow().ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
             "SAMPLE-001", null,
         [
@@ -107,8 +112,8 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
                 letter = letter with { Paragraphs = fitted.Paragraphs, SignOff = fitted.SignOff };
             }
         }
-        return format == Word ? Export.LetterWriter.Word(letter, await ReadAsync(Word))
-            : Export.LetterWriter.Pdf(letter, await ReadAsync(Pdf), new Export.LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm, l.PdfRepeatFirstPage));
+        return format == Word ? Export.LetterWriter.Word(letter, await ReadAsync(Word, viewer?.Org))
+            : Export.LetterWriter.Pdf(letter, await ReadAsync(Pdf, viewer?.Org), new Export.LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm, l.PdfRepeatFirstPage));
     }
 
     private string PathFor(string sha, string kind) => Path.Combine(stores.LetterheadRoot, sha + (kind == Word ? ".docx" : ".pdf"));
@@ -162,5 +167,5 @@ public sealed class LetterheadService(Stores stores, TimeProvider clock)
     }
 
     private Task Audit(User actor, string action, params (string, object?)[] details) =>
-        stores.Audit.AppendAsync(actor.Id, "admin", "platform", null, action, AuditChain.Details(details));
+        stores.Audit.AppendAsync(actor.Id, "admin", "platform", null, action, AuditChain.Details(Organisations.With(details, actor.Org)));
 }

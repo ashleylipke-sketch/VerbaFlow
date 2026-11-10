@@ -9,9 +9,12 @@ namespace VerbaFlow.Core.Domain;
 /// recordings of the department's members (not reopen or delete them), and do not need to be members themselves.
 /// </summary>
 public sealed record Department(Guid Id, string Name, string? GroupId, IReadOnlyList<Guid> HandMembers, DateTimeOffset CreatedAt,
-    IReadOnlyList<Guid>? Admins = null)
+    IReadOnlyList<Guid>? Admins = null, Guid? OrganisationId = null)
 {
     public const int MaxAdmins = 10;
+
+    /// <summary>Whether the department is in this person's organisation (personal accounts have no departments).</summary>
+    public bool InOrganisationOf(User user) => !user.Individual && OrganisationId == Organisations.Stored(user.Org);
 
     /// <summary>The department admins (none on departments made before they existed).</summary>
     public IReadOnlyList<Guid> Leads => Admins ?? [];

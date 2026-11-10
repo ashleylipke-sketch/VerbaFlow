@@ -79,6 +79,31 @@ public class SignInHostTests : IDisposable
     }
 
     [Fact]
+    public async Task A_work_account_from_an_added_organisation_signs_in_to_that_organisation()
+    {
+        const string northwindTenant = "99999999-8888-7777-6666-555555555555";
+        var stores = _app.Services.GetRequiredService<VerbaFlow.Infrastructure.Services.Stores>();
+        var support = new VerbaFlow.Core.Domain.User(Guid.NewGuid(), "Sam Support", "sam@example.test", false, VerbaFlow.Core.Domain.Capability.None, null, true);
+        await stores.Users.UpsertAsync(support.Id, support);
+        var org = await _app.Services.GetRequiredService<VerbaFlow.Infrastructure.Services.OrganisationService>()
+            .CreateAsync(support, new("Northwind", northwindTenant));
+
+        var ok = await Me(r => r.Headers.Authorization = new("Bearer", Token(tenant: northwindTenant, roles: "Admin", oid: "oid-nadia")));
+        var me = await ok.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(me.GetProperty("individual").GetBoolean());
+        Assert.True(me.GetProperty("isAdmin").GetBoolean());
+        Assert.Equal("Northwind", me.GetProperty("organisation").GetString());
+        Assert.True(me.GetProperty("severalOrganisations").GetBoolean());
+        Assert.Equal(org.Id, (await stores.Users.GetAsync(Guid.Parse(me.GetProperty("id").GetString()!)))!.OrganisationId);
+
+        // Someone from the first organisation is in a different list of people.
+        await Me(r => r.Headers.Authorization = new("Bearer", Token(oid: "oid-ashley")));
+        var users = await (await Me(r => { r.RequestUri = new Uri("/api/users", UriKind.Relative); r.Headers.Authorization = new("Bearer", Token(tenant: northwindTenant, oid: "oid-nadia")); }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(me.GetProperty("id").GetString(), Assert.Single(users.EnumerateArray()).GetProperty("id").GetString());
+    }
+
+    [Fact]
     public async Task A_microsoft_account_from_outside_the_organisation_gets_a_personal_VerbaFlow()
     {
         var info = await _app.CreateClient().GetFromJsonAsync<JsonElement>("/api/sign-in");

@@ -26,6 +26,17 @@ public sealed class SignInOptions
     /// "any organisational directory and personal Microsoft accounts".
     /// </summary>
     public bool PersonalAccounts { get; init; }
+    /// <summary>
+    /// Work accounts from the other organisations VerbaFlow support has added (each with its Microsoft directory) sign in to
+    /// their own organisation (<c>Entra:OtherOrganisations=true</c>, also implied by personal accounts). Needs the app
+    /// registration's supported account types set to "any organisational directory" (multitenant).
+    /// </summary>
+    public bool OtherOrganisations { get; init; }
+    /// <summary>Whether sign-ins from directories other than this organisation's are accepted at all.</summary>
+    public bool AnyDirectory => PersonalAccounts || OtherOrganisations;
+    /// <summary>Where the web app and the Widgets send people to sign in with Microsoft.</summary>
+    public string Authority => PersonalAccounts ? "https://login.microsoftonline.com/common"
+        : OtherOrganisations ? "https://login.microsoftonline.com/organizations" : $"https://login.microsoftonline.com/{TenantId}";
     /// <summary>Google sign-in for personal accounts (<c>Google:ClientId</c>, a Google Cloud OAuth client id; not secret).</summary>
     public string? GoogleClientId { get; init; }
     /// <summary>
@@ -49,6 +60,7 @@ public sealed class SignInOptions
         ClientId = config["Entra:ClientId"]?.Trim(),
         TestUsers = env.IsDevelopment() && !string.Equals(config["SignIn:TestUsers"], "false", StringComparison.OrdinalIgnoreCase),
         PersonalAccounts = string.Equals(config["Entra:PersonalAccounts"], "true", StringComparison.OrdinalIgnoreCase),
+        OtherOrganisations = string.Equals(config["Entra:OtherOrganisations"], "true", StringComparison.OrdinalIgnoreCase),
         GoogleClientId = config["Google:ClientId"]?.Trim() is { Length: > 0 } g ? g : null,
         EmailCodes = (string.Equals(config["Entra:PersonalAccounts"], "true", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(config["Google:ClientId"]))
             && !string.Equals(config["SignIn:EmailCodes"], "false", StringComparison.OrdinalIgnoreCase)
@@ -66,13 +78,14 @@ public sealed class SignInOptions
         services.AddAuthentication().AddJwtBearer(o =>
         {
             // With personal accounts the keys come from Microsoft's shared endpoint, which signs every directory's sign-ins.
-            o.Authority = PersonalAccounts ? "https://login.microsoftonline.com/common/v2.0" : $"https://login.microsoftonline.com/{TenantId}/v2.0";
+            o.Authority = AnyDirectory ? "https://login.microsoftonline.com/common/v2.0" : $"https://login.microsoftonline.com/{TenantId}/v2.0";
             o.MapInboundClaims = false; // keep Microsoft's own claim names: oid, tid, scp, roles, name, preferred_username
             o.TokenValidationParameters.ValidAudiences = [ClientId!, $"api://{ClientId}"];
             // Version 2 and version 1 tokens name the issuer differently; only this organisation's directory is accepted.
             o.TokenValidationParameters.ValidIssuers = [$"https://login.microsoftonline.com/{TenantId}/v2.0", $"https://sts.windows.net/{TenantId}/"];
-            // With personal accounts, any directory's sign-in is accepted, as long as the issuer is that directory's own.
-            if (PersonalAccounts) o.TokenValidationParameters.IssuerValidator = (issuer, token, p) =>
+            // With personal accounts or other organisations, any directory's sign-in is accepted, as long as the issuer is that
+            // directory's own; who it then is (a member of an organisation, a personal account, or nobody) is decided at each call.
+            if (AnyDirectory) o.TokenValidationParameters.IssuerValidator = (issuer, token, p) =>
                 p.ValidIssuers!.Contains(issuer) || token is JsonWebToken jwt && jwt.TryGetPayloadValue<string>("tid", out var tid)
                     && Guid.TryParse(tid, out _) && issuer == $"https://login.microsoftonline.com/{tid}/v2.0"
                     ? issuer : throw new SecurityTokenInvalidIssuerException("The sign-in is not from a Microsoft directory.");
@@ -83,7 +96,7 @@ public sealed class SignInOptions
     public object Describe() => new
     {
         microsoft = Microsoft ? new { tenantId = TenantId, clientId = ClientId, scope = Scope,
-            authority = PersonalAccounts ? "https://login.microsoftonline.com/common" : $"https://login.microsoftonline.com/{TenantId}" } : null,
+            authority = Authority } : null,
         google = Google ? new { clientId = GoogleClientId } : null,
         personalAccounts = PersonalAccounts || Google || EmailCodes,
         email = EmailCodes,
@@ -112,7 +125,12 @@ public static class SignIn
         {
             var result = await http.AuthenticateAsync(JwtBearerDefaults.AuthenticationScheme);
             var users = http.RequestServices.GetRequiredService<EntraUsers>();
-            if (result.Succeeded && Identity(result.Principal!, options) is { } who) user = await users.ResolveAsync(who);
+            // A work account from a directory VerbaFlow knows is one of that organisation's people; any other is a personal account.
+            var (known, organisation) = result.Succeeded && options.AnyDirectory
+                ? await http.RequestServices.GetRequiredService<OrganisationService>().ByTenantAsync(result.Principal!.FindFirst("tid")?.Value)
+                : (false, null);
+            if (result.Succeeded && (known ? Member(result.Principal!, organisation) : Identity(result.Principal!, options)) is { } who)
+                user = await users.ResolveAsync(who);
             else if (result.Succeeded && PersonalIdentityOf(result.Principal!, options) is { } personal) user = await users.ResolvePersonalAsync(personal);
             else return Results.Json(new { error = "Your sign-in has run out or is not for this organisation. Sign in again." }, statusCode: 401);
         }
@@ -130,12 +148,19 @@ public static class SignIn
     public static EntraIdentity? Identity(ClaimsPrincipal p, SignInOptions options)
     {
         string? Get(string type) => p.FindFirst(type)?.Value;
-        if (!string.Equals(Get("tid"), options.TenantId, StringComparison.OrdinalIgnoreCase)) return null;
+        return string.Equals(p.FindFirst("tid")?.Value, options.TenantId, StringComparison.OrdinalIgnoreCase) ? Member(p, null) : null;
+    }
+
+    /// <summary>A person of an organisation (null = the first one) whose directory signed the token; its roles and groups count there.</summary>
+    public static EntraIdentity? Member(ClaimsPrincipal p, Guid? organisationId)
+    {
+        string? Get(string type) => p.FindFirst(type)?.Value;
         if (!(Get("scp") ?? "").Split(' ').Contains("access_as_user")) return null;
         var oid = Get("oid");
         if (string.IsNullOrWhiteSpace(oid)) return null;
         var admin = p.FindAll("roles").Any(r => r.Value == SignInOptions.AdminRole);
-        return new EntraIdentity(oid, Get("name"), Get("preferred_username") ?? Get("upn") ?? Get("email") ?? Get("unique_name"), admin, Groups(p));
+        return new EntraIdentity(oid, Get("name"), Get("preferred_username") ?? Get("upn") ?? Get("email") ?? Get("unique_name"), admin, Groups(p),
+            Organisations.Stored(organisationId));
     }
 
     /// <summary>

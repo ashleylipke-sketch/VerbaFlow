@@ -7,7 +7,8 @@ namespace VerbaFlow.Infrastructure.Services;
 /// <summary>Who a Microsoft sign-in says the person is: their directory id, name, email and whether they hold the Admin role.</summary>
 /// <param name="Groups">The Microsoft groups the sign-in lists (object ids, sorted, comma separated), <see cref="EntraUsers.TooManyGroups"/>
 /// when the person is in too many for the sign-in to list, or empty.</param>
-public sealed record EntraIdentity(string ObjectId, string? Name, string? Email, bool IsAdmin, string Groups = "")
+/// <param name="OrganisationId">The organisation whose directory it is (stored form: null for the first one).</param>
+public sealed record EntraIdentity(string ObjectId, string? Name, string? Email, bool IsAdmin, string Groups = "", Guid? OrganisationId = null)
 {
     public IReadOnlyList<string> GroupList => Groups.Length == 0 ? [] : Groups.Split(',');
 }
@@ -38,19 +39,21 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
     {
         if (string.IsNullOrWhiteSpace(who.ObjectId)) throw new ForbiddenException("Your Microsoft sign-in did not say who you are. Sign in again.");
         var now = clock.GetUtcNow();
-        if (_known.TryGetValue(who.ObjectId, out var hit) && hit.Seen == who && now - hit.At < Remember) return hit.User;
+        var key = $"{who.OrganisationId}|{who.ObjectId}";
+        if (_known.TryGetValue(key, out var hit) && hit.Seen == who && now - hit.At < Remember) return hit.User;
         await _gate.WaitAsync();
         try
         {
             var name = Clean(who.Name, 200) is { Length: > 0 } n ? n : Clean(who.Email, 200) is { Length: > 0 } e ? e : "VerbaFlow user";
             var email = Clean(who.Email, 320) ?? "";
-            var existing = (await stores.Users.ListAsync()).FirstOrDefault(u => u.EntraObjectId == who.ObjectId);
+            var existing = (await stores.Users.ListAsync()).FirstOrDefault(u => u.EntraObjectId == who.ObjectId && u.OrganisationId == who.OrganisationId && !u.Individual);
             User user;
             if (existing is null)
             {
-                user = new User(Guid.NewGuid(), name, email, who.IsAdmin, Capability.None, EntraObjectId: who.ObjectId, GroupIds: who.GroupList);
+                user = new User(Guid.NewGuid(), name, email, who.IsAdmin, Capability.None, EntraObjectId: who.ObjectId, GroupIds: who.GroupList,
+                    OrganisationId: who.OrganisationId);
                 await stores.Users.UpsertAsync(user.Id, user);
-                await Audit(user, "user.first_sign_in", ("isAdmin", user.IsAdmin));
+                await Audit(user, "user.first_sign_in", Organisations.With([("isAdmin", user.IsAdmin)], user.Org));
             }
             else
             {
@@ -63,7 +66,7 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
                         await Audit(user, "user.groups_changed", ("microsoftGroups", who.Groups == TooManyGroups ? "too many to list" : user.GroupIds!.Count.ToString()));
                 }
             }
-            _known[who.ObjectId] = (user, who, now);
+            _known[key] = (user, who, now);
             return user;
         }
         finally { _gate.Release(); }

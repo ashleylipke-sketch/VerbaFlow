@@ -115,13 +115,13 @@ public sealed record UsageMonth(Guid Id, Guid AccountId, string Month, long Ms, 
         this with { Ms = Ms + e.Ms, Entries = [e, .. Entries.Take(KeptEntries - 1)] };
 }
 
-/// <summary>Whose minutes a use of speech counts against.</summary>
+/// <summary>Whose minutes a use of speech counts against: a personal account's own, or its organisation's (shared by its people).</summary>
 public static class BillingAccounts
 {
-    /// <summary>The organisation's account: everyone who is not on a personal account shares it.</summary>
+    /// <summary>The first organisation's account (also its id, <see cref="Organisations.Default"/>). Other organisations' accounts are their ids.</summary>
     public static readonly Guid Organisation = new("0f1c9a4e-0000-4000-8000-000000000001");
-    public static Guid Of(User u) => u.Individual ? u.Id : Organisation;
-    public static Guid Of(Item i) => i.Individual ? i.OwnerId : Organisation;
+    public static Guid Of(User u) => u.Individual ? u.Id : u.OrganisationId ?? Organisation;
+    public static Guid Of(Item i) => i.Individual ? i.OwnerId : i.OrganisationId ?? Organisation;
 }
 
 /// <summary>Speech cannot be turned into text: the account's plan has no minutes left this month.</summary>

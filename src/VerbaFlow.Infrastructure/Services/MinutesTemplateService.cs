@@ -21,24 +21,25 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     public const int MaxTemplates = 20, MaxName = 60, MaxTitle = 120, MaxHeading = 60, MaxFooter = 80;
     public const long MaxLogoBytes = 1024 * 1024;
 
-    public async Task<List<MinutesTemplate>> ListAsync() =>
-        (await stores.MinutesTemplates.ListAsync()).OrderByDescending(t => t.IsDefault).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    /// <summary>An organisation's templates (<see cref="User.Org"/>; null = the first organisation).</summary>
+    public async Task<List<MinutesTemplate>> ListAsync(Guid? organisation = null) =>
+        (await OfAsync(organisation)).OrderByDescending(t => t.IsDefault).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
     /// <summary>The template to export with: the one asked for, else the default one, else VerbaFlow's standard layout.</summary>
-    public async Task<MinutesTemplate> PickAsync(Guid? id)
+    public async Task<MinutesTemplate> PickAsync(Guid? organisation, Guid? id)
     {
         if (id is { } x && x != Guid.Empty)
-            return await stores.MinutesTemplates.GetAsync(x) ?? throw new DomainException("That minutes template no longer exists. Choose another one.");
+            return await stores.MinutesTemplates.GetAsync(x) is { } found && found.OrganisationId == Organisations.Stored(organisation) ? found : throw new DomainException("That minutes template no longer exists. Choose another one.");
         if (id == Guid.Empty) return MinutesTemplate.Standard;
-        return (await stores.MinutesTemplates.ListAsync()).FirstOrDefault(t => t.IsDefault) ?? MinutesTemplate.Standard;
+        return (await OfAsync(organisation)).FirstOrDefault(t => t.IsDefault) ?? MinutesTemplate.Standard;
     }
 
     public async Task<MinutesTemplate> CreateAsync(User actor, MinutesTemplateInput input)
     {
         RequireAdmin(actor);
-        var all = await stores.MinutesTemplates.ListAsync();
+        var all = await OfAsync(actor.Org);
         if (all.Count >= MaxTemplates) throw new DomainException($"There is no room for more templates ({MaxTemplates}). Remove one first.");
-        var t = Check(input, all, null) with { Id = Guid.NewGuid(), CreatedBy = actor.Id, CreatedAt = clock.GetUtcNow() };
+        var t = Check(input, all, null) with { Id = Guid.NewGuid(), OrganisationId = Organisations.Stored(actor.Org), CreatedBy = actor.Id, CreatedAt = clock.GetUtcNow() };
         // The first template made becomes the default, so making one is enough to change how minutes look.
         if (all.Count == 0) t = t with { IsDefault = true };
         await SaveAsync(t, all);
@@ -49,11 +50,11 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     public async Task<MinutesTemplate> ChangeAsync(User actor, Guid id, MinutesTemplateInput input)
     {
         RequireAdmin(actor);
-        var all = await stores.MinutesTemplates.ListAsync();
+        var all = await OfAsync(actor.Org);
         var current = all.FirstOrDefault(t => t.Id == id) ?? throw new NotFoundException("That minutes template no longer exists.");
         var t = Check(input, all, id) with
         {
-            Id = id, CreatedBy = current.CreatedBy, CreatedAt = current.CreatedAt, LogoSha256 = current.LogoSha256, LogoType = current.LogoType,
+            Id = id, OrganisationId = current.OrganisationId, CreatedBy = current.CreatedBy, CreatedAt = current.CreatedAt, LogoSha256 = current.LogoSha256, LogoType = current.LogoType,
             ChangedBy = actor.Id, ChangedAt = clock.GetUtcNow(),
         };
         await SaveAsync(t, all);
@@ -65,7 +66,7 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     public async Task RemoveAsync(User actor, Guid id)
     {
         RequireAdmin(actor);
-        var t = await stores.MinutesTemplates.GetAsync(id) ?? throw new NotFoundException("That minutes template no longer exists.");
+        var t = await RequireAsync(actor, id);
         await stores.MinutesTemplates.DeleteAsync(id);
         await Audit(actor, "minutes-template.removed", ("template", t.Name), ("templateId", t.Id), ("wasDefault", t.IsDefault));
     }
@@ -73,7 +74,7 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     public async Task<MinutesTemplate> SetLogoAsync(User actor, Guid id, Stream content)
     {
         RequireAdmin(actor);
-        var t = await stores.MinutesTemplates.GetAsync(id) ?? throw new NotFoundException("That minutes template no longer exists.");
+        var t = await RequireAsync(actor, id);
         using var ms = new MemoryStream();
         var buffer = new byte[81920];
         int n;
@@ -99,7 +100,7 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     public async Task<MinutesTemplate> RemoveLogoAsync(User actor, Guid id)
     {
         RequireAdmin(actor);
-        var t = await stores.MinutesTemplates.GetAsync(id) ?? throw new NotFoundException("That minutes template no longer exists.");
+        var t = await RequireAsync(actor, id);
         if (t.LogoSha256 is null) return t;
         var next = t with { LogoSha256 = null, LogoType = null, ChangedBy = actor.Id, ChangedAt = clock.GetUtcNow() };
         await stores.MinutesTemplates.UpsertAsync(id, next);
@@ -121,7 +122,7 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     /// </summary>
     public async Task<ExportFile> SampleAsync(User actor, Guid id, string format)
     {
-        var t = await PickAsync(id);
+        var t = await PickAsync(actor.Org, id);
         format = format == ExportFormats.Word ? ExportFormats.Word : ExportFormats.Pdf;
         var date = TimeZoneInfo.ConvertTime(clock.GetUtcNow(), TimeZoneInfo.Local);
         var name = "Monthly team meeting";
@@ -137,7 +138,7 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
                 new("0:12", "Sam", "Sales came in four percent above plan, and costs were on budget."),
                 new("0:25", "Ann", "Good. Next, the new office. Can we confirm the 14th for the move?")],
             Footer(t, name, "Draft", "SAMPLE"), Style: null);
-        var (bytes, _) = await RenderAsync(doc, t, format, t.Sections.Where(s => s.On).Select(s => s.Part).ToList());
+        var (bytes, _) = await RenderAsync(doc, t, format, t.Sections.Where(s => s.On).Select(s => s.Part).ToList(), actor.Org);
         return new ExportFile(bytes, ExportFormats.ContentType(format), $"Sample minutes ({ExportService.SafeFileName(t.Name)}).{format}");
     }
 
@@ -146,7 +147,7 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     /// Returns the file and, for History, which letterhead was used (or why none); null when the template does not use one.
     /// </summary>
     /// <param name="parts">The parts the person chose to include.</param>
-    public async Task<(byte[] Bytes, string? Letterhead)> RenderAsync(MinutesDocument doc, MinutesTemplate t, string format, IReadOnlyList<string> parts)
+    public async Task<(byte[] Bytes, string? Letterhead)> RenderAsync(MinutesDocument doc, MinutesTemplate t, string format, IReadOnlyList<string> parts, Guid? organisation = null)
     {
         var transcript = t.Sections.FirstOrDefault(s => s.Part == "transcript");
         var style = new MinutesStyle(t.Font, t.Colour, await LogoAsync(t), t.LogoPlace,
@@ -161,13 +162,13 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
         if (!t.OnLetterhead)
             return (format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc), null);
         var letterheads = new LetterheadService(stores, clock);
-        var l = await letterheads.GetAsync();
+        var l = await letterheads.GetAsync(organisation);
         if (format == ExportFormats.Word)
         {
-            var word = await letterheads.ReadAsync(LetterheadService.Word);
+            var word = await letterheads.ReadAsync(LetterheadService.Word, organisation);
             return (DocxMinutesWriter.Write(doc, word), word is null ? "none (no Word letterhead uploaded)" : "Word letterhead");
         }
-        var pdf = await letterheads.ReadAsync(LetterheadService.Pdf);
+        var pdf = await letterheads.ReadAsync(LetterheadService.Pdf, organisation);
         return (PdfMinutesWriter.Write(doc, pdf, new LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm, l.PdfRepeatFirstPage)),
             pdf is null ? "none (no PDF letterhead uploaded)" : "PDF letterhead");
     }
@@ -242,6 +243,13 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
         await stores.MinutesTemplates.UpsertAsync(t.Id, t);
     }
 
+    private async Task<MinutesTemplate> RequireAsync(User actor, Guid id) =>
+        await stores.MinutesTemplates.GetAsync(id) is { } t && t.OrganisationId == Organisations.Stored(actor.Org) ? t
+            : throw new NotFoundException("That minutes template no longer exists.");
+
+    private async Task<List<MinutesTemplate>> OfAsync(Guid? organisation) =>
+        (await stores.MinutesTemplates.ListAsync()).Where(t => t.OrganisationId == Organisations.Stored(organisation)).ToList();
+
     private string PathFor(string sha, string type) => Path.Combine(stores.TemplateLogoRoot, sha + (type == "png" ? ".png" : ".jpg"));
 
     private static string Tidy(string? text) => string.Join(' ', (text ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
@@ -252,5 +260,5 @@ public sealed partial class MinutesTemplateService(Stores stores, TimeProvider c
     }
 
     private Task Audit(User actor, string action, params (string, object?)[] details) =>
-        stores.Audit.AppendAsync(actor.Id, "admin", "platform", null, action, AuditChain.Details(details));
+        stores.Audit.AppendAsync(actor.Id, "admin", "platform", null, action, AuditChain.Details(Organisations.With(details, actor.Org)));
 }

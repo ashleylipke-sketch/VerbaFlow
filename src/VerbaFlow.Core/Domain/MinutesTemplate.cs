@@ -17,7 +17,8 @@ public sealed record TemplateSection(string Part, string Heading, bool On);
 /// <param name="FooterText">Printed first in the footer, before the meeting's name, marker and reference (which always stay).</param>
 public sealed record MinutesTemplate(Guid Id, string Name, bool IsDefault, string Title, string Font, string Colour,
     string? LogoSha256, string? LogoType, string LogoPlace, bool OnLetterhead, IReadOnlyList<TemplateSection> Sections,
-    bool TranscriptTimes, string FooterText, Guid CreatedBy, DateTimeOffset CreatedAt, Guid? ChangedBy = null, DateTimeOffset? ChangedAt = null)
+    bool TranscriptTimes, string FooterText, Guid CreatedBy, DateTimeOffset CreatedAt, Guid? ChangedBy = null, DateTimeOffset? ChangedAt = null,
+    Guid? OrganisationId = null)
 {
     public static readonly IReadOnlyList<string> Fonts = ["Arial", "Calibri", "Times New Roman", "Georgia", "Verdana"];
 

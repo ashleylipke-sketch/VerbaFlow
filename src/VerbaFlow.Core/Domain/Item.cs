@@ -140,12 +140,18 @@ public sealed class Item
     /// Set when the item is made and kept on every version.
     /// </summary>
     [JsonInclude] public bool Individual { get; private set; }
-    /// <summary>Whose vocabulary and saved text this item uses: null for the organisation's, or the owner's own for a personal account.</summary>
-    [JsonIgnore] public Guid? Space => Individual ? OwnerId : null;
-    public void MarkIndividual()
+    /// <summary>The organisation the item belongs to: null for the first one (see Organisation). Set when made, kept on every version.</summary>
+    [JsonInclude] public Guid? OrganisationId { get; private set; }
+    /// <summary>The item's organisation (<see cref="Organisations.Default"/> for the first one), or null for a personal account's.</summary>
+    [JsonIgnore] public Guid? Org => Individual ? null : OrganisationId ?? Organisations.Default;
+    /// <summary>Whose vocabulary and saved text this item uses: its organisation's (null for the first one), or the owner's own for a personal account.</summary>
+    [JsonIgnore] public Guid? Space => Individual ? OwnerId : OrganisationId;
+    /// <summary>Puts a new recording in its maker's organisation or personal account.</summary>
+    public void BelongTo(User maker)
     {
-        if (VersionNo != 1 || IsLocked) throw new DomainException("Only a new recording can be marked as a personal account's.");
-        Individual = true;
+        if (VersionNo != 1 || IsLocked) throw new DomainException("Only a new recording can be put in an organisation.");
+        if (maker.Individual) Individual = true;
+        else OrganisationId = Organisations.Stored(maker.OrganisationId);
     }
 
     public static Item CreateRecorded(Guid id, Guid ownerId, string name, int lengthMs, string outputLanguage,
@@ -374,6 +380,7 @@ public sealed class Item
         next.Introductions = [.. Introductions];
         next.ObjectionFlag = ObjectionFlag;
         next.Individual = Individual;
+        next.OrganisationId = OrganisationId;
         next.Processing = ProcessingState.Idle;
         return next;
     }

@@ -52,7 +52,8 @@ public sealed class CalendarService(Stores stores, IEnumerable<ICalendarReader> 
     public IReadOnlyList<CalendarSourceOption> SourcesFor(User user)
     {
         var list = new List<CalendarSourceOption>();
-        if (bySource.ContainsKey(CalendarSources.Microsoft) && !string.IsNullOrEmpty(user.EntraObjectId)) list.Add(Option(CalendarSources.Microsoft));
+        // Read through the first organisation's Microsoft directory, so only for its people.
+        if (bySource.ContainsKey(CalendarSources.Microsoft) && !string.IsNullOrEmpty(user.EntraObjectId) && user.OrganisationId is null) list.Add(Option(CalendarSources.Microsoft));
         if (bySource.ContainsKey(CalendarSources.Link)) list.Add(Option(CalendarSources.Link));
         if (bySource.ContainsKey(CalendarSources.Sample)) list.Add(Option(CalendarSources.Sample));
         return list;

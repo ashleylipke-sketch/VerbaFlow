@@ -34,9 +34,9 @@ public sealed class WorkloadService(Stores stores, TimeProvider clock)
 
     public async Task<WorkloadView> OverviewAsync(User actor, string? mode, int? days, Guid? department = null)
     {
-        var departments = await stores.Departments.ListAsync();
+        var departments = (await stores.Departments.ListAsync()).Where(d => d.InOrganisationOf(actor)).ToList();
         var mine = actor.IsAdmin ? departments : actor.IsSupport ? [] : departments.Where(d => d.Leads.Contains(actor.Id)).ToList();
-        if (!actor.IsAdmin && mine.Count == 0)
+        if (actor.Individual || !actor.IsAdmin && mine.Count == 0)
             throw new ForbiddenException("Only administrators and department admins can see the workload overview.");
         var chosen = department is { } dep ? mine.FirstOrDefault(d => d.Id == dep) ?? throw new NotFoundException("That department does not exist, or you are not its department admin.") : null;
         var shown = chosen is not null ? [chosen] : actor.IsAdmin ? null : mine;
@@ -55,7 +55,7 @@ public sealed class WorkloadService(Stores stores, TimeProvider clock)
         var allItems = await stores.Items.ListAsync();
         var superseded = allItems.Where(i => i.SupersedesItemId is not null).Select(i => i.SupersedesItemId!.Value).ToHashSet();
         // Recordings in personal accounts are not the organisation's work.
-        var items = allItems.Where(i => !i.Individual && (only is null || i.Mode == only) && (owners is null || owners.Contains(i.OwnerId))).ToDictionary(i => i.Id);
+        var items = allItems.Where(i => actor.SameOrganisation(i) && (only is null || i.Mode == only) && (owners is null || owners.Contains(i.OwnerId))).ToDictionary(i => i.Id);
         var events = await AllEventsAsync();
         var lastEvent = new Dictionary<Guid, DateTimeOffset>();
         foreach (var e in events) if (e.ItemId is { } iid && Steps.Contains(e.Type)) lastEvent[iid] = e.At;

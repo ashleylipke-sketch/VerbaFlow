@@ -110,6 +110,9 @@ builder.Services.AddSingleton<DepartmentService>();
 builder.Services.AddSingleton<MinutesTemplateService>();
 builder.Services.AddSingleton<SearchService>();
 builder.Services.AddSingleton<LetterheadService>();
+// The organisations using VerbaFlow: the first one (Organisation:Name, directory Entra:TenantId) and those support adds.
+builder.Services.AddSingleton(sp => new OrganisationService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<TimeProvider>(),
+    builder.Configuration["Organisation:Name"]?.Trim() is { Length: > 0 } orgName ? orgName : "Your organisation", builder.Configuration["Entra:TenantId"]?.Trim()));
 builder.Services.AddSingleton<SignOffService>();
 // Dictations go word for word through the Speech SDK when Azure Speech and ffmpeg are both there.
 if (speech.IsConfigured && ffmpegFound)
@@ -267,7 +270,7 @@ app.Logger.LogInformation(signIn.Microsoft
     : "Sign-in: NOT SET UP. Nobody can sign in until Entra:TenantId and Entra:ClientId are set (see docs/entra-sign-in-setup.md).", signIn.TenantId);
 if (signIn.EmailCodes)
     app.Logger.LogInformation("Email sign-in: on for personal accounts; codes are " + (emailOptions.IsConfigured ? "emailed through Azure" : "written to {Outbox} (stand-in email, nothing is really sent)"), outbox);
-if (signIn.TestUsers) await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>());
+if (signIn.TestUsers) await DevUsers.SeedAsync(app.Services.GetRequiredService<Stores>(), app.Services.GetRequiredService<OrganisationService>());
 
 app.UseExceptionHandler(new ExceptionHandlerOptions
 {
@@ -300,6 +303,11 @@ app.UseStaticFiles();
 
 // What the web app and the Widget need to know to sign in; public, so it sits outside the signed-in group.
 app.MapGet("/api/sign-in", (SignInOptions o) => o.Describe());
+// The test users to pick from, of every organisation; only while test users are on (Development on the owner's computer).
+app.MapGet("/api/sign-in/test-users", async (SignInOptions o, OrganisationService orgs) => o.TestUsers
+    ? Results.Ok(await Task.WhenAll(DevUsers.Seed.Select(async u => new { id = u.Id, name = u.Name, email = u.Email, isAdmin = u.IsAdmin, isSupport = u.IsSupport,
+        organisation = u.IsSupport ? null : await orgs.NameAsync(u.OrganisationId) })))
+    : Results.NotFound());
 // A Microsoft sign-in that failed in the browser: the reason goes to the support record, the person gets a reference.
 // Public (the person is not signed in); short text only, and a few a minute at most.
 var signInProblems = new SignInProblemLimit();

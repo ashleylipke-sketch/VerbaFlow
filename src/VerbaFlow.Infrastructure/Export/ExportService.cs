@@ -92,7 +92,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     }
 
     /// <summary>Whether this person can have exports put in their own Outlook drafts.</summary>
-    public bool CanDraftInOutlook(User actor, string? userToken) => drafts?.CanUse(actor, userToken) == true;
+    // Made through VerbaFlow's link with the first organisation's Microsoft directory, so only for its people for now.
+    public bool CanDraftInOutlook(User actor, string? userToken) => actor.OrganisationId is null && drafts?.CanUse(actor, userToken) == true;
 
     /// <summary>
     /// Puts a new email with the exported file attached in the person's own Outlook Drafts folder (owner chose "Outlook
@@ -103,7 +104,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
     public async Task<MailDraft> OutlookDraftAsync(User actor, string? userToken, Guid id, string format, string? parts = null, string? template = null,
         string? translation = null, CancellationToken ct = default)
     {
-        if (drafts is null || !drafts.CanUse(actor, userToken)) throw new DomainException("Putting emails in your Outlook drafts needs a Microsoft sign-in. Use Open a new email instead.");
+        if (!CanDraftInOutlook(actor, userToken)) throw new DomainException("Putting emails in your Outlook drafts needs a Microsoft sign-in. Use Open a new email instead.");
         return await MailDraftAsync(actor, id, format, parts, template, translation, "outlook-draft", "item.outlook_draft", "outlook_draft.failed", drafts.Name,
             "Your Microsoft account has no Outlook mailbox VerbaFlow can reach, so the draft could not be made. Use Open a new email instead.",
             m => drafts.CreateAsync(actor, userToken, m, ct));
@@ -203,7 +204,7 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         // Meetings are laid out with a minutes template: the one chosen, else the default one, else VerbaFlow's standard.
         var templates = new MinutesTemplateService(stores, clock);
         // The organisation's templates and letterhead are not used for a recording in a personal account.
-        var template = dictation ? null : item.Individual ? MinutesTemplate.Standard : await templates.PickAsync(templateId switch
+        var template = dictation ? null : item.Individual ? MinutesTemplate.Standard : await templates.PickAsync(item.Org, templateId switch
         {
             null or "" => null,
             "standard" => Guid.Empty,
@@ -322,16 +323,16 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 signOffUsed = fitted.Note;
             }
             var letterheads = new Services.LetterheadService(stores, clock);
-            var l = item.Individual ? Letterhead.Empty : await letterheads.GetAsync();
+            var l = item.Individual ? Letterhead.Empty : await letterheads.GetAsync(item.Org);
             letterheadUsed = item.Individual ? "none (personal account)" : (format == ExportFormats.Word ? l.Word : l.Pdf) is null
                 ? (format == ExportFormats.Word ? "none (no Word letterhead uploaded)" : "none (no PDF letterhead uploaded)")
                 : (format == ExportFormats.Word ? "Word letterhead" : "PDF letterhead");
             bytes = format == ExportFormats.Word
-                ? LetterWriter.Word(letter, item.Individual ? null : await letterheads.ReadAsync(Services.LetterheadService.Word))
-                : LetterWriter.Pdf(letter, item.Individual ? null : await letterheads.ReadAsync(Services.LetterheadService.Pdf),
+                ? LetterWriter.Word(letter, item.Individual ? null : await letterheads.ReadAsync(Services.LetterheadService.Word, item.Org))
+                : LetterWriter.Pdf(letter, item.Individual ? null : await letterheads.ReadAsync(Services.LetterheadService.Pdf, item.Org),
                     new LetterSpace(l.PdfTopFirstMm, l.PdfTopNextMm, l.PdfBottomMm, l.PdfSideMm, l.PdfRepeatFirstPage));
         }
-        else if (template is not null) (bytes, letterheadUsed) = await templates.RenderAsync(doc, template, format, parts);
+        else if (template is not null) (bytes, letterheadUsed) = await templates.RenderAsync(doc, template, format, parts, item.Org);
         else bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
         // Recorded in History: who signed the PDF, or why it went out unsigned.
         string? signature = null, signatureNote = null;

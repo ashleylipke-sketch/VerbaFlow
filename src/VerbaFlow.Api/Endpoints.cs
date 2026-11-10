@@ -80,6 +80,19 @@ public static class Endpoints
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web)
         { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
 
+    /// <summary>How this person signs in, in plain words (Your account page).</summary>
+    public static string SignedInWith(User u)
+    {
+        var id = u.SignInId ?? "";
+        if (id.StartsWith("google:", StringComparison.Ordinal)) return "Google account";
+        if (id.StartsWith("email:", StringComparison.Ordinal)) return "Email address (a code sent by email)";
+        if (id.StartsWith("microsoft:", StringComparison.Ordinal))
+            return id.StartsWith($"microsoft:{SignInOptions.ConsumersTenant}:", StringComparison.OrdinalIgnoreCase)
+                ? "Personal Microsoft account" : "Microsoft work or school account from another organisation";
+        if (u.EntraObjectId is not null) return "Microsoft work or school account (this organisation's)";
+        return "Test user (only on a computer set up for testing)";
+    }
+
     public static void MapMeetingEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/me", async (HttpContext h, OrganisationService orgs) => h.Current() is var u ? new
@@ -90,6 +103,23 @@ public static class Endpoints
             Organisation = u.Individual || u.IsSupport ? null : await orgs.NameAsync(u.OrganisationId),
             SeveralOrganisations = (await orgs.IdsAsync()).Count > 1,
         } : null);
+        // The signed-in person's own account details (Your account page): email address, how they signed in, role, departments.
+        api.MapGet("/me/account", async (HttpContext h, OrganisationService orgs, DepartmentService departments) =>
+        {
+            var u = h.Current();
+            var overview = u.Individual ? null : await departments.OverviewAsync(u);
+            return new
+            {
+                u.Name, u.Email,
+                SignedInWith = SignedInWith(u),
+                Role = u.IsSupport ? "VerbaFlow support" : u.Individual ? "Personal account (only you can see your recordings)"
+                    : u.IsAdmin ? "Administrator" : u.Leads.Count > 0 ? "Department admin" : "Member",
+                Organisation = u.Individual || u.IsSupport ? null : await orgs.NameAsync(u.OrganisationId),
+                Departments = overview?.Mine ?? [],
+                Runs = overview?.IAdminister ?? [],
+                u.Individual,
+            };
+        });
         api.MapGet("/languages", () => new { max = SpokenLanguageCatalogue.MaxPerRecording, languages = SpokenLanguageCatalogue.All });
         // Technical error detail for VerbaFlow support and developers only. Customers, including their administrators, are refused.
         api.MapGet("/support/errors", async (HttpContext h, Stores stores, string? reference) =>

@@ -59,6 +59,19 @@ public class SignInHostTests : IDisposable
     }
 
     [Fact]
+    public void The_account_page_says_how_someone_signed_in()
+    {
+        static VerbaFlow.Core.Domain.User U(string? signIn = null, string? oid = null, bool individual = false) =>
+            new(Guid.NewGuid(), "A", "a@x.test", false, default, EntraObjectId: oid, Individual: individual, SignInId: signIn);
+        Assert.Equal("Google account", VerbaFlow.Api.Endpoints.SignedInWith(U("google:123", individual: true)));
+        Assert.Equal("Email address (a code sent by email)", VerbaFlow.Api.Endpoints.SignedInWith(U("email:a@x.test", individual: true)));
+        Assert.Equal("Personal Microsoft account", VerbaFlow.Api.Endpoints.SignedInWith(U($"microsoft:{VerbaFlow.Api.SignInOptions.ConsumersTenant}:o", individual: true)));
+        Assert.Contains("another organisation", VerbaFlow.Api.Endpoints.SignedInWith(U("microsoft:1111:o", individual: true)));
+        Assert.Contains("this organisation", VerbaFlow.Api.Endpoints.SignedInWith(U(oid: "oid-1")));
+        Assert.StartsWith("Test user", VerbaFlow.Api.Endpoints.SignedInWith(U()));
+    }
+
+    [Fact]
     public async Task Online_only_a_microsoft_sign_in_from_this_organisation_gets_in()
     {
         var info = await _app.CreateClient().GetFromJsonAsync<JsonElement>("/api/sign-in");
@@ -110,7 +123,7 @@ public class SignInHostTests : IDisposable
         Assert.True(info.GetProperty("personalAccounts").GetBoolean());
         Assert.Equal("https://login.microsoftonline.com/common", info.GetProperty("microsoft").GetProperty("authority").GetString());
 
-        var consumer = "9188040d-6c67-4c5b-b5f8-a3d2c3c9b6e1";
+        var consumer = "9188040d-6c67-4c5b-b112-36a304b66dad";
         var ok = await Me(r => r.Headers.Authorization = new("Bearer", Token(tenant: consumer, oid: "oid-sam")));
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         var me = await ok.Content.ReadFromJsonAsync<JsonElement>();
@@ -163,7 +176,7 @@ public class SignInHostTests : IDisposable
         Assert.Equal((HttpStatusCode)202, (await Poll()).StatusCode);
 
         // A personal account sees the waiting Widget (typed in small letters without the dash works too) and agrees.
-        var personal = Token(tenant: "9188040d-6c67-4c5b-b5f8-a3d2c3c9b6e1", oid: "oid-student");
+        var personal = Token(tenant: "9188040d-6c67-4c5b-b112-36a304b66dad", oid: "oid-student");
         var seen = await (await Signed(HttpMethod.Get, $"/api/widget-link/{code.Replace("-", "").ToLowerInvariant()}", personal)).Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("Android keyboard", seen.GetProperty("device").GetString());
         Assert.Equal(HttpStatusCode.OK, (await Signed(HttpMethod.Post, $"/api/widget-link/{code}/approve", personal)).StatusCode);

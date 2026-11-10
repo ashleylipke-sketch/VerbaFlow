@@ -48,7 +48,7 @@ public sealed class SignInOptions
     public bool Microsoft => !string.IsNullOrWhiteSpace(TenantId) && !string.IsNullOrWhiteSpace(ClientId);
     public bool Google => !string.IsNullOrWhiteSpace(GoogleClientId);
     /// <summary>Microsoft's own tenant id for personal Microsoft accounts.</summary>
-    public const string ConsumersTenant = "9188040d-6c67-4c5b-b5f8-a3d2c3c9b6e1";
+    public const string ConsumersTenant = "9188040d-6c67-4c5b-b112-36a304b66dad";
     /// <summary>The permission the web app and the Widget ask Microsoft for: "use VerbaFlow as me".</summary>
     public string Scope => $"api://{ClientId}/access_as_user";
     /// <summary>The name of the app role that makes someone a VerbaFlow administrator, given in Microsoft Entra ID.</summary>

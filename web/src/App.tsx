@@ -29,6 +29,7 @@ import Support from './pages/Support';
 import Organisations from './pages/Organisations';
 import LinkWidget from './pages/LinkWidget';
 import SignOffCard from './SignOffCard';
+import AccountPage from './pages/Account';
 
 function useHash() {
   const [h, setH] = useState(location.hash || '#/');
@@ -96,7 +97,7 @@ export default function App() {
         {me && <Bell path={path} />}
         <span className="note signin">
           {way === 'microsoft' || way === 'google'
-            ? <>Signed in as {me?.name || microsoftName()}{me?.isAdmin ? ' (admin)' : ''}{me?.individual ? ' (personal account)' : ''}{me?.severalOrganisations && me.organisation ? `, ${me.organisation}` : ''} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>Sign out</a></>
+            ? <>Signed in as <a href="#/account" title="Your account: email address and how you signed in">{me?.name || microsoftName()}</a>{me?.isAdmin ? ' (admin)' : ''}{me?.individual ? ' (personal account)' : ''}{me?.severalOrganisations && me.organisation ? `, ${me.organisation}` : ''} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>Sign out</a></>
             : info.testUsers
               ? <label title="Test users: only on this computer, while VerbaFlow runs in Development">
                 {way ? 'Test user ' : 'Test sign-in '}{way && me?.severalOrganisations && me.organisation ? `(${me.organisation}) ` : ''}
@@ -150,6 +151,7 @@ export default function App() {
           : path === '/minutes-templates' ? <MinutesTemplatesPage />
           : path === '/email' ? <EmailServicePage />
           : path === '/notifications' ? <NotificationsPage />
+          : path === '/account' ? <AccountPage />
           : path === '/sign-off' ? <SignOffCard />
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />
@@ -196,6 +198,7 @@ function MoreMenu({ path, admin, support, lead, individual }: { path: string; ad
     ...(support && !admin ? [['/plan', 'Plan'] as [string, string]] : []),
     ...(support ? [['/organisations', 'Organisations'] as [string, string], ['/support', 'Support: errors'] as [string, string]] : []),
   ];
+  pages.push(['/account', 'Your account']);
   const here = pages.some(([p]) => p === path);
   return (
     <div className="more" ref={box}>

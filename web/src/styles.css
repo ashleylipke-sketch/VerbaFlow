@@ -290,3 +290,9 @@ button.due-set { font-size:14px; }
 .tr-head { font-weight:600; border-bottom:1px solid var(--line); padding-bottom:4px; white-space:normal; margin-top:12px; }
 .tr-line { border-top:1px solid var(--line); padding-top:6px; }
 @media (max-width:700px) { .tr-pair { grid-template-columns:minmax(0, 1fr); gap:4px; } .tr-head { display:none; } }
+
+/* Your account page */
+table.account { border-collapse: collapse; width: 100%; }
+table.account th { text-align: left; font-weight: 600; padding: 6px 16px 6px 0; vertical-align: top; white-space: nowrap; width: 1%; }
+table.account td { padding: 6px 0; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 700px) { table.account th { white-space: normal; } }

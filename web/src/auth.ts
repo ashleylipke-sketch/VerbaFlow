@@ -22,6 +22,13 @@ let account: AccountInfo | null = null;
 let testUser = read('devUser');
 let failure = '';
 let redirecting = false;
+/**
+ * The Microsoft address to sign in through when the person chose their organisation's own directory (empty: the usual
+ * one). Needed because an address such as a Gmail address can be both a personal Microsoft account and a member of the
+ * organisation's directory: through the usual address (common) Microsoft picks the personal account (seen 2026-11-10:
+ * the owner's admin account came out as a personal one), through the directory's own address it picks the member.
+ */
+let msAuthority = read('vfMsAuthority');
 
 function read(key: string) { try { return localStorage.getItem(key) ?? ''; } catch { return ''; } }
 function write(key: string, value: string) { try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch { /* private window */ } }
@@ -195,10 +202,12 @@ export const microsoftName = () => account?.name || account?.username || '';
 export const getTestUser = () => testUser;
 export function setTestUser(u: string) { testUser = info.testUsers ? u : ''; write('devUser', testUser); }
 
-export async function signInWithMicrosoft() {
+export async function signInWithMicrosoft(organisation = false) {
   if (!msal || !info.microsoft) return;
   testUser = ''; write('devUser', ''); setVfToken('');
-  await msal.loginRedirect({ scopes: [info.microsoft.scope], prompt: 'select_account' });
+  msAuthority = organisation ? `https://login.microsoftonline.com/${info.microsoft.tenantId}` : '';
+  write('vfMsAuthority', msAuthority);
+  await msal.loginRedirect({ scopes: [info.microsoft.scope], prompt: 'select_account', ...(msAuthority ? { authority: msAuthority } : {}) });
 }
 
 export async function signOut() {
@@ -208,7 +217,7 @@ export async function signOut() {
     location.reload();
     return;
   }
-  if (account && msal) { const a = account; account = null; await msal.logoutRedirect({ account: a, postLogoutRedirectUri: returnAddress() }); return; }
+  if (account && msal) { const a = account; account = null; msAuthority = ''; write('vfMsAuthority', ''); await msal.logoutRedirect({ account: a, postLogoutRedirectUri: returnAddress() }); return; }
   setTestUser('');
 }
 
@@ -216,14 +225,14 @@ export async function signOut() {
 export async function authHeaders(): Promise<Record<string, string>> {
   if (account && msal && info.microsoft) {
     try {
-      const t = await msal.acquireTokenSilent({ scopes: [info.microsoft.scope], account });
+      const t = await msal.acquireTokenSilent({ scopes: [info.microsoft.scope], account, ...(msAuthority ? { authority: msAuthority } : {}) });
       return { Authorization: `Bearer ${t.accessToken}` };
     } catch (e) {
       // Microsoft wants the person to sign in again (after a day or so, or when the quiet renewal is blocked by the
       // browser): go to Microsoft once and come back here. Several calls can fail at the same moment; only one goes.
       if (!redirecting) {
         redirecting = true;
-        try { await msal.acquireTokenRedirect({ scopes: [info.microsoft.scope], account }); }
+        try { await msal.acquireTokenRedirect({ scopes: [info.microsoft.scope], account, ...(msAuthority ? { authority: msAuthority } : {}) }); }
         catch { redirecting = false; }
       }
       throw new Error(e instanceof InteractionRequiredAuthError || redirecting ? 'Taking you to Microsoft to sign in again…' : 'Your sign-in has run out. Sign in again.');

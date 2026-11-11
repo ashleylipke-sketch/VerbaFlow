@@ -1,0 +1,47 @@
+# Builds the VerbaFlow Widget for Mac on a Mac at GitHub, runs its tests, and (from main) puts
+# "VerbaFlow-Widget-mac.zip" on the Releases page as mac-latest. Setup steps: docs/widget-mac.md
+name: Mac Widget
+on:
+  push:
+    paths: ['widget/mac/**', 'widget/iphone/Shared/**', '.github/workflows/mac.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: widget/mac
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests
+        run: swift test
+      - name: Build the app (Apple silicon and Intel)
+        env:
+          UNIVERSAL: "1"
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: ./make-app.sh
+      - name: Check the app
+        run: |
+          lipo -info "build/VerbaFlow Widget.app/Contents/MacOS/VerbaFlowWidget"
+          codesign --verify --verbose "build/VerbaFlow Widget.app"
+          plutil -lint "build/VerbaFlow Widget.app/Contents/Info.plist"
+      - name: Pack it
+        run: ditto -c -k --keepParent "build/VerbaFlow Widget.app" VerbaFlow-Widget-mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VerbaFlow-Widget-mac
+          path: widget/mac/VerbaFlow-Widget-mac.zip
+      - name: Put it on the Releases page
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete mac-latest --yes --cleanup-tag || true
+          gh release create mac-latest VerbaFlow-Widget-mac.zip --prerelease --target "$GITHUB_SHA" \
+            --title "VerbaFlow Widget for Mac (newest)" \
+            --notes "Build ${GITHUB_RUN_NUMBER}. Download VerbaFlow-Widget-mac.zip on your Mac, open it, and move VerbaFlow Widget into Applications. Setup steps: docs/widget-mac.md"

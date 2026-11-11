@@ -26,12 +26,12 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
     var isLinked: Bool { Self.loadLinked() != nil }
 
     /// The linked sign-in for this VerbaFlow, if there is one.
-    func linked(for server: URL) -> Linked? {
+    nonisolated func linked(for server: URL) -> Linked? {
         guard let l = Self.loadLinked(), Self.same(l.server, server.absoluteString) else { return nil }
         return l
     }
 
-    func keepLinked(_ server: URL, token: String) {
+    nonisolated func keepLinked(_ server: URL, token: String) {
         Self.saveLinked(Linked(server: server.absoluteString, token: token, renewed: Date()))
     }
 
@@ -54,7 +54,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
 
     private var needed: PlainError { PlainError(message: "Open the Widget's settings and sign in first.", signIn: true) }
 
-    func forget() { Self.save(nil); Self.saveLinked(nil) }
+    nonisolated func forget() { Self.save(nil); Self.saveLinked(nil) }
 
     /// Opens Microsoft's sign-in page in Apple's secure sheet and keeps the tokens that come back.
     @MainActor func signIn(_ ms: SignInInfo.Microsoft) async throws {

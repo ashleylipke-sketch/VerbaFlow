@@ -56,6 +56,14 @@ public sealed class PdfSigner
 
     public PdfSignature Signature { get; }
 
+    internal X509Certificate2 Certificate => certificate;
+    internal AsymmetricAlgorithm Key => key;
+    internal X509Certificate2Collection Chain => chain;
+    internal Timestamper? Timestamps => timestamps;
+
+    /// <summary>The same Word file with a digital signature Word checks (Office's own signature format).</summary>
+    public Task<SignedPdf> SignWordAsync(byte[] docx, string reason, DateTimeOffset now) => new WordSigner(this).SignAsync(docx, reason, now);
+
     /// <summary>Where the key is kept, for the start-up log line.</summary>
     public string KeyPlace { get; }
 

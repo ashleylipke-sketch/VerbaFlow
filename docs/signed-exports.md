@@ -5,7 +5,7 @@ Every PDF that VerbaFlow exports (minutes, transcripts, dictations and letters, 
 - that the file has not been changed since VerbaFlow made it (change one character and the signature shows as broken), and
 - who signed it (the certificate's name).
 
-The signature is invisible on the page. In Adobe Reader, open the **Signatures** panel (the pen icon on the left) to see it. Word files are not signed.
+The signature is invisible on the page. In Adobe Reader, open the **Signatures** panel (the pen icon on the left) to see it. Word files are signed too (see **Signed Word files** below).
 
 ## The test certificate (what you have now)
 
@@ -70,7 +70,18 @@ To switch signing off: `dotnet user-secrets set "Signing:Enabled" "false"`.
 
 ## The approval box on approved PDFs
 
-An approved PDF shows a small green box: **APPROVED**, who approved it and when, and a last line where the digital signature sits, for example "Digitally signed by VerbaFlow (test certificate, not yet trusted)." On minutes it is under the details table; on a letter, Word document or email it is after the text and the sign-off. In Adobe Reader, clicking that line should open the signature details (not yet checked). Drafts and superseded copies have no box (their signature stays invisible). Word files have no box and no signature.
+An approved PDF shows a small green box: **APPROVED**, who approved it and when, and a last line where the digital signature sits, for example "Digitally signed by VerbaFlow (test certificate, not yet trusted)." On minutes it is under the details table; on a letter, Word document or email it is after the text and the sign-off. In Adobe Reader, clicking that line should open the signature details (not yet checked). Drafts and superseded copies have no box (their signature stays invisible). Word files have no box (their signature is listed in Word instead).
+
+## Signed Word files
+
+Every Word export (meeting minutes, letters, Word documents and emails from dictations, translations) is signed with the same certificate and timestamp as the PDFs, the way Word itself signs a file. To see it in Microsoft Word: **File › Info › View Signatures** (or the red ribbon "Signatures" bar at the top). With the test certificate Word says the signer is not trusted, which is expected; with a bought certificate it should name your organisation.
+
+What the signature covers: the text, headers, footers, pictures and layout. Like Word, it leaves out the document properties (author, title).
+
+Good to know:
+- If someone changes the file and saves it in Word, Word removes the signature (that is how Word works). **Check an exported file** still tells you whether a file is exactly the one VerbaFlow exported.
+- Word files get the trusted timestamp but no long-term proof and no visible approval box (those are PDF only).
+- Not yet checked in Microsoft Word itself: it is checked by VerbaFlow's tests and by a separate XML signature checker.
 
 ## Where it shows in VerbaFlow
 
@@ -81,4 +92,4 @@ An approved PDF shows a small green box: **APPROVED**, who approved it and when,
 
 - A document timestamp over the long-term proof (PAdES level B-LTA), which lets a file be re-stamped before the timestamp service's own certificate expires.
 - Signing with a key on a USB token or a seller's own cloud signing service.
-- Signing Word files.
+- Long-term proof for Word files.

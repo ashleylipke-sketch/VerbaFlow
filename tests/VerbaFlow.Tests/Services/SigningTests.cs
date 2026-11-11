@@ -63,11 +63,11 @@ public class SigningTests
     }
 
     [Fact]
-    public async Task Word_files_are_not_signed_and_History_does_not_claim_a_signature()
+    public async Task With_signing_switched_off_a_Word_file_is_not_signed_and_History_does_not_claim_a_signature()
     {
         using var env = new Env();
         var id = await env.ProcessedRecordingAsync();
-        var exports = new ExportService(env.Stores, env.Clock, null, env.Reporter, TestSigner(env));
+        var exports = new ExportService(env.Stores, env.Clock, null, env.Reporter, null);
         await exports.ExportAsync(env.Alice, id, "docx");
         Assert.Null(Assert.Single(await env.Stores.Exports.ListAsync()).Signature);
         Assert.DoesNotContain("signature", (await env.Stores.Audit.ListAsync(id)).Last().Details);

@@ -336,11 +336,12 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         else bytes = format == ExportFormats.Word ? DocxMinutesWriter.Write(doc) : PdfMinutesWriter.Write(doc);
         // Recorded in History: who signed the PDF, or why it went out unsigned.
         string? signature = null, signatureNote = null;
-        if (format == ExportFormats.Pdf && signer is not null)
+        if (signer is not null && (format == ExportFormats.Pdf || format == ExportFormats.Word))
         {
             try
             {
-                var signed = await signer.SignAsync(bytes, $"Exported from VerbaFlow ({marker.ToLowerInvariant()})", w);
+                var reason = $"Exported from VerbaFlow ({marker.ToLowerInvariant()})";
+                var signed = format == ExportFormats.Pdf ? await signer.SignAsync(bytes, reason, w) : await signer.SignWordAsync(bytes, reason, now);
                 bytes = signed.Bytes;
                 signature = signed.Describe;
                 if (signed.TimestampFailure is { } late && reporter is not null)

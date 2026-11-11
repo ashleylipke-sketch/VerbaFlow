@@ -8,7 +8,14 @@ It works like the Widget for Windows: click where the words should go in any pro
 1. Microsoft sign-in only: add the Mac Widget to the app registration once (`entra-sign-in-setup.md`, step 10: **Add a platform**, **iOS / macOS**, bundle ID `net.verbaflow.widget`).
 2. On the Mac, open GitHub in the browser (signed in), go to the VerbaFlow repository, **Releases**, **VerbaFlow Widget for Mac (newest)**, and download **VerbaFlow-Widget-mac.zip**.
 3. Open the zip (double-click it in Downloads). Drag **VerbaFlow Widget** into **Applications**.
-4. Open it from Applications. The first time, macOS says it cannot check the program ("Apple could not verify…", because it is not signed with an Apple Developer ID). Click **Done**, then open **System Settings**, **Privacy & Security**, scroll down to **VerbaFlow Widget was blocked…** and click **Open Anyway**, then **Open Anyway** again and your Mac password. This is needed once per update.
+4. Open it from Applications. The first time, macOS refuses ("Apple cannot check it for malicious software" or "Apple could not verify…"), because it is not signed with an Apple Developer ID. Click **OK** (or **Done**), then use one of these (needed once per update):
+   - **Easiest and surest:** open **Terminal** (Applications › Utilities), paste this line, press Return, then open the Widget again:
+     ```
+     xattr -dr com.apple.quarantine "/Applications/VerbaFlow Widget.app"
+     ```
+     (Nothing is printed when it works. It removes the "downloaded from the internet" mark that makes macOS refuse.)
+   - Or open **System Settings**, **Privacy & Security**, scroll down to **"VerbaFlow Widget" was blocked…** and click **Open Anyway**, then **Open Anyway** again and your Mac password.
+   - On macOS 14 or older, Control-click the Widget in Applications, choose **Open**, then **Open**.
 5. A waveform icon appears in the menu bar (top right) and the settings window opens:
    - **VerbaFlow's address**: `http://localhost:5044` only works when VerbaFlow runs on the same Mac. If VerbaFlow runs on your Windows computer, the Mac needs that computer's address (see "VerbaFlow on another computer" below) or VerbaFlow online.
    - **Save and check**, then **Sign in with Microsoft** (Apple's sign-in window opens), or **Sign in through the VerbaFlow website** for a Google or email sign-in (agree to the code shown).

@@ -131,4 +131,14 @@ public class WidgetTests
         Assert.Equal("", WidgetService.SiteOf("javascript:alert(1)"));
         Assert.Equal("Edge 129 on Windows", WidgetService.DeviceOf("Edge 129 on Windows"));
     }
+
+    [Fact]
+    public void A_mac_program_is_recorded_by_its_bundle_id()
+    {
+        Assert.Equal("com.microsoft.outlook", WidgetService.SiteOf("com.microsoft.outlook"));
+        Assert.True(WidgetService.IsBlocked("com.microsoft.outlook", ["com.microsoft.outlook"]));
+        Assert.False(WidgetService.IsBlocked("com.microsoft.outlook", ["outlook.com"]));
+        Assert.Equal("Mac program", WidgetService.DeviceOf("Mac program"));
+        WidgetService.RequireContentFree([("site", "com.apple.mail"), ("device", "Mac program")]);
+    }
 }

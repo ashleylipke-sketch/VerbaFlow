@@ -3,7 +3,7 @@ import { api, type WidgetPolicy, type WidgetUse } from '../api';
 
 const OUTCOMES: Record<string, string> = { accepted: 'Accepted', cancelled: 'Cancelled', open: 'In use', 'not finished': 'Not finished' };
 
-/** Widget: speaking into any box on any website (browser extension) or any Windows program (Widget for Windows). */
+/** Widget: speaking into any box on any website (browser extension) or any Windows or Mac program (Widget for Windows, Widget for Mac). */
 export default function WidgetPage() {
   const [policy, setPolicy] = useState<WidgetPolicy | null>(null);
   const [uses, setUses] = useState<WidgetUse[] | null>(null);
@@ -64,6 +64,16 @@ export default function WidgetPage() {
         </ol>
         <p className="note">Its icon is near the clock: click it for the settings. In Chrome and Edge the shortcut is left to the browser extension.</p>
 
+        <h3>On a Mac (Mail, Outlook, Word, WhatsApp…)</h3>
+        <p className="note">The Widget for Mac works in any program on a Mac, in the same way. Not yet tried on a real Mac.</p>
+        <ol>
+          <li>On the Mac, download <strong>VerbaFlow-Widget-mac.zip</strong> from the VerbaFlow repository's Releases page on GitHub, open it and drag <strong>VerbaFlow Widget</strong> into Applications.</li>
+          <li>Open it. The first time, allow it under System Settings, Privacy &amp; Security (<strong>Open Anyway</strong>).</li>
+          <li>In its settings, check the VerbaFlow address, sign in, then allow the microphone and switch it on under Accessibility.</li>
+          <li>Click where you want the words, press <kbd>⌥</kbd>+<kbd>⇧</kbd>+<kbd>D</kbd> (Option, Shift and D) and speak; press it again to stop, check the words, then <strong>Accept</strong>.</li>
+        </ol>
+        <p className="note">Its icon (a sound wave) is in the menu bar at the top right. In Chrome and Edge the shortcut is left to the browser extension.</p>
+
         <h3>With a Google or other personal account</h3>
         <p className="note">Personal Microsoft accounts use <strong>Sign in with Microsoft</strong> as above. With Google (or any account you use on this website), choose <strong>Sign in through the VerbaFlow website</strong> in the Widget's settings (on a phone: <strong>Google or another personal account</strong> in the VerbaFlow app). This website opens with a short code; check it is the code the Widget shows and click <strong>Link it</strong>. The link lasts 30 days from the last use.</p>
       </div>
@@ -74,7 +84,7 @@ export default function WidgetPage() {
         {message && <div className="ok" role="status">{message}</div>}
         {policy === null ? <p className="note">Loading…</p> : editing
           ? <div className="field">
-            <label className="field">One per line: a website such as mail.example.com (it also covers its sub-sites), or a Windows program's file name such as teams.exe.
+            <label className="field">One per line: a website such as mail.example.com (it also covers its sub-sites), a Windows program's file name such as teams.exe, or a Mac program's bundle ID such as com.microsoft.outlook.
               <textarea rows={8} value={sites} onChange={e => setSites(e.target.value)} /></label>
             <div className="actions"><button className="primary" onClick={save}>Save</button><button onClick={() => setEditing(false)}>Cancel</button></div>
           </div>

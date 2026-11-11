@@ -112,6 +112,7 @@ Then install the Widget for Windows (`widget-windows.md`) and click **Sign in wi
 
 - **Android**: under **Mobile and desktop applications**, add `net.verbaflow.speak://auth` (exactly). See `widget-android.md`.
 - **iPhone**: **Add a platform**, **iOS / macOS**, bundle ID `net.verbaflow.speak`. See `widget-iphone.md`.
+- **Mac Widget**: **Add a platform**, **iOS / macOS**, bundle ID `net.verbaflow.widget` (Microsoft then shows the redirect `msauth.net.verbaflow.widget://auth`). See `widget-mac.md`.
 
 ## 11. Departments (who can see whose recordings)
 

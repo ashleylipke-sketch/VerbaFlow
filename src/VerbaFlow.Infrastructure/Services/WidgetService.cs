@@ -78,7 +78,7 @@ public sealed partial class WidgetService(Stores stores, LiveSessions live, Time
     public async Task<WidgetStart> StartAsync(User actor, string? site, string? device, string? spokenLanguages)
     {
         var s = SiteOf(site);
-        if (s.Length == 0) throw new DomainException("The Widget only works on websites and Windows programs.");
+        if (s.Length == 0) throw new DomainException("The Widget only works on websites and in Windows and Mac programs.");
         var policy = actor.Individual ? null : await stores.WidgetPolicy.GetAsync(PolicyKey(actor));
         // The organisation's blocked list is for its own people; a personal account is not under it.
         if (policy is not null && !actor.Individual && IsBlocked(s, policy.BlockedSites))

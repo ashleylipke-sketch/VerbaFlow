@@ -120,9 +120,7 @@ export default function App() {
           {!way && info.microsoft && <><p>{info.personalAccounts
             ? 'Use your Microsoft account: your work or school account (the one for Outlook and Teams), or a personal one such as Outlook.com or Hotmail.'
             : 'Use your Microsoft work account, the one you use for Outlook and Teams.'}</p>
-            <div className="actions"><button className="primary" onClick={() => signInWithMicrosoft()}>Sign in with Microsoft</button></div>
-            {info.personalAccounts && <p className="note">Signed in to your personal account when you meant this organisation’s (this can happen when one email address
-              has both)? <a href="#" onClick={e => { e.preventDefault(); signInWithMicrosoft(true); }}>Sign in with this organisation’s Microsoft account</a>.</p>}</>}
+            <div className="actions"><button className="primary" onClick={() => signInWithMicrosoft()}>Sign in with Microsoft</button></div></>}
           {!way && info.google && <>{info.microsoft ? <p>Or use your Google account:</p> : <p>Use your Google account.</p>}
             <div className="actions" ref={google} /></>}
           {!way && info.email && <>{info.microsoft || info.google ? <p>Or, without a Microsoft or Google account, sign in with your email address:</p>

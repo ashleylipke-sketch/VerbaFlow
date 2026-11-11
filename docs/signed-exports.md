@@ -21,6 +21,17 @@ Each signature now also carries a **timestamp** from DigiCert's free public time
 - If the service cannot be reached, the file is still signed (with the computer's own time) and History says "time not confirmed (the timestamp service could not be reached) (VF-…)".
 - Another service: `dotnet user-secrets set "Signing:TimestampUrl" "http://…"`. None at all: `dotnet user-secrets set "Signing:TimestampUrl" ""`.
 
+## Long-term proof (on by default)
+
+A signature can only be checked while the certificates behind it can be checked: whether they had been withdrawn ("revoked") when the file was signed. Certificates expire after a year or two, and the services that answer those questions do not keep answering for ever. So straight after signing, VerbaFlow asks those services (OCSP answers, or revocation lists where a certificate has no OCSP service) about every certificate behind the signature and the timestamp, and stores their answers and the certificates inside the PDF (the PDF's "Document Security Store", as the PAdES standard calls it, level B-LT). Anyone can then check the file years later, without the internet.
+
+- Only certificates are sent to those services, never the document. Answers are kept for up to 12 hours, so each export does not ask again.
+- The proof is added after the signed part of the file, so the signature itself is untouched. Readers therefore say the signature covers the document "up to this revision", which is normal for long-term proof.
+- History's `signature` adds "long-term proof added (N certificates, M revocation checks)".
+- With the test certificate there is nothing to ask about it (only DigiCert's timestamp certificates are checked), so Adobe will not call the file "LTV enabled" until it is signed with a trusted certificate (below).
+- If a service cannot be reached, or says a certificate has been revoked, the file is still signed and exported without the proof, and History says "long-term proof not added (a certificate could not be checked online) (VF-…)".
+- To switch it off: `dotnet user-secrets set "Signing:LongTermProof" "false"`.
+
 ## Getting a trusted signature (so Adobe shows a known signer)
 
 Adobe shows a green tick only for certificates from a company on **Adobe's Approved Trust List (AATL)**; Microsoft Word and Windows use Microsoft's own list. Such companies include GlobalSign, DigiCert, Entrust and SSL.com (check Adobe's AATL list for the current members). You buy an **organisation document-signing certificate** in the organisation's name. Expect identity checks of the organisation (a few days) and a yearly cost (prices not checked; roughly a few hundred pounds a year).
@@ -68,6 +79,6 @@ An approved PDF shows a small green box: **APPROVED**, who approved it and when,
 
 ## Not built yet
 
-- Long-term validation (putting the certificates' revocation answers into the PDF, so it can be checked many years later without the internet).
+- A document timestamp over the long-term proof (PAdES level B-LTA), which lets a file be re-stamped before the timestamp service's own certificate expires.
 - Signing with a key on a USB token or a seller's own cloud signing service.
 - Signing Word files.

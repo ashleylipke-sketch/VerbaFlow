@@ -18,7 +18,7 @@ public sealed record PdfSignature(string SignedBy, string Thumbprint, bool TestC
 /// <summary>A signed PDF, and what History says about the signature: who signed it and whether the time was confirmed by a
 /// timestamp service. <see cref="TimestampFailure"/> is set when the timestamp service could not be used (the file is still
 /// signed, with the computer's own time).</summary>
-public sealed record SignedPdf(byte[] Bytes, string Describe, Exception? TimestampFailure = null);
+public sealed record SignedPdf(byte[] Bytes, string Describe, Exception? TimestampFailure = null, Exception? LongTermFailure = null);
 
 /// <summary>
 /// Puts a digital signature (PKCS#7, SHA-256) into an exported PDF, so a PDF reader can show that the file has not been
@@ -61,6 +61,9 @@ public sealed class PdfSigner
 
     /// <summary>The timestamp service's host name, or null when the computer's own time is used.</summary>
     public string? TimestampService => timestamps?.Host;
+
+    /// <summary>Adds the certificates and revocation answers after the signature (PAdES B-LT), or null to leave them out.</summary>
+    public LongTermProof? LongTerm { get; set; }
 
     /// <summary>The certificates sent with each signature besides the signer's own.</summary>
     public int ChainLength => chain.Count;
@@ -187,7 +190,23 @@ public sealed class PdfSigner
             var describe = Signature.Describe + (timestamps is null ? ""
                 : cms.Stamped ? $", time confirmed by {timestamps.Host}"
                 : ", time not confirmed (the timestamp service could not be reached)");
-            return new SignedPdf(output.ToArray(), describe, cms.TimestampFailure);
+            var bytes = output.ToArray();
+            Exception? longTermFailure = null;
+            if (LongTerm is { } proof && cms.Encoded is { } signature)
+            {
+                try
+                {
+                    var (withProof, result) = await proof.AddAsync(bytes, signature);
+                    bytes = withProof;
+                    describe += ", " + result.Describe;
+                }
+                catch (Exception ex)
+                {
+                    longTermFailure = ex;
+                    describe += ", long-term proof not added (a certificate could not be checked online)";
+                }
+            }
+            return new SignedPdf(bytes, describe, cms.TimestampFailure, longTermFailure);
         }
         finally { one.Release(); }
     }
@@ -208,6 +227,7 @@ public sealed class PdfSigner
     {
         public bool Stamped { get; private set; }
         public Exception? TimestampFailure { get; private set; }
+        public byte[]? Encoded { get; private set; }
 
         public string CertificateName => owner.Signature.SignedBy;
 
@@ -248,7 +268,7 @@ public sealed class PdfSigner
                 }
                 catch (Exception ex) { TimestampFailure = ex; }
             }
-            return cms.Encode();
+            return Encoded = cms.Encode();
         }
     }
 }

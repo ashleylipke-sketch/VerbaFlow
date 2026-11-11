@@ -345,6 +345,8 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
                 signature = signed.Describe;
                 if (signed.TimestampFailure is { } late && reporter is not null)
                     signature += $" ({(await reporter.ReportAsync("timestamp", id, late)).Reference})";
+                if (signed.LongTermFailure is { } check && reporter is not null)
+                    signature += $" ({(await reporter.ReportAsync("long-term-proof", id, check)).Reference})";
             }
             catch (Exception ex) when (reporter is not null)
             {

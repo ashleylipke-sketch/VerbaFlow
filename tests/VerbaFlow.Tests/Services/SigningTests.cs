@@ -16,7 +16,9 @@ public class SigningTests
         Assert.True(range.Success, "no /ByteRange in the PDF");
         var n = range.Groups.Values.Skip(1).Select(g => int.Parse(g.Value)).ToArray();
         Assert.Equal(0, n[0]);
-        Assert.Equal(pdf.Length, n[2] + n[3]); // everything after the signature is covered
+        // Everything after the signature is covered, apart from a long-term proof update added after the signed file.
+        var end = n[2] + n[3];
+        Assert.True(end == pdf.Length || text[..end].TrimEnd().EndsWith("%%EOF", StringComparison.Ordinal), "the signature does not reach the end of its revision");
         var signed = pdf[n[0]..(n[0] + n[1])].Concat(pdf[n[2]..(n[2] + n[3])]).ToArray();
         var hex = text[(n[0] + n[1])..n[2]].Trim('<', '>', ' ', '\n', '\r');
         var der = Convert.FromHexString(hex);

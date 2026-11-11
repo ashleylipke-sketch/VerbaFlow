@@ -121,6 +121,9 @@ if (builder.Configuration.GetValue("Signing:Enabled", true))
         }
         else pdfSigner = VerbaFlow.Infrastructure.Export.PdfSigner.Create(builder.Configuration["Signing:CertificatePath"],
             builder.Configuration["Signing:CertificatePassword"], Path.Combine(dataDir, "keys"), timestamps, others);
+        // Long-term proof (PAdES B-LT): certificate checks stored in the PDF so it can be checked years later, offline.
+        if (builder.Configuration.GetValue("Signing:LongTermProof", true))
+            pdfSigner.LongTerm = new VerbaFlow.Infrastructure.Export.LongTermProof(new HttpClient());
         builder.Services.AddSingleton(pdfSigner);
     }
     catch (Exception ex) { signingProblem = ex.Message; }
@@ -273,10 +276,11 @@ app.Logger.LogInformation(graph.IsConfigured
         ? "Outlook drafts: STAND-IN (drafts are saved in data/drafts)"
         : "Outlook drafts: off. Set Entra:ClientSecret and grant Mail.ReadWrite to offer them (see docs/outlook-drafts.md).");
 if (pdfSigner is not null)
-    app.Logger.LogInformation("Signing: PDF exports are signed by {Signer}, key in {Place}{Test}; {Chain} more certificates sent with it; time {Time}",
+    app.Logger.LogInformation("Signing: PDF exports are signed by {Signer}, key in {Place}{Test}; {Chain} more certificates sent with it; time {Time}; long-term proof {LongTerm}",
         pdfSigner.Signature.SignedBy, pdfSigner.KeyPlace,
         pdfSigner.Signature.TestCertificate ? " (set Signing:KeyVaultUrl or Signing:CertificatePath for the organisation's own)" : "",
-        pdfSigner.ChainLength, pdfSigner.TimestampService is { } ts ? $"confirmed by {ts}" : "from this computer's clock (Signing:TimestampUrl is empty)");
+        pdfSigner.ChainLength, pdfSigner.TimestampService is { } ts ? $"confirmed by {ts}" : "from this computer's clock (Signing:TimestampUrl is empty)",
+        pdfSigner.LongTerm is null ? "off (Signing:LongTermProof=false)" : "on");
 else if (signingProblem is not null)
     app.Logger.LogWarning("Signing: off, the certificate could not be loaded: {Problem}", signingProblem);
 else app.Logger.LogInformation("Signing: off (Signing:Enabled=false)");

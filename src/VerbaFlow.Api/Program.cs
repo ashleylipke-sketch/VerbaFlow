@@ -90,16 +90,37 @@ if (diarizationOn)
 builder.Services.AddSingleton<VerbaFlow.Infrastructure.Services.FailureReporter>();
 builder.Services.AddSingleton<MeetingService>();
 builder.Services.AddSingleton<AccountService>();
-// Exported PDFs are signed: with the organisation's certificate (Signing:CertificatePath and Signing:CertificatePassword)
-// or, until there is one, a test certificate made in the data folder. Signing:Enabled=false switches it off.
+// Exported PDFs are signed: with the organisation's certificate in Azure Key Vault (Signing:KeyVaultUrl and
+// Signing:KeyVaultCertificate), in a .pfx file (Signing:CertificatePath and Signing:CertificatePassword) or, until there is
+// one, a test certificate made in the data folder. Signing:ChainPath adds the seller's chain file. The signing time is
+// confirmed by a timestamp service (Signing:TimestampUrl, DigiCert's free one unless set; empty = none). Signing:Enabled=false
+// switches it off. See docs/signed-exports.md.
 VerbaFlow.Infrastructure.Export.PdfSigner? pdfSigner = null;
 string? signingProblem = null;
 if (builder.Configuration.GetValue("Signing:Enabled", true))
 {
     try
     {
-        pdfSigner = VerbaFlow.Infrastructure.Export.PdfSigner.Create(builder.Configuration["Signing:CertificatePath"],
-            builder.Configuration["Signing:CertificatePassword"], Path.Combine(dataDir, "keys"));
+        var stampAt = builder.Configuration["Signing:TimestampUrl"] ?? VerbaFlow.Infrastructure.Export.Timestamper.Default;
+        var timestamps = string.IsNullOrWhiteSpace(stampAt) ? null
+            : new VerbaFlow.Infrastructure.Export.Timestamper(new HttpClient(), new Uri(stampAt));
+        var chainPath = builder.Configuration["Signing:ChainPath"];
+        var others = string.IsNullOrWhiteSpace(chainPath) ? null : VerbaFlow.Infrastructure.Export.PdfSigner.LoadChainFile(chainPath);
+        var vault = builder.Configuration["Signing:KeyVaultUrl"];
+        if (!string.IsNullOrWhiteSpace(vault))
+        {
+            // Online: the app's managed identity. On a computer: the app registration's secret when set, else az login.
+            Azure.Core.TokenCredential credential = !string.IsNullOrWhiteSpace(builder.Configuration["Entra:ClientSecret"])
+                && !string.IsNullOrWhiteSpace(builder.Configuration["Entra:TenantId"]) && !string.IsNullOrWhiteSpace(builder.Configuration["Entra:ClientId"])
+                ? new Azure.Identity.ClientSecretCredential(builder.Configuration["Entra:TenantId"], builder.Configuration["Entra:ClientId"],
+                    builder.Configuration["Entra:ClientSecret"])
+                : new Azure.Identity.DefaultAzureCredential();
+            pdfSigner = VerbaFlow.Infrastructure.Export.KeyVaultRsa.Signer(new Uri(vault),
+                builder.Configuration["Signing:KeyVaultCertificate"] ?? throw new InvalidOperationException("Set Signing:KeyVaultCertificate too."),
+                credential, others, timestamps);
+        }
+        else pdfSigner = VerbaFlow.Infrastructure.Export.PdfSigner.Create(builder.Configuration["Signing:CertificatePath"],
+            builder.Configuration["Signing:CertificatePassword"], Path.Combine(dataDir, "keys"), timestamps, others);
         builder.Services.AddSingleton(pdfSigner);
     }
     catch (Exception ex) { signingProblem = ex.Message; }
@@ -252,8 +273,10 @@ app.Logger.LogInformation(graph.IsConfigured
         ? "Outlook drafts: STAND-IN (drafts are saved in data/drafts)"
         : "Outlook drafts: off. Set Entra:ClientSecret and grant Mail.ReadWrite to offer them (see docs/outlook-drafts.md).");
 if (pdfSigner is not null)
-    app.Logger.LogInformation("Signing: PDF exports are signed by {Signer}{Test}", pdfSigner.Signature.SignedBy,
-        pdfSigner.Signature.TestCertificate ? " (a test certificate; set Signing:CertificatePath for the organisation's own)" : "");
+    app.Logger.LogInformation("Signing: PDF exports are signed by {Signer}, key in {Place}{Test}; {Chain} more certificates sent with it; time {Time}",
+        pdfSigner.Signature.SignedBy, pdfSigner.KeyPlace,
+        pdfSigner.Signature.TestCertificate ? " (set Signing:KeyVaultUrl or Signing:CertificatePath for the organisation's own)" : "",
+        pdfSigner.ChainLength, pdfSigner.TimestampService is { } ts ? $"confirmed by {ts}" : "from this computer's clock (Signing:TimestampUrl is empty)");
 else if (signingProblem is not null)
     app.Logger.LogWarning("Signing: off, the certificate could not be loaded: {Problem}", signingProblem);
 else app.Logger.LogInformation("Signing: off (Signing:Enabled=false)");

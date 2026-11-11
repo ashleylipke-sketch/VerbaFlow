@@ -340,8 +340,11 @@ public sealed class ExportService(Stores stores, TimeProvider clock, IEmailSende
         {
             try
             {
-                bytes = await signer.SignAsync(bytes, $"Exported from VerbaFlow ({marker.ToLowerInvariant()})", w);
-                signature = signer.Signature.Describe;
+                var signed = await signer.SignAsync(bytes, $"Exported from VerbaFlow ({marker.ToLowerInvariant()})", w);
+                bytes = signed.Bytes;
+                signature = signed.Describe;
+                if (signed.TimestampFailure is { } late && reporter is not null)
+                    signature += $" ({(await reporter.ReportAsync("timestamp", id, late)).Reference})";
             }
             catch (Exception ex) when (reporter is not null)
             {

@@ -81,7 +81,7 @@ What the signature covers: the text, headers, footers, pictures and layout. Like
 Good to know:
 - If someone changes the file and saves it in Word, Word removes the signature (that is how Word works). **Check an exported file** still tells you whether a file is exactly the one VerbaFlow exported.
 - Word files get the trusted timestamp but no long-term proof and no visible approval box (those are PDF only).
-- Not yet checked in Microsoft Word itself: it is checked by VerbaFlow's tests and by a separate XML signature checker.
+- Word shows a test-certificate signature as a "Recoverable signature" (Word has not been told to trust the signer) with signature type XAdES-T (the T means it carries the trusted timestamp). Checked in Microsoft Word on 12 November 2026.
 
 ## Where it shows in VerbaFlow
 

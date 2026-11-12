@@ -108,6 +108,7 @@ public static class LetterWriter
     /// <param name="plain">True without a letterhead: VerbaFlow then sets the text size itself; otherwise the letterhead's own style is used.</param>
     private static IEnumerable<W.Paragraph> Paragraphs(LetterDocument d, bool plain, MainDocumentPart main)
     {
+        var lists = new WordLists(main);
         if (d.Note is not null) yield return Para(d.Note, plain, right: false, after: 240, size: 18, color: "B3261E", bold: true);
         if (d.Date is not null) yield return Para(d.Date, plain, right: true, after: d.OurRef is null ? 360 : 0);
         if (d.OurRef is not null) yield return Para(d.RefLabel + " " + d.OurRef, plain, right: true, after: 360);
@@ -119,9 +120,7 @@ public static class LetterWriter
             if (marker is not null)
             {
                 para.ParagraphProperties = DocxMinutesWriter.ListOrPlain(marker, "200");
-                var first = para.GetFirstChild<W.Run>()!;
-                first.InsertBeforeSelf(new W.Run((RunProperties)first.RunProperties!.CloneNode(true), new W.Text(marker)));
-                first.InsertBeforeSelf(new W.Run(new W.TabChar()));
+                lists.Apply(para, marker);
             }
             yield return para;
         }

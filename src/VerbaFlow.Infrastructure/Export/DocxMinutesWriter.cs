@@ -38,6 +38,7 @@ public static class DocxMinutesWriter
     private static IEnumerable<OpenXmlElement> Content(MinutesDocument d, MinutesStyle style, MainDocumentPart main)
     {
         var f = style.Font;
+        var lists = new WordLists(main);
         if (style.Logo is { } logo)
             yield return LetterWriter.PictureParagraph(main, logo, LetterWriter.Fit(logo, MinutesStyle.LogoHeightMm, MinutesStyle.LogoMaxWidthMm),
                 "Logo", style.LogoPlace == "right");
@@ -68,13 +69,13 @@ public static class DocxMinutesWriter
                     yield return Heading(heading, style); yield return Para(d.Summary, font: f); break;
                 case "actions" when d.ActionPoints.Count > 0:
                     yield return Heading(heading, style);
-                    foreach (var a in d.ActionPoints) yield return Para("•  " + a, indent: 360, font: f);
+                    foreach (var a in d.ActionPoints) yield return Point(lists, a, f);
                     break;
                 case "minutes" when d.MinutesLines.Count > 0:
                     yield return Heading(heading, style);
                     foreach (var line in d.MinutesLines)
                     {
-                        if (line.StartsWith("- ")) yield return Para("•  " + line[2..], indent: 360, font: f);
+                        if (line.StartsWith("- ")) yield return Point(lists, line[2..], f);
                         else if (line.EndsWith(':')) yield return Para(line, bold: true, font: f);
                         else yield return Para(line, font: f);
                     }
@@ -86,10 +87,10 @@ public static class DocxMinutesWriter
                     foreach (var p in d.Transcript)
                     {
                         var para = new Paragraph(ListOrPlain(p.Marker, "120"));
-                        if (p.Marker is not null) para.Append(Run(p.Marker, font: f), new DocumentFormat.OpenXml.Wordprocessing.Run(new TabChar()));
                         if (p.Time.Length > 0) para.Append(Run(p.Time + "  ", size: 18, color: "666666", font: f));
                         if (p.Speaker.Length > 0) para.Append(Run(p.Speaker + ": ", bold: true, font: f));
                         para.Append(Run(p.Text, font: f));
+                        if (p.Marker is not null) lists.Apply(para, p.Marker);
                         yield return para;
                     }
                     break;
@@ -112,6 +113,14 @@ public static class DocxMinutesWriter
         new(newPage ? new ParagraphProperties(new KeepNext(), new PageBreakBefore(), new SpacingBetweenLines { Before = "0", After = "120" })
                 : new ParagraphProperties(new KeepNext(), new SpacingBetweenLines { Before = "320", After = "120" }),
             Run(text, bold: true, size: 28, color: style.Hex == "000000" ? null : style.Hex, font: style.Font));
+
+    /// <summary>A bullet point (action points, minutes lines starting "- ") as a Word bullet.</summary>
+    private static Paragraph Point(WordLists lists, string text, string? font)
+    {
+        var para = Para(text, font: font);
+        lists.Apply(para, "•");
+        return para;
+    }
 
     private static Paragraph Para(string text, bool bold = false, int size = 22, string? color = null, int indent = 0, string? font = null)
     {

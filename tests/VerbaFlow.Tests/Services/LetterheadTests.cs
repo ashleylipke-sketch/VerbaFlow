@@ -221,12 +221,63 @@ public class LetterheadTests
         await env.Processing.ProcessAsync(id);
         var exports = new ExportService(env.Stores, env.Clock);
         var body = WordBody((await exports.ExportAsync(env.Alice, id, "docx")).Content, out _);
-        Assert.Contains("|Please bring:|•Your passport|•Two photos|Then:|1.Sign|2.Pay", body); // the tab between marker and text has no text
+        Assert.Contains("|Please bring:|Your passport|Two photos|Then:|Sign|Pay", body); // Word draws the bullets and numbers itself
         using (var doc = WordprocessingDocument.Open(new MemoryStream((await exports.ExportAsync(env.Alice, id, "docx")).Content), false))
+        {
             Assert.Equal(4, doc.MainDocumentPart!.Document!.Body!.Descendants<Indentation>().Count(x => x.Hanging?.Value == "425"));
+            Assert.Equal(["bullet", "bullet", "decimal", "decimal"], WordListFormats(doc));
+        }
         using var pdf = PdfReader.Open(new MemoryStream((await exports.ExportAsync(env.Alice, id, "pdf")).Content), PdfDocumentOpenMode.Import);
         Assert.Equal(1, pdf.PageCount);
         var passages = ExportService.DictationText((await env.Stores.Transcripts.GetAsync(id))!);
         Assert.Equal([null, "•", "•", null, "1.", "2."], passages.Select(p => p.Marker));
+    }
+
+    /// <summary>For each list point in the body, the format Word numbers it with ("bullet", "decimal"), read through the
+    /// numbering part as Word does, plus the number it starts at when the list instance restarts.</summary>
+    internal static List<string> WordListFormats(WordprocessingDocument doc, bool withStart = false)
+    {
+        var numbering = doc.MainDocumentPart!.NumberingDefinitionsPart!.Numbering!;
+        var result = new List<string>();
+        foreach (var p in doc.MainDocumentPart.Document!.Body!.Descendants<Paragraph>())
+        {
+            if (p.ParagraphProperties?.NumberingProperties?.NumberingId?.Val?.Value is not int numId) continue;
+            var instance = numbering.Elements<NumberingInstance>().Single(n => n.NumberID!.Value == numId);
+            var abstractId = instance.AbstractNumId!.Val!.Value;
+            var level = numbering.Elements<AbstractNum>().Single(a => a.AbstractNumberId!.Value == abstractId).Elements<Level>().Single();
+            var format = level.NumberingFormat!.Val!.ToString()!;
+            var start = instance.Elements<LevelOverride>().FirstOrDefault()?.StartOverrideNumberingValue?.Val?.Value;
+            result.Add(withStart ? $"{format}:{numId}{(start is null ? "" : $" from {start}")}" : format);
+        }
+        return result;
+    }
+
+    [Fact]
+    public async Task Two_numbered_lists_restart_and_a_letterhead_keeps_its_own_lists()
+    {
+        using var env = new Env();
+        // A letterhead that already uses Word numbering (ids 0 and 1): VerbaFlow's lists must get ids of their own.
+        var lh = new MemoryStream();
+        lh.Write(WordLetterhead());
+        using (var doc = WordprocessingDocument.Open(lh, true))
+        {
+            var part = doc.MainDocumentPart!.AddNewPart<NumberingDefinitionsPart>();
+            part.Numbering = new Numbering(
+                new AbstractNum(new Level(new NumberingFormat { Val = NumberFormatValues.UpperRoman }, new LevelText { Val = "%1." }) { LevelIndex = 0 }) { AbstractNumberId = 0 },
+                new NumberingInstance(new AbstractNumId { Val = 0 }) { NumberID = 1 });
+        }
+        await new LetterheadService(env.Stores, env.Clock).UploadAsync(env.Carol, "word", new MemoryStream(lh.ToArray()), "lh.docx");
+        env.Speech.Heard = "First colon numbered point one numbered point two end list between numbered point three bullet point four";
+        var id = await env.Meeting.CreateRecordingAsync(env.Alice, env.Dictation());
+        await env.Processing.ProcessAsync(id);
+        var file = await new ExportService(env.Stores, env.Clock).ExportAsync(env.Alice, id, "docx");
+        using var result = WordprocessingDocument.Open(new MemoryStream(file.Content), false);
+        Assert.Equal(["decimal:2 from 1", "decimal:2 from 1", "decimal:3 from 1", "bullet:4"], WordListFormats(result, withStart: true));
+        var numbering = result.MainDocumentPart!.NumberingDefinitionsPart!.Numbering!;
+        Assert.Equal([0, 1, 2], numbering.Elements<AbstractNum>().Select(a => a.AbstractNumberId!.Value));
+        // Word wants all list definitions before the instances.
+        Assert.True(numbering.ChildElements.TakeWhile(c => c is AbstractNum).Count() == 3);
+        Assert.Contains(result.MainDocumentPart.Document!.Body!.Descendants<Paragraph>(), p => p.InnerText == "One"
+            && p.ParagraphProperties!.ParagraphMarkRunProperties is not null);
     }
 }

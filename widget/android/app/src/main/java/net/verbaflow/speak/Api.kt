@@ -25,7 +25,7 @@ data class MicrosoftInfo(val tenantId: String, val clientId: String, val scope: 
 data class SignInInfo(val testUsers: Boolean, val microsoft: MicrosoftInfo?, val personal: Boolean = false)
 data class WidgetLink(val code: String, val secret: String, val expiresInSeconds: Int)
 data class WidgetStart(val id: String, val liveId: String, val ticket: String, val engine: String)
-data class Language(val code: String, val name: String, val supported: Boolean)
+data class Language(val code: String, val name: String, val supported: Boolean, val live: Boolean = true)
 data class GrammarFix(val text: String, val linesChanged: Int, val leftOutAsRewrites: Int)
 
 object Http {
@@ -138,7 +138,7 @@ class Api(val server: HttpUrl, private val signIn: SignIn) {
     suspend fun languages(): List<Language> {
         val a = send("GET", "api/languages", null).optJSONArray("languages") ?: return emptyList()
         return (0 until a.length()).map { a.getJSONObject(it) }
-            .map { Language(it.optString("code"), it.optString("name"), it.optBoolean("supported")) }
+            .map { Language(it.optString("code"), it.optString("name"), it.optBoolean("supported"), it.optBoolean("live", true)) }
     }
 
     /** A new single-use ticket for the live connection (after a lost connection). */

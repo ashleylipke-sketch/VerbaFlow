@@ -214,6 +214,8 @@ public sealed class LiveSessions(Stores stores, ILiveSpeech live, TimeProvider c
             .Select(SpokenLanguageCatalogue.Normalise).Where(x => x is not null).Select(x => x!).Distinct().ToArray();
         if (languages.Contains("auto") || languages.Length == 0)
             throw new DomainException("Choose the language you will speak. Speech mode cannot detect it automatically.");
+        if (languages.Select(SpokenLanguageCatalogue.Find).FirstOrDefault(l => l is { Live: false }) is { } notLive)
+            throw new DomainException($"{notLive.Name} has no live text yet. Use Dictate instead: record, then it is converted to text.");
         if (languages.Length > SpokenLanguageCatalogue.MaxPerRecording)
             throw new DomainException($"Choose at most {SpokenLanguageCatalogue.MaxPerRecording} languages.");
         // A plan whose minutes are used up starts no new live speech (speech already under way is never cut off).

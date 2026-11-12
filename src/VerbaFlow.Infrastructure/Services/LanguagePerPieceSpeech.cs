@@ -254,8 +254,12 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
     }
 
     /// <summary>Decodes any audio to raw 16 kHz mono 16-bit samples with ffmpeg.</summary>
-    private async Task<byte[]> ToPcmAsync(Stream audio, CancellationToken ct)
+    private Task<byte[]> ToPcmAsync(Stream audio, CancellationToken ct) => ToPcmAsync(Executable, audio, ct);
+
+    /// <summary>The audio as 16 kHz mono 16-bit samples, through ffmpeg.</summary>
+    public static async Task<byte[]> ToPcmAsync(string? ffmpegPath, Stream audio, CancellationToken ct)
     {
+        var executable = string.IsNullOrWhiteSpace(ffmpegPath) ? "ffmpeg" : ffmpegPath!;
         var dir = Directory.CreateTempSubdirectory("verbaflow-pieces-");
         try
         {
@@ -263,7 +267,7 @@ public sealed class LanguagePerPieceSpeech(ISpeechService inner, string? ffmpegP
             var output = Path.Combine(dir.FullName, "out.raw");
             if (audio.CanSeek) audio.Position = 0;
             await using (var f = File.Create(input)) await audio.CopyToAsync(f, ct);
-            var psi = new ProcessStartInfo(Executable) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            var psi = new ProcessStartInfo(executable) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
             foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-y", "-i", input, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", output })
                 psi.ArgumentList.Add(a);
             using var proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start.");

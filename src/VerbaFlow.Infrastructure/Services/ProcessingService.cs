@@ -56,6 +56,10 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 : ((await VocabularyService.InAsync(stores, item.Space)).Select(v => v.Text).ToList(), (IReadOnlyList<SavedText>)[]);
             var request = new TranscribeOptions(item.SpokenLanguages == "auto" ? [] : item.SpokenLanguages.Split(','),
                 azureOnly ? item.NumSpeakers ?? 8 : 8, !dictation, phrases, Enhanced: !dictation && item.SpeechModel == "enhanced");
+            // isiXhosa, Sepedi, Setswana, siSwati, Xitsonga and Tshivenda go to Google (SpeechRouter): no speaker labels,
+            // no word-for-word route, no newer Azure model. Meetings then get their speakers from the local voice model.
+            var google = request.CandidateLanguages.Length == 1 && SpokenLanguageCatalogue.IsGoogle(request.CandidateLanguages[0]);
+            if (google) request = request with { Enhanced = false };
             string? speechModel = request.Enhanced ? "newer (LLM Speech)" : null;
             // A dictation in one language goes word for word, so spoken commands reach VerbaFlow; the fast service is the fallback.
             string? dictationService = null, liveText = null;
@@ -77,6 +81,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 else liveText = $"not used: {problem}, so the text was worked out from the recording";
             }
             if (result is not null) { /* the live text */ }
+            else if (dictation && google) dictationService = "Google (the only service for this language)";
             else if (dictation && wordForWord is not null && item.DictationService != "fast" && request.CandidateLanguages.Length == 1)
             {
                 try { result = await wordForWord.TranscribeAsync(copy, request, ct); dictationService = "word for word"; }
@@ -164,7 +169,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                 separation = "meeting platform";
                 platformNames = result.Speakers.Count;
             }
-            else if (diarizer is not null && copy.CanSeek && !azureOnly && !dictation)
+            // A Google language has no speaker labels, so the local voice model is used even when a number of speakers was given.
+            else if (diarizer is not null && copy.CanSeek && (!azureOnly || google) && !dictation)
             {
                 try
                 {
@@ -172,7 +178,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     await using var untouched = diarization?.UseOriginalAudio == true && !useOriginal ? stores.Media.OpenRead(asset) : null;
                     Stream heard = untouched ?? copy;
                     if (heard.CanSeek) heard.Position = 0;
-                    var turns = await diarizer.DiarizeAsync(heard, item.NumSpeakers, item.SpeakerMethod, ct);
+                    var turns = await diarizer.DiarizeAsync(heard, item.NumSpeakers, azureOnly ? null : item.SpeakerMethod, ct);
                     localTurns = turns.Count; localSpeakers = turns.Select(t => t.Speaker).Distinct().Count();
                     voiceSeconds = string.Join(" ", turns.GroupBy(t => t.Speaker).OrderByDescending(g => g.Sum(t => t.EndMs - t.StartMs))
                         .Select(g => $"{g.Sum(t => t.EndMs - t.StartMs) / 1000}s"));
@@ -286,8 +292,8 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
                     ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames), ("personAudio", personAudio), ("introductions", introductions),
-                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : item.NoiseChoice switch { NoiseReduction.Light => "prepared, background noise reduced a little", NoiseReduction.Strong => "prepared, background noise reduced a lot", _ => "prepared" }), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly ? "azure" : localTurns is null ? null : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
-                    ("languagesSent", item.SpokenLanguages), ("perLanguage", result.Detail), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
+                    ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : item.NoiseChoice switch { NoiseReduction.Light => "prepared, background noise reduced a little", NoiseReduction.Strong => "prepared, background noise reduced a lot", _ => "prepared" }), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly && localTurns is null ? "azure" : localTurns is null ? null : azureOnly ? diarization?.Method ?? "standard" : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
+                    ("languagesSent", item.SpokenLanguages), ("perLanguage", google ? null : result.Detail), ("googleSpeech", google ? result.Detail : null), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
                     ("vocabularyTerms", phrases.Count), ("speechModel", speechModel), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("typedWhileSpeaking", typedFixes), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

@@ -1,0 +1,59 @@
+# Runs VerbaFlow's own Google speech code (src/VerbaFlow.Infrastructure/Google) against Google's EU servers with real
+# recordings: isiXhosa (FLEURS) and Setswana (OpenSLR 32), about 90 seconds each, so the recording is cut into pieces.
+# Signs in without a key, as the language trial does (workload identity federation to verbaflow-trial, role Cloud Speech
+# Client). Costs a few cents a run. The table of results is on the run's summary page.
+name: Google speech check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg libsndfile1
+          pip install -q soundfile
+      - name: Make the recordings
+        run: |
+          mkdir -p /tmp/check
+          python - <<'PY'
+          import subprocess, sys
+          sys.path.insert(0, "tools/language-trial")
+          import trial
+          for code, (kind, source) in {"xh-ZA": ("fleurs", "xh_za"), "tn-ZA": ("openslr", "tn_za")}.items():
+              pairs, _ = getattr(trial, kind)(source)
+              chosen, seconds = [], 0.0
+              import soundfile as sf
+              for wav, text in pairs:
+                  chosen.append((wav, text)); seconds += sf.info(str(wav)).duration
+                  if seconds > 90: break
+              with open("/tmp/check/list.txt", "w") as f:
+                  for wav, _ in chosen: f.write(f"file '{wav}'\n")
+              subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", "/tmp/check/list.txt",
+                              "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", f"/tmp/check/{code}.wav"], check=True)
+              open(f"/tmp/check/{code}.txt", "w", encoding="utf-8").write(" ".join(t for _, t in chosen))
+              print(code, len(chosen), "clips", round(seconds), "s")
+          PY
+      - uses: google-github-actions/auth@v2
+        id: google
+        with:
+          workload_identity_provider: projects/521123430987/locations/global/workloadIdentityPools/github/providers/verbaflow
+          service_account: verbaflow-trial@cs-project-0xzelowp.iam.gserviceaccount.com
+          token_format: access_token
+      - name: Check
+        env:
+          GOOGLE_SPEECH_CHECK_TOKEN: ${{ steps.google.outputs.access_token }}
+          GOOGLE_SPEECH_CHECK_PROJECT: cs-project-0xzelowp
+          GOOGLE_SPEECH_CHECK_DIR: /tmp/check
+        run: dotnet test tests/VerbaFlow.Tests --filter "FullyQualifiedName~GoogleSpeechLiveCheck" --logger "console;verbosity=detailed"

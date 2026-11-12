@@ -63,6 +63,7 @@ public sealed class Item
         var parts = (value ?? "").Split(new[] { ',', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(SpokenLanguageCatalogue.Normalise).Where(x => x is not null).Select(x => x!).Distinct()
             .Take(SpokenLanguageCatalogue.MaxPerRecording).ToList();
+        if (!parts.Contains("auto")) SpokenLanguageCatalogue.CheckCombination(parts);
         SpokenLanguages = parts.Contains("auto") ? "auto" : parts.Count == 0 ? "en" : string.Join(",", parts);
     }
     /// <summary>How many people were speaking, if the owner said so when running the conversion again. Null means work it out.</summary>

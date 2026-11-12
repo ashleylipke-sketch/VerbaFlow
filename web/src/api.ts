@@ -73,7 +73,8 @@ export function describeAudit(a: AuditEvent): string {
   return facts ? `${a.type} (${facts})` : a.type;
 }
 export type DeleteRequest = { id: string; itemId: string; itemName: string; reason: string; requestedBy: string; approvals: number; approvedBy: string[]; open: boolean; outcome: string | null };
-export type Lang = { code: string; name: string; supported: boolean };
+/** live: can be used for live text (Speech mode, Widget). onlyLanguage: must be the only language of a recording (South African languages sent to Google). */
+export type Lang = { code: string; name: string; supported: boolean; live?: boolean; onlyLanguage?: boolean; why?: string | null };
 export type WidgetPolicy = { blockedSites: string[]; canChange: boolean; changedBy: string | null; changedAt: string | null };
 export type WidgetUse = { id: string; user: string | null; site: string; device: string; languages: string; startedAt: string; endedAt: string | null;
   outcome: string; listens: number; spokenMs: number | null; words: number | null };

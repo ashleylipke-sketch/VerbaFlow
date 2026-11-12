@@ -354,7 +354,7 @@ export default function Speech({ draftId }: { draftId?: string }) {
         <DocumentTypePicker value={docType} onChange={setDocType} />
         <div className="pair"><div className="field"><label>Name<br /><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Letter to Mr Smith" /></label></div>
           <div className="field"><label>Client reference (optional)<br /><input value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="e.g. ACME-042" /></label></div></div>
-        <LanguagePicker value={spoken} onChange={setSpoken} allowAuto={false}
+        <LanguagePicker value={spoken} onChange={setSpoken} allowAuto={false} live
           note="Choose the language you will speak. If you add a second or third, the speech service works out which one you are speaking as you go (not yet tried with real speech)." />
         <button className="primary" disabled={!!needs} onClick={start}>Start speaking</button>
         {needs && <p className="need">{needs}</p>}

@@ -22,7 +22,7 @@ struct SignInInfo: Decodable {
 struct WidgetLink: Decodable { let code: String; let secret: String; let expiresInSeconds: Int }
 
 struct WidgetStart: Decodable { let id: String; let liveId: String; let ticket: String; let engine: String }
-struct SpokenLanguage: Decodable, Identifiable, Hashable { let code: String; let name: String; let supported: Bool; var id: String { code } }
+struct SpokenLanguage: Decodable, Identifiable, Hashable { let code: String; let name: String; let supported: Bool; var live: Bool? = nil; var id: String { code } }
 struct GrammarFix: Decodable { let text: String; let linesChanged: Int; let leftOutAsRewrites: Int }
 
 /// The calls the Widget makes to VerbaFlow: the same as the browser Widget's and the Widget for Windows'.

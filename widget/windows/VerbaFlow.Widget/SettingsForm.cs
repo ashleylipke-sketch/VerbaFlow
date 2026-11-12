@@ -143,7 +143,7 @@ internal sealed class SettingsForm : Form
         if (_languages.Count > 0) return;
         try
         {
-            _languages = (await client.LanguagesAsync()).Where(l => l.Supported).ToList();
+            _languages = (await client.LanguagesAsync()).Where(l => l.Supported && l.Live).ToList();
             var current = _settings.Languages;
             _language.Items.Clear();
             _language.Items.AddRange([.. _languages.Select(l => l.Name)]);

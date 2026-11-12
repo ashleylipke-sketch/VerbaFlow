@@ -1,12 +1,18 @@
 namespace VerbaFlow.Core.Domain;
 
-/// <summary>One language a recording can be in. <paramref name="Supported"/> is false for languages the speech service cannot transcribe yet.</summary>
-public sealed record SpokenLanguage(string Code, string Name, bool Supported = true);
+/// <summary>One language a recording can be in. <paramref name="Supported"/> is false for languages no speech service can transcribe yet.
+/// <paramref name="Service"/> is "azure" (Azure AI Speech) or "google" (Google Speech-to-Text, for South African languages Azure
+/// does not have). A Google language has no live text (Speech mode, Widget), no speaker labels from the service, and must be the
+/// only language of its recording.</summary>
+public sealed record SpokenLanguage(string Code, string Name, bool Supported = true, string Service = "azure")
+{
+    public bool Live => Service == "azure";
+}
 
 /// <summary>
 /// The languages offered when recording or importing. Codes are the locale names the speech service uses. The supported ones were
-/// checked against Microsoft's list of fast-transcription locales (October 2026); the South African languages at the end are
-/// not on that list, so they are shown but cannot be chosen.
+/// checked against Microsoft's list of fast-transcription locales (October 2026); six South African languages that are not on
+/// that list go to Google instead, and two that no service does well are shown but cannot be chosen.
 /// </summary>
 public static class SpokenLanguageCatalogue
 {
@@ -29,14 +35,33 @@ public static class SpokenLanguageCatalogue
         new("ar-IQ", "Arabic (Iraq)"), new("ar-JO", "Arabic (Jordan)"), new("ar-LB", "Arabic (Lebanon)"), new("ar-SY", "Arabic (Syria)"),
         new("ar-KW", "Arabic (Kuwait)"), new("ar-QA", "Arabic (Qatar)"), new("ar-BH", "Arabic (Bahrain)"), new("ar-OM", "Arabic (Oman)"),
         new("ar-YE", "Arabic (Yemen)"), new("ar-PS", "Arabic (Palestine)"), new("ar-IL", "Arabic (Israel)"),
-        new("xh-ZA", "isiXhosa", false), new("st-ZA", "Sesotho", false), new("tn-ZA", "Setswana", false), new("nso-ZA", "Northern Sotho", false),
-        new("ts-ZA", "Xitsonga", false), new("ss-ZA", "siSwati", false), new("ve-ZA", "Tshivenda", false), new("nr-ZA", "isiNdebele", false),
+        // Through Google Speech-to-Text (EU), checked 2026-11-04 and scored on public recordings (docs/south-african-languages.md).
+        new("xh-ZA", "isiXhosa", Service: "google"), new("nso-ZA", "Northern Sotho (Sepedi)", Service: "google"),
+        new("tn-ZA", "Setswana", Service: "google"), new("ss-ZA", "siSwati", Service: "google"),
+        new("ts-ZA", "Xitsonga", Service: "google"), new("ve-ZA", "Tshivenda", Service: "google"),
+        // Sesotho: Google got 62% of words wrong in the trial, so it is not offered. isiNdebele: no service has it.
+        new("st-ZA", "Sesotho", false), new("nr-ZA", "isiNdebele", false),
     ];
 
     /// <summary>A plain name for a stored code, for documents: "en-ZA" becomes "English (South Africa)", "en" becomes "English".</summary>
     public static string NameOf(string code) =>
         All.FirstOrDefault(l => l.Code.Equals(code, StringComparison.OrdinalIgnoreCase))?.Name
         ?? code.ToLowerInvariant() switch { "en" => "English", "fr" => "French", "es" => "Spanish", "de" => "German", "it" => "Italian", "nl" => "Dutch", _ => code };
+
+    /// <summary>The catalogue entry for a stored code, or null (older short codes, "auto").</summary>
+    public static SpokenLanguage? Find(string code) => All.FirstOrDefault(l => l.Code.Equals(code.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True when a language goes to Google rather than Azure.</summary>
+    public static bool IsGoogle(string code) => Find(code)?.Service == "google";
+
+    /// <summary>A Google language must be the only one: the recording cannot be cut into pieces and sent to two services.</summary>
+    public static void CheckCombination(IReadOnlyCollection<string> codes)
+    {
+        if (codes.Count < 2) return;
+        var google = codes.Select(Find).FirstOrDefault(l => l?.Service == "google");
+        if (google is not null)
+            throw new DomainException($"{google.Name} must be the only language of a recording. Remove the other language, or record the parts separately.");
+    }
 
     private static readonly HashSet<string> LegacyShort = new(StringComparer.OrdinalIgnoreCase) { "en", "fr", "es", "de", "it", "nl" };
 

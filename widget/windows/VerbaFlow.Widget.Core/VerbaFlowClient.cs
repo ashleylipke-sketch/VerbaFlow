@@ -19,7 +19,8 @@ public sealed record SignInInfo(bool TestUsers, MicrosoftSignIn? Microsoft, Goog
 /// <summary>A link through the VerbaFlow website: the code the person checks there, and the Widget's own secret for collecting it.</summary>
 public sealed record WidgetLink(string Code, string Secret, int ExpiresInSeconds);
 public sealed record WidgetStart(Guid Id, Guid LiveId, string Ticket, string Engine);
-public sealed record SpokenLanguage(string Code, string Name, bool Supported);
+/// <summary>Live is false for languages with no live text (the South African languages sent to Google): the Widget cannot use them.</summary>
+public sealed record SpokenLanguage(string Code, string Name, bool Supported, bool Live = true);
 public sealed record GrammarFix(string Text, int LinesChanged, int LeftOutAsRewrites);
 
 /// <summary>

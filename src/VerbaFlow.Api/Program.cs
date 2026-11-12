@@ -64,11 +64,39 @@ if (emailOptions.IsConfigured) builder.Services.AddSingleton<IEmailSender>(new V
 else builder.Services.AddSingleton<IEmailSender>(new StandInEmailSender(outbox));
 var ffmpegPath = builder.Configuration["Audio:FfmpegPath"];
 var ffmpegFound = await VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer.IsAvailableAsync(ffmpegPath);
+// Google Speech-to-Text for the South African languages Azure does not have. On when GoogleSpeech:Project is set, a
+// Google credentials file is found (gcloud auth application-default login, or GoogleSpeech:CredentialsFile) and ffmpeg is there.
+string? googleProblem = null;
+VerbaFlow.Infrastructure.Google.GoogleSpeechOptions? googleSpeech = null;
+var googleProject = builder.Configuration["GoogleSpeech:Project"];
+if (!string.IsNullOrWhiteSpace(googleProject))
+{
+    var file = VerbaFlow.Infrastructure.Google.GoogleCredentials.FindFile(builder.Configuration["GoogleSpeech:CredentialsFile"]);
+    if (!ffmpegFound) googleProblem = "ffmpeg is not installed";
+    else if (file is null || !File.Exists(file)) googleProblem = "no Google credentials file was found (run gcloud auth application-default login)";
+    else
+    {
+        try
+        {
+            googleSpeech = new(googleProject.Trim(), builder.Configuration["GoogleSpeech:Location"] is { Length: > 0 } loc ? loc.Trim() : "eu",
+                VerbaFlow.Infrastructure.Google.GoogleCredentials.Load(file));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException) { googleProblem = ex.Message; }
+    }
+}
+if (googleSpeech is not null)
+    builder.Services.AddHttpClient("google-speech", c => c.Timeout = TimeSpan.FromMinutes(5));
+// Without Azure either (everything stand-in), the stand-in also stands in for Google, so the whole flow can be tried.
+builder.Services.AddSingleton(new VerbaFlow.Infrastructure.Services.SpeechLanguages(googleSpeech is not null || !speech.IsConfigured));
 // Recordings in several languages are sent in short pieces so each piece gets its own language (needs ffmpeg).
 builder.Services.AddTransient<ISpeechService>(sp =>
 {
     ISpeechService basic = speech.IsConfigured ? sp.GetRequiredService<VerbaFlow.Infrastructure.Azure.AzureSpeechService>() : sp.GetRequiredService<StandInSpeechService>();
-    return ffmpegFound ? new VerbaFlow.Infrastructure.Services.LanguagePerPieceSpeech(basic, ffmpegPath) : basic;
+    ISpeechService azure = ffmpegFound ? new VerbaFlow.Infrastructure.Services.LanguagePerPieceSpeech(basic, ffmpegPath) : basic;
+    ISpeechService? google = googleSpeech is not null
+        ? new VerbaFlow.Infrastructure.Google.GoogleSpeechService(sp.GetRequiredService<IHttpClientFactory>().CreateClient("google-speech"), googleSpeech, ffmpegPath)
+        : speech.IsConfigured ? null : basic;
+    return new VerbaFlow.Infrastructure.Services.SpeechRouter(azure, google);
 });
 if (ffmpegFound) builder.Services.AddSingleton<IAudioEnhancer>(_ => new VerbaFlow.Infrastructure.Services.FfmpegAudioEnhancer(ffmpegPath));
 else builder.Services.AddSingleton<IAudioEnhancer, StandInAudioEnhancer>();
@@ -243,6 +271,12 @@ app.Logger.LogInformation(speech.IsConfigured
 app.Logger.LogInformation(speech.IsConfigured
     ? "Speech mode: live text through Azure AI Speech real-time recognition"
     : "Speech mode: STAND-IN live text (placeholder words). Set Speech:Endpoint and Speech:Key to use Azure AI Speech.");
+app.Logger.LogInformation(googleSpeech is not null
+    ? "South African languages: isiXhosa, Sepedi, Setswana, siSwati, Xitsonga and Tshivenda through Google Speech-to-Text (project {Project}, {Location}, signed in with a {Kind} file)"
+    : googleProblem is not null ? "South African languages: Google speech NOT used: {Problem}"
+    : speech.IsConfigured ? "South African languages: off (set GoogleSpeech:Project to use Google, see docs/south-african-languages.md)"
+    : "South African languages: STAND-IN text (like the rest of the speech)",
+    googleSpeech?.Project ?? googleProblem, googleSpeech?.Location, googleSpeech?.Credentials?.IsUser == true ? "gcloud sign-in" : "service account key");
 app.Logger.LogInformation(ffmpegFound
     ? "Audio: ffmpeg found, so recordings are made mono, 16 kHz and levelled before transcription"
     : "Audio: ffmpeg NOT found, so recordings are sent as they are. Install ffmpeg to improve speaker separation (see docs/audio-preparation.md).");

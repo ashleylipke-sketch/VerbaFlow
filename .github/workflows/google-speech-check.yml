@@ -26,7 +26,7 @@ jobs:
           pip install -q soundfile
       - name: Make the recordings
         run: |
-          mkdir -p /tmp/check
+          mkdir -p /tmp/check /tmp/trial
           python - <<'PY'
           import subprocess, sys
           sys.path.insert(0, "tools/language-trial")

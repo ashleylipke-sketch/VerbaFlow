@@ -161,11 +161,32 @@ public sealed class GoogleSpeechService(HttpClient http, GoogleSpeechOptions opt
             var end = Math.Max(start, words.Count > 0 ? words[^1].EndMs - offsetMs : endOfResult);
             var confidence = alt?["confidence"]?.GetValue<double>() ?? 0;
             if (confidence <= 0) confidence = 1.0; // these models often send no confidence
-            yield return new Segment(Guid.NewGuid(), speakerId, language, start + offsetMs, end + offsetMs, text, confidence,
-                confidence < LowConfidenceBelow, words.Count > 0 ? words : null);
+            // chirp_3 answers a whole piece (up to 55 s) as one result: split it into sentences where the shown words
+            // line up one to one with the timed words, so a passage stays a readable size and speakers can change between them.
+            var tokens = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Count > 0 && tokens.Length == words.Count && end - start > SentenceSplitOverMs)
+            {
+                var from = 0;
+                for (var i = 0; i < tokens.Length; i++)
+                {
+                    if (i < tokens.Length - 1 && !EndsSentence(tokens[i])) continue;
+                    var part = words.GetRange(from, i + 1 - from);
+                    yield return new Segment(Guid.NewGuid(), speakerId, language, part[0].StartMs, part[^1].EndMs, string.Join(' ', tokens[from..(i + 1)]),
+                        confidence, confidence < LowConfidenceBelow, part);
+                    from = i + 1;
+                }
+            }
+            else
+                yield return new Segment(Guid.NewGuid(), speakerId, language, start + offsetMs, end + offsetMs, text, confidence,
+                    confidence < LowConfidenceBelow, words.Count > 0 ? words : null);
             previousEnd = endOfResult;
         }
     }
+
+    /// <summary>A passage longer than this is split into its sentences.</summary>
+    public const int SentenceSplitOverMs = 15_000;
+
+    private static bool EndsSentence(string token) => token.TrimEnd('"', '\'', ')', '”', '’').EndsWith('.') || token.EndsWith('?') || token.EndsWith('!');
 
     /// <summary>Google writes durations as "1.200s".</summary>
     private static int? Offset(JsonNode? node)

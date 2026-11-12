@@ -84,5 +84,10 @@ the trial), which is not built yet.
 - Tests: `SouthAfricanLanguageTests` (pieces under a minute cut at a quiet moment, times moved back, sign-in with a
   gcloud file and with a service account key, retry without word timings, refusals, meeting speakers from the local
   voice model, dictations skip word for word, live text refused).
+- **Real check, 12 November 2026** (workflow **Google speech check**, about 90 seconds of native speakers' read speech
+  each, through VerbaFlow's own code): isiXhosa (chirp_3, FLEURS) 32% of words wrong, with word timings; Setswana
+  (long, OpenSLR) 23% wrong, but Google gave **no word timings and no punctuation** for Setswana, so follow-along
+  highlighting is estimated and the text has no full stops (the same is expected for siSwati, Xitsonga and Tshivenda,
+  which use the same model; not checked). Both recordings were cut into 2 pieces and the times reached the end.
 - GitHub workflow **Google speech check** sends about 90 seconds of real isiXhosa (FLEURS) and Setswana (OpenSLR)
   speech through VerbaFlow's own code to Google's EU servers and shows the results on the run's summary page.

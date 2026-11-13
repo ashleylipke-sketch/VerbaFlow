@@ -71,7 +71,7 @@ struct ContentView: View {
                     if choices.isEmpty { Text(c.languages) }
                     else {
                         Picker("Language", selection: $c.languages) {
-                            ForEach(choices.filter(\.supported)) { Text($0.name).tag($0.code) }
+                            ForEach(choices.filter { $0.supported && $0.live != false }) { Text($0.name).tag($0.code) }
                         }
                     }
                 }

@@ -29,6 +29,7 @@ Everything marked *stand-in* sits behind an interface in `VerbaFlow.Core/Provide
 | Local media folder, read-only files | Online: an Azure Files share mounted at `/data`. Later: Blob storage with an immutability policy |
 | `StandInLiveSpeech` (Speech mode: one placeholder word per 0.4 s) | **Azure AI Speech real-time recognition: built, confirmed on real Azure.** Used when `Speech:Endpoint` and `Speech:Key` are set |
 | `StandInSpeechService` (fake text) | **Azure AI Speech: built.** Used automatically when `Speech:Endpoint` and `Speech:Key` are set. See `docs/azure-speech-setup.md` |
+| `StandInSpeechService` for isiXhosa, Sepedi, Setswana, siSwati, Xitsonga, Tshivenda | **Google Speech-to-Text (EU): built, not yet tried by the owner.** Used when `GoogleSpeech:Project` is set and a Google sign-in is found. See `docs/south-african-languages.md` |
 | `StandInAiOutputService` | **Azure OpenAI: built.** Used automatically when `OpenAI:Endpoint`, `OpenAI:Key` and `OpenAI:Deployment` are set. See `docs/azure-openai-setup.md` |
 | `StandInEmailSender` (saves .eml files in `data/outbox`) | **Azure Communication Services Email: built, untested on real Azure.** Used when `Email:ConnectionString` and `Email:Sender` are set. See `docs/azure-email-setup.md` |
 | `StandInAudioEnhancer` (no change) | **ffmpeg clean-up: built.** Used automatically when ffmpeg is installed. See `docs/audio-preparation.md` |

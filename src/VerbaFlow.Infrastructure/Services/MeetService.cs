@@ -321,6 +321,7 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
         var parts = (value ?? "").Split([',', '+'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(SpokenLanguageCatalogue.Normalise).Where(x => x is not null).Select(x => x!).Distinct()
             .Take(SpokenLanguageCatalogue.MaxPerRecording).ToList();
+        if (!parts.Contains("auto")) SpokenLanguageCatalogue.CheckCombination(parts);
         return parts.Contains("auto") ? "auto" : parts.Count == 0 ? "auto" : string.Join(",", parts);
     }
 

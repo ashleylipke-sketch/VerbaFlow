@@ -107,7 +107,17 @@ public static class Endpoints
                 u.Individual,
             };
         });
-        api.MapGet("/languages", () => new { max = SpokenLanguageCatalogue.MaxPerRecording, languages = SpokenLanguageCatalogue.All });
+        // A Google language can only be chosen where Google speech is set up; "live" says whether Speech mode and the Widget can use it.
+        api.MapGet("/languages", (VerbaFlow.Infrastructure.Services.SpeechLanguages speechLanguages) => new
+        {
+            max = SpokenLanguageCatalogue.MaxPerRecording,
+            languages = SpokenLanguageCatalogue.All.Select(l => new
+            {
+                l.Code, l.Name, Supported = l.Supported && (l.Service != "google" || speechLanguages.GoogleOn), l.Live,
+                OnlyLanguage = l.Service == "google",
+                Why = !l.Supported ? "not yet supported" : l.Service == "google" && !speechLanguages.GoogleOn ? "needs Google speech set up" : null,
+            }),
+        });
         // Technical error detail for VerbaFlow support and developers only. Customers, including their administrators, are refused.
         api.MapGet("/support/errors", async (HttpContext h, Stores stores, string? reference) =>
         {

@@ -67,8 +67,7 @@ public class SpokenLanguageTests
     }
 
     [Theory]
-    [InlineData("xh-ZA")] [InlineData("st-ZA")] [InlineData("tn-ZA")] [InlineData("nso-ZA")]
-    [InlineData("ts-ZA")] [InlineData("ss-ZA")] [InlineData("ve-ZA")] [InlineData("nr-ZA")]
+    [InlineData("st-ZA")] [InlineData("nr-ZA")]
     public async Task Languages_the_speech_service_cannot_do_yet_are_refused_with_a_plain_sentence(string spoken)
     {
         using var env = new Env();
@@ -83,7 +82,8 @@ public class SpokenLanguageTests
             "af-ZA", "zu-ZA", "xh-ZA", "st-ZA", "tn-ZA", "nso-ZA", "ts-ZA", "ss-ZA", "ve-ZA", "nr-ZA", "zh-CN", "ja-JP", "ar-SA" };
         var codes = VerbaFlow.Core.Domain.SpokenLanguageCatalogue.All.Select(l => l.Code).ToHashSet();
         Assert.All(wanted, w => Assert.Contains(w, codes));
-        Assert.Equal(8, VerbaFlow.Core.Domain.SpokenLanguageCatalogue.All.Count(l => !l.Supported));
+        Assert.Equal(2, VerbaFlow.Core.Domain.SpokenLanguageCatalogue.All.Count(l => !l.Supported));
+        Assert.Equal(6, VerbaFlow.Core.Domain.SpokenLanguageCatalogue.All.Count(l => l.Service == "google"));
     }
 }
 

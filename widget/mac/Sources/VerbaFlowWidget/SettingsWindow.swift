@@ -59,7 +59,7 @@ final class SettingsModel: ObservableObject {
             canMicrosoft = info.microsoft != nil
             canLink = info.personalAccounts == true
             testUsers = info.testUsers
-            if available.isEmpty, let l = try? await api.languages() { available = l.filter { $0.supported } }
+            if available.isEmpty, let l = try? await api.languages() { available = l.filter { $0.supported && $0.live != false } }
             if !app.signIn.isSignedIn && !info.testUsers {
                 signedIn = false
                 status = canLink && canMicrosoft ? "Sign in with your Microsoft account, or through the VerbaFlow website for a Google or email sign-in."

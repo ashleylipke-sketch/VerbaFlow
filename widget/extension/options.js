@@ -34,7 +34,7 @@ async function fill() {
   $('linkIn').hidden = !!signed; $('linkOut').hidden = !viaLink;
   if (!me) { $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`; return status('Sign in to use the Widget.', false); }
   const langs = await call('GET', '/languages');
-  $('languages').innerHTML = langs.languages.filter(l => l.supported !== false && l.code !== 'auto')
+  $('languages').innerHTML = langs.languages.filter(l => l.supported !== false && l.live !== false && l.code !== 'auto')
     .map(l => `<option value="${l.code}"${l.code === s.languages ? ' selected' : ''}>${l.name}</option>`).join('');
   status(`Connected to VerbaFlow as ${me.name}.`, true);
 }

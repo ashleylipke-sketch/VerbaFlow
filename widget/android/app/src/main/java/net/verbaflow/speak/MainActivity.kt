@@ -228,7 +228,7 @@ class MainActivity : Activity() {
     }
 
     private suspend fun loadLanguages(a: Api) {
-        val list = a.languages().filter { it.supported }
+        val list = a.languages().filter { it.supported && it.live }
         if (list.isEmpty() || list.map { it.code } == codes) return
         codes = list.map { it.code }
         language.onItemSelectedListener = null

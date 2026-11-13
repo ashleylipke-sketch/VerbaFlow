@@ -218,6 +218,28 @@ public static class Endpoints
             return download == true ? Results.File(file.Content, file.ContentType, file.FileName) : Results.File(file.Content, file.ContentType);
         });
 
+        // Each person's own saved voice (Your voice): saved, heard and removed only by them.
+        api.MapGet("/voice", async (HttpContext h, VoiceService v) =>
+        {
+            var me = h.Current();
+            var mine = await v.GetAsync(me);
+            return Results.Ok(new
+            {
+                available = v.Available,
+                saved = mine is null ? null : new { savedAt = mine.SavedAt, lengthMs = mine.LengthMs },
+                peopleSaved = await v.CountInSpaceAsync(me),
+                personal = me.Individual,
+            });
+        });
+        api.MapPost("/voice", async (HttpContext h, VoiceService v, IFormFile audio, [Microsoft.AspNetCore.Mvc.FromForm] bool agreed) =>
+        {
+            await using var stream = audio.OpenReadStream();
+            var saved = await v.SaveAsync(h.Current(), agreed, stream, h.RequestAborted);
+            return Results.Ok(new { savedAt = saved.SavedAt, lengthMs = saved.LengthMs });
+        }).DisableAntiforgery();
+        api.MapDelete("/voice", async (HttpContext h, VoiceService v) => { await v.RemoveAsync(h.Current()); return Results.NoContent(); });
+        api.MapGet("/voice/audio", async (HttpContext h, VoiceService v) => Results.File(await v.AudioAsync(h.Current()), "audio/wav"));
+
         // Each person's own letter sign-off; nobody else can see or change it.
         api.MapGet("/signoff", async (HttpContext h, SignOffService s) => SignOffView(await s.GetAsync(h.Current())));
         api.MapPut("/signoff", async (HttpContext h, SignOffService s, SignOffBody b) =>

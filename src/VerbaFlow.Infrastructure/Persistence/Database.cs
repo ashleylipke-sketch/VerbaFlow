@@ -17,7 +17,7 @@ public abstract class Database
         "doc_widget_sessions", "doc_widget_policy", "doc_note_takers", "doc_meeting_speakers", "doc_meeting_voices",
         "doc_calendar_settings", "doc_calendar_choices", "doc_retention", "doc_retention_holds", "doc_recording_removals", "doc_attachments",
         "doc_signoffs", "doc_departments", "doc_minutes_templates", "doc_notifications", "doc_notification_settings", "doc_notification_state", "doc_item_notes", "doc_text_comments", "doc_translations",
-        "doc_plans", "doc_usage", "doc_organisations", "doc_student_checks",
+        "doc_plans", "doc_usage", "doc_organisations", "doc_student_checks", "doc_voice_profiles",
     ];
 
     /// <summary>An open connection.</summary>

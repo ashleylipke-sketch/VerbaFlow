@@ -12,7 +12,7 @@ namespace VerbaFlow.Infrastructure.Services;
 /// </summary>
 public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiOutputService ai, IAudioEnhancer enhancer,
     TimeProvider clock, FailureReporter reporter, ISpeakerDiarizer? diarizer = null, DiarizationOptions? diarization = null,
-    IDictationSpeech? wordForWord = null, BillingService? billing = null)
+    IDictationSpeech? wordForWord = null, BillingService? billing = null, VoiceService? savedVoices = null)
 {
 
     public async Task ProcessAsync(Guid itemId, CancellationToken ct = default)
@@ -243,6 +243,39 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
                     + (voiceCheck == "done" ? $", {outcome.Checked} sentence{(outcome.Checked == 1 ? "" : "s")} compared, {outcome.Moved} moved to another person" : "");
             }
 
+            // An in-room meeting without introductions: the speakers are named from the voices people of the organisation
+            // saved (Your voice), where the voice model is available. Counts only in the history, never names.
+            string? voicesCompared = null;
+            if (!dictation && personAudio is null && platform is not { Stretches.Count: > 0 } && item.IntroducedPeople.Count < 2
+                && result.Segments.Count > 0 && savedVoices is not null && diarizer is IVoicePrints voicePrints && copy.CanSeek)
+            {
+                try
+                {
+                    var known = await savedVoices.KnownInAsync(item.Space, ct);
+                    if (known.Count > 0)
+                    {
+                        await using var untouched = diarization?.UseOriginalAudio == true && !useOriginal ? stores.Media.OpenRead(asset) : null;
+                        Stream heard = untouched ?? copy;
+                        if (heard.CanSeek) heard.Position = 0;
+                        var pieces = IntroductionMatcher.Pieces(result).Where(p => p.EndMs - p.StartMs >= IntroductionMatcher.MinPieceMs).ToList();
+                        var piecePrints = await voicePrints.PrintsAsync(heard, pieces.Select(p => (p.StartMs, p.EndMs)).ToList(), ct);
+                        var match = VoiceMatcher.Match(VoiceMatcher.SpeakerVoices(pieces, piecePrints), known);
+                        if (match.Named.Count > 0)
+                        {
+                            result = VoiceMatcher.Rename(result, match.Named) with { Engine = result.Engine + "+saved-voices" };
+                            separation += "+saved-voices";
+                        }
+                        voicesCompared = $"{known.Count} saved voice{(known.Count == 1 ? "" : "s")} compared with {match.Compared} speaker{(match.Compared == 1 ? "" : "s")}; {match.Named.Count} named from them";
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var rep = await reporter.ReportAsync("saved-voices", itemId, ex);
+                    notices.Add($"the speakers could not be compared with the saved voices ({rep.Reference})");
+                    voicesCompared = "failed";
+                }
+            }
+
             var transcript = Transcript.CreateMachineV1(itemId, result.Engine, result.Speakers, result.Segments, clock.GetUtcNow());
             int? stumbles = null;
             if (dictation)
@@ -291,7 +324,7 @@ public sealed class ProcessingService(Stores stores, ISpeechService speech, IAiO
             if (billing is not null && dictationService != "live") await billing.RecordAsync(item, "recording", item.LengthMs);
             await stores.Audit.AppendAsync(null, "system", "speak", itemId, "processing.completed",
                 AuditChain.Details(("speechEngine", result.Engine), ("aiEngine", outputs?.Engine), ("enhancer", enhancer.Name), ("audioPrep", enhanced.Applied),
-                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames), ("personAudio", personAudio), ("introductions", introductions),
+                    ("segments", result.Segments.Count), ("speakers", result.Speakers.Count), ("speakerSeparation", separation), ("speakersNamedByPlatform", platformNames), ("personAudio", personAudio), ("introductions", introductions), ("savedVoices", voicesCompared),
                     ("localSpeakersFound", localSpeakers), ("localVoiceTurns", localTurns), ("localVoiceSeconds", voiceSeconds), ("smallVoicesFolded", mergedSmall), ("audioSentToSpeech", useOriginal ? "original" : item.NoiseChoice switch { NoiseReduction.Light => "prepared, background noise reduced a little", NoiseReduction.Strong => "prepared, background noise reduced a lot", _ => "prepared" }), ("voicesHeardFrom", localTurns is null ? null : useOriginal || diarization?.UseOriginalAudio == true ? "original" : "prepared"), ("speakersToldTo", item.NumSpeakers), ("groupingMethod", dictation ? null : azureOnly && localTurns is null ? "azure" : localTurns is null ? null : azureOnly ? diarization?.Method ?? "standard" : item.SpeakerMethod ?? diarization?.Method ?? "standard"),
                     ("languagesSent", item.SpokenLanguages), ("perLanguage", google ? null : result.Detail), ("googleSpeech", google ? result.Detail : null), ("languagesHeard", string.Join(",", result.Segments.Select(s => s.Language).Distinct())),
                     ("vocabularyTerms", phrases.Count), ("speechModel", speechModel), ("dictationCommands", commands), ("speechServiceForDictation", dictationService), ("liveText", liveText), ("typedWhileSpeaking", typedFixes), ("commandsHeard", commandsHeard), ("paragraphs", paragraphsMade), ("restartedSentencesCrossedOut", stumbles), ("savedTextInserted", savedTextUsed), ("notices", string.Join("; ", result.Warning is null ? notices : [.. notices, "the custom vocabulary was not applied"]))));

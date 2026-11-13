@@ -73,6 +73,9 @@ public sealed class Stores
     public DocTable<UsageMonth> Usage { get; }
     public DocTable<Organisation> Organisations { get; }
     public DocTable<StudentCheck> StudentChecks { get; }
+    /// <summary>People's saved voices (Your voice), by user id, and the folder their samples are kept in.</summary>
+    public DocTable<VoiceProfile> VoiceProfiles { get; }
+    public string VoiceRoot { get; }
     public AuditLog Audit { get; }
     public FileMediaStore Media { get; }
 
@@ -118,6 +121,8 @@ public sealed class Stores
         Usage = new(db, "doc_usage");
         Organisations = new(db, "doc_organisations");
         StudentChecks = new(db, "doc_student_checks");
+        VoiceProfiles = new(db, "doc_voice_profiles");
+        VoiceRoot = Path.Combine(mediaRoot, "voices");
         Audit = new(db, clock);
         Media = new(mediaRoot, MediaAssets, clock);
     }

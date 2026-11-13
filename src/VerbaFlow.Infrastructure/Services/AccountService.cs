@@ -10,7 +10,7 @@ public sealed record SharedAddressAccount(Guid Id, string Name, string Email, st
 /// One email address has one way to sign in (SignInWays.TakenBy). Personal accounts made before that rule, or before the
 /// organisation's own account for the same address, are refused at sign-in; VerbaFlow support can remove them here, with their recordings.
 /// </summary>
-public sealed class AccountService(Stores stores, MeetingService meetings)
+public sealed class AccountService(Stores stores, MeetingService meetings, VoiceService? voices = null)
 {
     private static void RequireSupport(User actor)
     {
@@ -38,9 +38,10 @@ public sealed class AccountService(Stores stores, MeetingService meetings)
             throw new DomainException("Only a personal account whose email address also signs in another way can be removed here.");
         var deleted = await meetings.DeleteAllOwnedByAsync(actor, user.Id,
             "Personal account removed by VerbaFlow support: its email address signs in another way.");
+        var voiceRemoved = voices is not null && await voices.RemoveForAsync(user.Id);
         await stores.Users.DeleteAsync(user.Id);
         await stores.Audit.AppendAsync(actor.Id, "support", "platform", null, "user.personal_removed",
-            AuditChain.Details(("account", user.Id), ("signedInWith", SignInWays.Of(user)), ("recordingsDeleted", deleted)));
+            AuditChain.Details(("account", user.Id), ("signedInWith", SignInWays.Of(user)), ("recordingsDeleted", deleted), ("savedVoiceRemoved", voiceRemoved ? true : null)));
         return deleted;
     }
 }

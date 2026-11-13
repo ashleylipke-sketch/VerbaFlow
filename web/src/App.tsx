@@ -30,6 +30,7 @@ import Organisations from './pages/Organisations';
 import LinkWidget from './pages/LinkWidget';
 import SignOffCard from './SignOffCard';
 import AccountPage from './pages/Account';
+import VoicePage from './pages/Voice';
 
 function useHash() {
   const [h, setH] = useState(location.hash || '#/');
@@ -151,6 +152,7 @@ export default function App() {
           : path === '/notifications' ? <NotificationsPage />
           : path === '/account' ? <AccountPage />
           : path === '/sign-off' ? <SignOffCard />
+          : path === '/voice' ? <VoicePage />
           : path === '/widget' ? <WidgetPage />
           : path === '/retention' ? <RetentionPage />
           : path === '/workload' ? <WorkloadPage />
@@ -196,6 +198,7 @@ function MoreMenu({ path, admin, support, lead, individual }: { path: string; ad
     ...(support && !admin ? [['/plan', 'Plan'] as [string, string]] : []),
     ...(support ? [['/organisations', 'Organisations'] as [string, string], ['/support', 'Support: errors'] as [string, string]] : []),
   ];
+  if (!support || admin) pages.push(['/voice', 'Your voice']);
   pages.push(['/account', 'Your account']);
   const here = pages.some(([p]) => p === path);
   return (

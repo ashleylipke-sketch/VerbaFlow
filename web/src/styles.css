@@ -296,3 +296,8 @@ table.account { border-collapse: collapse; width: 100%; }
 table.account th { text-align: left; font-weight: 600; padding: 6px 16px 6px 0; vertical-align: top; white-space: nowrap; width: 1%; }
 table.account td { padding: 6px 0; white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 700px) { table.account th { white-space: normal; } }
+.voice-page .passage { margin:8px 0 12px; padding:10px 14px; border-left:3px solid var(--brand); background:var(--panel, rgba(127,127,127,.08)); white-space:normal; line-height:1.6; }
+.voice-page .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.voice-page .agree { display:flex; gap:8px; align-items:flex-start; margin:8px 0; }
+.voice-page .voice-saved { margin:8px 0 12px; }
+.voice-page audio { max-width:100%; }

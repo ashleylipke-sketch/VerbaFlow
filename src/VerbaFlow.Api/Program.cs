@@ -117,6 +117,7 @@ if (diarizationOn)
 }
 builder.Services.AddSingleton<VerbaFlow.Infrastructure.Services.FailureReporter>();
 builder.Services.AddSingleton<MeetingService>();
+builder.Services.AddSingleton(sp => new VoiceService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<TimeProvider>(), sp.GetService<ISpeakerDiarizer>()));
 builder.Services.AddSingleton<AccountService>();
 // Exported PDFs are signed: with the organisation's certificate in Azure Key Vault (Signing:KeyVaultUrl and
 // Signing:KeyVaultCertificate), in a .pfx file (Signing:CertificatePath and Signing:CertificatePassword) or, until there is
@@ -201,7 +202,7 @@ builder.Services.AddSingleton<LiveSessions>();
 builder.Services.AddSingleton<ProcessingService>(sp => new ProcessingService(sp.GetRequiredService<Stores>(), sp.GetRequiredService<ISpeechService>(),
     sp.GetRequiredService<IAiOutputService>(), sp.GetRequiredService<IAudioEnhancer>(), sp.GetRequiredService<TimeProvider>(),
     sp.GetRequiredService<VerbaFlow.Infrastructure.Services.FailureReporter>(), sp.GetService<ISpeakerDiarizer>(), sp.GetService<VerbaFlow.Infrastructure.Services.DiarizationOptions>(),
-    sp.GetService<IDictationSpeech>(), sp.GetRequiredService<BillingService>()));
+    sp.GetService<IDictationSpeech>(), sp.GetRequiredService<BillingService>(), sp.GetRequiredService<VoiceService>()));
 builder.Services.AddHostedService<ProcessingWorker>();
 if (billingOn && !string.Equals(builder.Configuration["Billing:Worker"], "false", StringComparison.OrdinalIgnoreCase)) builder.Services.AddHostedService<UsageWorker>();
 // Meet: a note-taker joins online meetings (Zoom, Google Meet, Teams, Webex) through Recall.ai when it is set up.
@@ -283,6 +284,9 @@ app.Logger.LogInformation(ffmpegFound
 app.Logger.LogInformation(diarizationOn
     ? "Speakers: using the local speaker-separation model (downloaded once into the data folder)"
     : "Speakers: using Azure's own speaker labels. Local speaker separation needs ffmpeg (see docs/speaker-separation.md).");
+app.Logger.LogInformation(diarizationOn
+    ? "Saved voices: people can save their voice (Your voice) so in-room meetings name them"
+    : "Saved voices: off (they need the local speaker-separation model)");
 if (diarizationOn)
     _ = Task.Run(async () =>
     {

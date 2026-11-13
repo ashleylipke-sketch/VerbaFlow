@@ -113,7 +113,7 @@ Build one shared test set before any speech testing, so providers are compared f
 - **Alternatives:** A scanning service inside the processing pipeline.
 - **Confirming test:** Test with standard test files, encrypted archives and oversized files. Confirm that unscannable files are blocked and flagged to an admin, and that stored files are re-scanned periodically.
 
-### 15. Telephony: recording telephone calls in Meeting mode
+### 15. Telephony: recording telephone calls in Meeting mode (dropped by the owner, 2026-11-13: not needed)
 
 **Requirements settled with the product owner**
 - Inbound and outbound calls.

@@ -221,7 +221,8 @@ The first card's actions sit on one line: Accept / Return / Approve, an **Assign
 - **Live sound wave** on the Record page and **pinned player** on the item page: both confirmed working on the owner's computer (2026-10-10).
 
 ## Not built yet (parked)
-Telephony bridge (ADR-15), Blob immutability/Service Bus/Defender adapters, automatic voice-to-person matching.
+Blob immutability/Service Bus/Defender adapters, automatic voice-to-person matching.
+Dropped by the owner (2026-11-13, "no longer needed"): telephony bridge / recording phone calls (ADR-15).
 
 ## Running things
 Owner on Windows: `run.cmd` in the repo root (builds web, starts http://localhost:5044). If `dotnet` is not found in a plain Command Prompt: `set PATH=C:\Program Files\dotnet;%PATH%` (a 32-bit dotnet can come first on PATH). Secrets are set with `dotnet user-secrets` from `src\VerbaFlow.Api`: `Entra:TenantId`, `Entra:ClientId` (not secret, kept there to stay out of GitHub), `Speech:Endpoint`, `Speech:Key`, `OpenAI:Endpoint`, `OpenAI:Key`, `OpenAI:Deployment`, optional `Audio:FfmpegPath`, optional `Email:ConnectionString` and `Email:Sender`. ffmpeg: `winget install Gyan.FFmpeg`. Startup log lines say whether Speech, Summaries and Audio are real or stand-in.

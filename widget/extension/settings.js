@@ -85,7 +85,8 @@ export async function signInWithMicrosoft(interactive) {
   const code = back.searchParams.get('code');
   if (!code || back.searchParams.get('state') !== state) throw new Error(interactive ? 'The Microsoft sign-in did not finish. Try again.' : 'signin');
   quietFailedAt = 0;
-  if (interactive) await chrome.storage.local.remove('signedOut');
+  // Signing in with Microsoft by hand replaces any earlier link through the website (an old link would be used first).
+  if (interactive) await chrome.storage.local.remove(['signedOut', 'linked']);
   return tokenRequest(ms, { grant_type: 'authorization_code', code, redirect_uri: redirect, code_verifier: verifier });
 }
 
@@ -192,8 +193,9 @@ export async function authHeaders() {
 }
 
 /** Calls the VerbaFlow server. Errors come back as the plain sentence the server wrote for people. */
-export async function call(method, path, body) {
+export async function call(method, path, body, retried = false) {
   const s = await settings();
+  const { linked: usedLink } = await chrome.storage.local.get('linked');
   const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) };
   let res;
   try {
@@ -208,6 +210,12 @@ export async function call(method, path, body) {
     await chrome.storage.local.set({ msAuthority: { server: s.server, authority: `https://login.microsoftonline.com/${data.signInAt}`, hint: tokens?.email ?? null } });
     await chrome.storage.session.remove('tokens');
     const e = new Error(data.error); e.switchDirectory = true; throw e;
+  }
+  if (res.status === 403 && usedLink && !retried) {
+    // The website link belongs to an account VerbaFlow no longer accepts (for example one email address with two
+    // sign-ins): forget it and try the next way to sign in once.
+    await chrome.storage.local.remove('linked');
+    return call(method, path, body, true);
   }
   if (!res.ok) throw new Error(data?.error || data?.detail || data?.title || 'Something went wrong in VerbaFlow.');
   return data;

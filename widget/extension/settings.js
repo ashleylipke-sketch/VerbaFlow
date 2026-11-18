@@ -54,15 +54,37 @@ export async function signInWithMicrosoft(interactive) {
   });
   let back;
   try {
-    const flow = chrome.identity.launchWebAuthFlow({ url, interactive, abortOnLoadForNonInteractive: true, timeoutMsForNonInteractive: 5000 });
-    // A quiet attempt never holds things up for long: without a Microsoft session in the browser it simply fails.
-    back = new URL(interactive ? await flow : await Promise.race([flow, new Promise((_, no) => setTimeout(no, 8000))]));
+    if (interactive) back = new URL(await signInTab(url, redirect));
+    else {
+      const flow = chrome.identity.launchWebAuthFlow({ url, interactive: false, abortOnLoadForNonInteractive: true, timeoutMsForNonInteractive: 5000 });
+      // A quiet attempt never holds things up for long: without a Microsoft session in the browser it simply fails.
+      back = new URL(await Promise.race([flow, new Promise((_, no) => setTimeout(no, 8000))]));
+    }
   } catch { throw new Error(interactive ? 'The Microsoft sign-in did not finish. Try again.' : 'signin'); }
   const code = back.searchParams.get('code');
   if (!code || back.searchParams.get('state') !== state) throw new Error(interactive ? 'The Microsoft sign-in did not finish. Try again.' : 'signin');
   quietFailedAt = 0;
   if (interactive) await chrome.storage.local.remove('signedOut');
   return tokenRequest(ms, { grant_type: 'authorization_code', code, redirect_uri: redirect, code_verifier: verifier });
+}
+
+/**
+ * Microsoft's sign-in in an ordinary browser tab, closed again once Microsoft sends the person back. The browser's own
+ * sign-in window (launchWebAuthFlow) sometimes never appears, which left the button doing nothing at all.
+ */
+function signInTab(url, redirect) {
+  return new Promise((resolve, reject) => {
+    let tabId = null;
+    const done = (fn, value) => {
+      chrome.tabs.onUpdated.removeListener(updated); chrome.tabs.onRemoved.removeListener(removed);
+      if (tabId !== null) chrome.tabs.remove(tabId).catch(() => {});
+      tabId = null; fn(value);
+    };
+    const updated = (id, change) => { if (id === tabId && change.url?.startsWith(redirect)) done(resolve, change.url); };
+    const removed = id => { if (id === tabId) { tabId = null; done(reject, new Error('closed')); } };
+    chrome.tabs.onUpdated.addListener(updated); chrome.tabs.onRemoved.addListener(removed);
+    chrome.tabs.create({ url }).then(t => { tabId = t.id; }, e => done(reject, e));
+  });
 }
 
 let quietFailedAt = 0;

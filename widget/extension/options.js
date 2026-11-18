@@ -46,8 +46,11 @@ $('save').onclick = async () => {
   await fill();
 };
 $('msIn').onclick = async () => {
+  $('msIn').disabled = true;
+  status('A Microsoft sign-in tab has opened. Sign in there; it closes by itself and you come back here.', true);
   try { await chrome.storage.local.set({ server: $('server').value.trim() || DEFAULTS.server }); await signInWithMicrosoft(true); }
   catch (e) { return status(e.message === 'signin' ? 'The Microsoft sign-in did not finish. Try again.' : e.message, false); }
+  finally { $('msIn').disabled = false; }
   await fill();
 };
 $('msOut').onclick = async () => { await signOut(true); await fill(); };

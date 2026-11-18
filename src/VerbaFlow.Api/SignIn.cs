@@ -137,7 +137,9 @@ public static class SignIn
             {
                 // Microsoft gave the personal account for an address that is also an organisation's work account (one address
                 // can be both): the page signs in again through that organisation's directory, which gives the work account.
-                if (await users.OrganisationMemberWithAsync(personal.Email) is { } member
+                // The token may not carry the address (or a different alias of it), so the address this personal account was
+                // first seen with counts too.
+                if ((await users.OrganisationMemberWithAsync(personal.Email) ?? await users.OrganisationMemberWithAsync(await users.KnownAddressAsync(personal.SignInId))) is { } member
                     && await http.RequestServices.GetRequiredService<OrganisationService>().TenantOfAsync(member.OrganisationId) is { } tenant)
                     return Results.Json(new { error = "This email address belongs to your organisation's Microsoft account. Signing you in with that one…", signInAt = tenant }, statusCode: 403);
                 user = await users.ResolvePersonalAsync(personal);

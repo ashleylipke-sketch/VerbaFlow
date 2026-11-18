@@ -83,7 +83,7 @@ public static class SignInWays
         if (id.StartsWith("microsoft:", StringComparison.Ordinal))
             return id.StartsWith($"microsoft:{MicrosoftPersonalTenant}:", StringComparison.OrdinalIgnoreCase)
                 ? "your personal Microsoft account" : "your Microsoft work or school account";
-        if (u.EntraObjectId is not null) return "your organisation's Microsoft account (on the sign-in page, choose \"Sign in with this organisation's Microsoft account\")";
+        if (u.EntraObjectId is not null) return "your organisation's Microsoft account";
         return "the test user";
     }
 

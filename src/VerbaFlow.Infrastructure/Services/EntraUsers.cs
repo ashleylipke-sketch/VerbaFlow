@@ -123,6 +123,10 @@ public sealed class EntraUsers(Stores stores, TimeProvider clock)
             ? SignInWays.Refusal(user.Email, other) : null;
 
     /// <summary>An organisation member (a Microsoft work account) who has this email address, or null.</summary>
+    /// <summary>The address VerbaFlow already holds for a personal sign-in, or null.</summary>
+    public async Task<string?> KnownAddressAsync(string? signInId) =>
+        string.IsNullOrWhiteSpace(signInId) ? null : (await stores.Users.ListAsync()).FirstOrDefault(u => u.SignInId == signInId)?.Email;
+
     public async Task<User?> OrganisationMemberWithAsync(string? email) =>
         (await stores.Users.ListAsync()).FirstOrDefault(u => !u.Individual && !u.IsSupport && u.EntraObjectId is not null && SignInWays.SameAddress(u.Email, email));
 

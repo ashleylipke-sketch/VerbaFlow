@@ -129,6 +129,20 @@ public class SignInHostTests : IDisposable
     }
 
     [Fact]
+    public async Task A_personal_account_already_known_by_the_work_address_is_sent_to_the_directory_even_without_the_address_in_the_token()
+    {
+        // A personal account made before the rule, with the work account's address; its token now carries no address.
+        var stores = _app.Services.GetRequiredService<VerbaFlow.Infrastructure.Services.Stores>();
+        var old = new VerbaFlow.Core.Domain.User(Guid.NewGuid(), "Ashley", "ash2@firm.example", false, VerbaFlow.Core.Domain.Capability.None,
+            Individual: true, SignInId: "microsoft:9188040d-6c67-4c5b-b112-36a304b66dad:oid-home2");
+        await stores.Users.UpsertAsync(old.Id, old);
+        Assert.Equal(HttpStatusCode.OK, (await Me(r => r.Headers.Authorization = new("Bearer", Token(oid: "oid-work2", email: "ash2@firm.example")))).StatusCode);
+        var personal = await Me(r => r.Headers.Authorization = new("Bearer", Token(tenant: "9188040d-6c67-4c5b-b112-36a304b66dad", oid: "oid-home2", email: "")));
+        Assert.Equal(HttpStatusCode.Forbidden, personal.StatusCode);
+        Assert.Equal(Tenant, (await personal.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("signInAt").GetString());
+    }
+
+    [Fact]
     public async Task A_microsoft_account_from_outside_the_organisation_gets_a_personal_VerbaFlow()
     {
         var info = await _app.CreateClient().GetFromJsonAsync<JsonElement>("/api/sign-in");

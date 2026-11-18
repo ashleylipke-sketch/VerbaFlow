@@ -3,7 +3,7 @@ import { DEFAULTS, call, linkThroughWebsite, settings, signInInfo, signInWithMic
 const $ = id => document.getElementById(id);
 const status = (text, ok) => { $('status').textContent = text; $('status').className = `note ${ok ? 'ok' : 'bad'}`; };
 
-async function fill() {
+async function fill(retry = false) {
   const s = await settings();
   $('server').value = s.server;
   let info;
@@ -24,7 +24,18 @@ async function fill() {
     }).join('');
   }
   let me = null;
-  try { me = await call('GET', '/me'); } catch (e) { me = null; if (!info.microsoft && !info.google && !info.personalAccounts) return status(e.message, false); }
+  let problem = null;
+  try { me = await call('GET', '/me'); } catch (e) {
+    me = null; problem = e;
+    if (!info.microsoft && !info.google && !info.personalAccounts) return status(e.message, false);
+  }
+  // Microsoft gave the personal account for an address that is the organisation's work account: sign in once more
+  // through the organisation's directory (only straight after the person clicked Sign in with Microsoft).
+  if (problem?.switchDirectory && retry) {
+    status(problem.message, true);
+    try { await signInWithMicrosoft(true); } catch (e) { return status(e.message === 'signin' ? 'The Microsoft sign-in did not finish. Try again.' : e.message, false); }
+    return fill(false);
+  }
   const signed = me && !me.email?.endsWith('@example.test');
   const { linked } = await chrome.storage.local.get('linked');
   const viaLink = signed && linked?.server === s.server;
@@ -32,7 +43,12 @@ async function fill() {
   if (info.microsoft) { $('who').textContent = viaLink ? '' : who; $('msIn').hidden = !!signed; $('msOut').hidden = !signed || viaLink; }
   $('linkWho').textContent = viaLink ? who : '';
   $('linkIn').hidden = !!signed; $('linkOut').hidden = !viaLink;
-  if (!me) { $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`; return status('Sign in to use the Widget.', false); }
+  if (!me) {
+    $('languages').innerHTML = `<option value="${s.languages}">${s.languages}</option>`;
+    // A plain sentence from VerbaFlow (for example why this account cannot sign in) is shown as it is.
+    const told = problem && !/^Sign in to VerbaFlow first/.test(problem.message) ? problem.message : null;
+    return status(told || 'Sign in to use the Widget.', false);
+  }
   const langs = await call('GET', '/languages');
   $('languages').innerHTML = langs.languages.filter(l => l.supported !== false && l.live !== false && l.code !== 'auto')
     .map(l => `<option value="${l.code}"${l.code === s.languages ? ' selected' : ''}>${l.name}</option>`).join('');
@@ -51,7 +67,7 @@ $('msIn').onclick = async () => {
   try { await chrome.storage.local.set({ server: $('server').value.trim() || DEFAULTS.server }); await signInWithMicrosoft(true); }
   catch (e) { return status(e.message === 'signin' ? 'The Microsoft sign-in did not finish. Try again.' : e.message, false); }
   finally { $('msIn').disabled = false; }
-  await fill();
+  await fill(true);
 };
 $('msOut').onclick = async () => { await signOut(true); await fill(); };
 $('linkIn').onclick = async () => {

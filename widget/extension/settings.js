@@ -28,11 +28,31 @@ const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).repl
 const random = n => b64url(crypto.getRandomValues(new Uint8Array(n)));
 const scopes = ms => `${ms.scope} openid profile offline_access`;
 
+/**
+ * The Microsoft details to use. When an address is both a personal Microsoft account and an organisation's work
+ * account, Microsoft's shared sign-in picks the personal one and VerbaFlow answers with the organisation's directory
+ * (signInAt); from then on the Widget signs in through that directory, as the website does.
+ */
+async function microsoftFor(server, info) {
+  if (!info.microsoft) return null;
+  const { msAuthority } = await chrome.storage.local.get('msAuthority');
+  return msAuthority?.server === server ? { ...info.microsoft, authority: msAuthority.authority, hint: msAuthority.hint } : info.microsoft;
+}
+
+/** The account's address from Microsoft's ID token (used only to name the account when signing in again). */
+function emailIn(idToken) {
+  try {
+    const part = idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(decodeURIComponent(escape(atob(part))));
+    return claims.preferred_username || claims.email || null;
+  } catch { return null; }
+}
+
 async function tokenRequest(ms, form) {
   const res = await fetch(`${ms.authority}/oauth2/v2.0/token`, { method: 'POST', body: new URLSearchParams({ client_id: ms.clientId, scope: scopes(ms), ...form }) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) throw new Error('signin');
-  const tokens = { access: data.access_token, refresh: data.refresh_token ?? null, expires: Date.now() + (Number(data.expires_in) || 3600) * 1000, clientId: ms.clientId };
+  const tokens = { access: data.access_token, refresh: data.refresh_token ?? null, expires: Date.now() + (Number(data.expires_in) || 3600) * 1000, clientId: ms.clientId, email: emailIn(data.id_token) };
   await chrome.storage.session.set({ tokens });
   return tokens;
 }
@@ -43,14 +63,15 @@ async function tokenRequest(ms, form) {
  */
 export async function signInWithMicrosoft(interactive) {
   const s = await settings();
-  const ms = (await signInInfo(s.server)).microsoft;
+  const ms = await microsoftFor(s.server, await signInInfo(s.server));
   if (!ms) throw new Error('Microsoft sign-in is not set up on this VerbaFlow.');
   const verifier = random(48), state = random(16);
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   const redirect = chrome.identity.getRedirectURL();
   const url = `${ms.authority}/oauth2/v2.0/authorize?` + new URLSearchParams({
     client_id: ms.clientId, response_type: 'code', redirect_uri: redirect, scope: scopes(ms), state,
-    code_challenge: challenge, code_challenge_method: 'S256', response_mode: 'query', ...(interactive ? { prompt: 'select_account' } : { prompt: 'none' }),
+    code_challenge: challenge, code_challenge_method: 'S256', response_mode: 'query',
+    ...(interactive ? (ms.hint ? { login_hint: ms.hint } : { prompt: 'select_account' }) : { prompt: 'none' }),
   });
   let back;
   try {
@@ -96,7 +117,7 @@ let quietFailedAt = 0;
 export async function signOut(byPerson = false) {
   await chrome.storage.session.remove('tokens');
   await chrome.storage.local.remove('linked');
-  if (byPerson) await chrome.storage.local.set({ signedOut: true });
+  if (byPerson) { await chrome.storage.local.set({ signedOut: true }); await chrome.storage.local.remove('msAuthority'); }
 }
 
 // ---------- Linked through the VerbaFlow website (Google and other personal accounts) ----------
@@ -146,7 +167,7 @@ export async function authHeaders() {
   const info = await signInInfo(s.server);
   const linked = await linkedToken(s.server);
   if (linked) return { Authorization: `Bearer ${linked}` };
-  const ms = info.microsoft;
+  const ms = await microsoftFor(s.server, info);
   if (ms) {
     let { tokens } = await chrome.storage.session.get('tokens');
     if (tokens && tokens.clientId !== ms.clientId) tokens = null;
@@ -181,6 +202,13 @@ export async function call(method, path, body) {
   const text = await res.text();
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
   if (res.status === 401) { await signOut(); }
+  if (res.status === 403 && data?.signInAt) {
+    // This address is the organisation's work account: sign in again through its directory (see microsoftFor).
+    const { tokens } = await chrome.storage.session.get('tokens');
+    await chrome.storage.local.set({ msAuthority: { server: s.server, authority: `https://login.microsoftonline.com/${data.signInAt}`, hint: tokens?.email ?? null } });
+    await chrome.storage.session.remove('tokens');
+    const e = new Error(data.error); e.switchDirectory = true; throw e;
+  }
   if (!res.ok) throw new Error(data?.error || data?.detail || data?.title || 'Something went wrong in VerbaFlow.');
   return data;
 }

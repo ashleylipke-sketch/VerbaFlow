@@ -36,6 +36,23 @@ Two cases are found by the Widget itself, and the words are copied with a note i
 ## Keyboard shortcut
 Settings → **Keyboard shortcut**: hold Alt+Shift, Ctrl+Shift, Ctrl+Alt+Shift, Win+Alt, Win+Shift or Ctrl+Win, plus a letter, digit, F1 to F12 or Space. Ctrl+Alt alone is not offered (it is AltGr on many keyboards, used for letters such as é or €). If another program already has the chosen shortcut, the settings say so and the old one keeps working. In Chrome and Edge the browser Widget keeps its own Alt+Shift+D.
 
+## Hands-free (no keyboard or mouse)
+
+For people who cannot use their hands, or not easily. Tick **Hands-free** in the settings (or choose **Hands-free** in the icon's menu). The Widget then listens all the time, but only for its own commands, using Windows' own speech recognition on this computer: nothing is sent to VerbaFlow or Azure, and it costs nothing, until you dictate. Commands are in English. Windows needs English speech recognition (Settings › Time & language › Language & region, English (United Kingdom) with Speech recognition); the Widget says so if it is missing.
+
+| Say | What happens |
+|---|---|
+| VerbaFlow, dictate | Starts dictating where the cursor is (in Chrome and Edge too, with this Widget) |
+| stop dictating (at the end) | Finishes; the words are not kept |
+| accept / speak more / fix grammar / undo fix / cancel | While checking the words |
+| VerbaFlow, switch to Outlook (or "go to …") | Brings that open program to the front |
+| VerbaFlow, open Excel | Starts a program from the Start menu |
+| VerbaFlow, next cell / previous cell / down / up / left / right | Moves between cells (Tab, Shift+Tab, arrows) |
+| VerbaFlow, go to cell B5 | Excel's Go To (Ctrl+G), the address, Enter |
+| VerbaFlow, press enter / tab / escape / backspace / delete | Presses that key |
+
+In Excel, each line of the words goes into the cell below, so no empty line is left between paragraphs. Program names come from the open windows and the Start menu (store apps in the Start menu's "All apps" list without a shortcut file cannot be opened by voice yet). **Not yet tried on a real computer.**
+
 ## What is kept
 Nothing the person said. Exactly as for the browser Widget: VerbaFlow keeps the facts of each use (`doc_widget_sessions`, audit `widget.*`), with the program's file name (for example `outlook.exe`, `winword.exe`, `olk.exe` for the new Outlook, `ms-teams.exe`) as the site and "Windows program" as the device. An administrator can switch the Widget off in a program by adding its file name (for example `teams.exe`) to the list on the Widget page. On the computer: the settings in `%APPDATA%\VerbaFlow\Widget\settings.json` (address, test user, language, choices; no keys) and the Microsoft sign-in in `%LOCALAPPDATA%\VerbaFlow\Widget\signin.cache`, protected by Windows for that person only.
 

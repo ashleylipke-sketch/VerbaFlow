@@ -61,6 +61,23 @@ A text box that says it cannot be typed in (its value cannot be set) gets the wo
 ## Keyboard shortcut
 Settings → **Keyboard shortcut**: hold Option+Shift, Control+Shift, Control+Option, Control+Option+Shift, Option+Shift+Command or Control+Command, plus a letter, digit, F1 to F12 or Space. If another program already has the chosen shortcut, the settings say so and the old one keeps working. In Chrome and Edge the browser Widget keeps its own ⌥⇧D.
 
+## Hands-free (no keyboard or mouse)
+
+For people who cannot use their hands, or not easily. Tick **Hands-free** in the settings (or choose **Hands-free** in the menu bar icon's menu). The Widget then listens all the time, but only for its own commands, using the Mac's own speech recognition on the Mac itself (on-device): nothing is sent to VerbaFlow or Azure, and it costs nothing, until you dictate. Commands are in English. macOS asks once to allow Speech Recognition, and needs Dictation in English downloaded (System Settings › Keyboard › Dictation); the Widget says so if it is missing.
+
+| Say | What happens |
+|---|---|
+| VerbaFlow, dictate | Starts dictating where the cursor is (in Chrome and Edge too, with this Widget) |
+| stop dictating (at the end) | Finishes; the words are not kept |
+| accept / speak more / fix grammar / undo fix / cancel | While checking the words |
+| VerbaFlow, switch to Mail (or "go to …") | Brings that open program to the front |
+| VerbaFlow, open Excel | Starts a program from Applications |
+| VerbaFlow, next cell / previous cell / down / up / left / right | Moves between cells (Tab, Shift+Tab, arrows) |
+| VerbaFlow, go to cell B5 | Excel's Go To (Control+G), the address, Enter |
+| VerbaFlow, press enter / tab / escape / backspace / delete | Presses that key |
+
+In Excel, each line of the words goes into the cell below, so no empty line is left between paragraphs. Program names come from the running programs and the Applications folders. **Not yet tried on a real computer.**
+
 ## What is kept
 Nothing the person said. VerbaFlow keeps the facts of each use, as for the other Widgets, with the program's bundle ID (for example `com.microsoft.outlook`, `com.apple.mail`, `com.microsoft.word`) as the site and "Mac program" as the device. An administrator can switch the Widget off in a program by adding its bundle ID to the list on the Widget page. On the Mac: the settings in the Widget's preferences (address, test user, language, choices; no keys) and the sign-in in the login keychain (items "VerbaFlow").
 

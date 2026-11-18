@@ -169,7 +169,7 @@ public class MeetTests
         await meet.CheckAsync();
         var row = (await meet.ListAsync(env.Alice))[0];
         Assert.Equal("Not recorded", row.StateLabel);
-        Assert.StartsWith("The host did not let the note-taker in from the lobby. Reference: VF-", row.FailureReason);
+        Assert.StartsWith("Nobody let the note-taker in from the lobby, so it gave up waiting. Reference: VF-", row.FailureReason);
         Assert.DoesNotContain("timeout", row.FailureReason); // technical detail stays with support
         Assert.Single(await env.Stores.SupportErrors.ListAsync());
     }
@@ -286,6 +286,18 @@ public class MeetTests
         Assert.Equal(NoteTakerPhase.Unknown, RecallNoteTaker.Read(Bot("breakout_room_entered")).Phase); // keeps the current state
         Assert.Equal(NoteTakerPhase.Failed, RecallNoteTaker.Read(Bot("fatal", "bot_errored")).Phase);
         Assert.Equal(NoteTakerPhase.Failed, RecallNoteTaker.Read(Bot("done")).Phase); // done, but nothing was recorded
+        // "done" says nothing about why; the step before it does, and it reaches the plain sentence.
+        var lobby = RecallNoteTaker.Read(new JsonObject
+        {
+            ["status_changes"] = new JsonArray(new JsonObject { ["code"] = "joining_call" }, new JsonObject { ["code"] = "in_waiting_room" },
+                new JsonObject { ["code"] = "call_ended", ["sub_code"] = "timeout_exceeded_waiting_room" }, new JsonObject { ["code"] = "done" }),
+            ["recordings"] = new JsonArray(),
+        });
+        Assert.Equal("done: no recording was made; before that: call_ended (timeout_exceeded_waiting_room)", lobby.Detail);
+        Assert.StartsWith("Nobody let the note-taker in from the lobby", MeetService.NotRecordedReason(lobby.Detail, "VF-X"));
+        Assert.StartsWith("Nobody else joined", MeetService.NotRecordedReason("done: no recording was made; before that: call_ended (timeout_exceeded_noone_joined)", "VF-X"));
+        Assert.StartsWith("Someone in the meeting removed", MeetService.NotRecordedReason("done: no recording was made; before that: call_ended (bot_kicked_from_call)", "VF-X"));
+        Assert.StartsWith("The note-taker did not record anything.", MeetService.NotRecordedReason("done: no recording was made", "VF-X"));
         var ready = RecallNoteTaker.Read(Bot("done", null, JsonNode.Parse("""
             [{"id":"r1","status":{"code":"done"},"media_shortcuts":{
               "video_mixed":{"status":{"code":"done"},"data":{"download_url":"https://s3.example/v.mp4"},"format":"mp4"},

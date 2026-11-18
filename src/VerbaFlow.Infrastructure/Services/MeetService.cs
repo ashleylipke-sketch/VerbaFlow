@@ -199,13 +199,31 @@ public sealed class MeetService(Stores stores, INoteTakerService service, Meetin
         return fetched;
     }
 
-    private static string NotRecordedReason(string? detail, string reference)
+    /// <summary>
+    /// A plain sentence for why a note-taker made no recording, from Recall.ai's status codes (code, sub_code and the step
+    /// before "done"). Public so it can be checked against recorded answers.
+    /// </summary>
+    public static string NotRecordedReason(string? detail, string reference)
     {
         var d = detail ?? "";
-        var why = d.Contains("waiting_room") ? "The host did not let the note-taker in from the lobby."
-            : d.Contains("permission_denied") || d.Contains("recording_permission") ? "The host did not allow the note-taker to record."
-            : d.Contains("noone_joined") || d.Contains("no_one") ? "Nobody else joined the meeting."
-            : d.Contains("no recording") ? "The note-taker did not record anything."
+        bool Has(params string[] codes) => codes.Any(c => d.Contains(c, StringComparison.OrdinalIgnoreCase));
+        var why =
+            Has("kicked_from_waiting_room") ? "Someone in the meeting refused to let the note-taker in from the lobby."
+            : Has("waiting_room") ? "Nobody let the note-taker in from the lobby, so it gave up waiting."
+            : Has("kicked_from_call", "removed_from_call") ? "Someone in the meeting removed the note-taker."
+            : Has("permission_denied", "recording_permission") ? "The host did not allow the note-taker to record."
+            : Has("noone_joined", "no_one_joined") ? "Nobody else joined the meeting, so the note-taker left."
+            : Has("everyone_left", "only_bots") ? "Everyone else had left the meeting, so the note-taker left before recording."
+            : Has("in_call_not_recording") ? "The note-taker was in the meeting but was never able to start recording."
+            : Has("silence_detected") ? "The meeting was silent for too long, so the note-taker left."
+            : Has("meeting_not_found", "meeting_link_invalid", "meeting_link_expired") ? "The meeting link did not work (the meeting may have been moved or cancelled)."
+            : Has("meeting_not_started", "meeting_not_yet_started") ? "The meeting had not been started by the host, so the note-taker could not get in."
+            : Has("meeting_ended", "call_ended_by_host") ? "The meeting had already ended when the note-taker got there."
+            : Has("password", "passcode") ? "The meeting needs a passcode the note-taker did not have. Paste the full join link, including the passcode."
+            : Has("registration", "sign_in", "signin", "authenticated", "login_required") ? "The meeting only lets in people who are signed in or registered, so the note-taker could not join."
+            : Has("full", "capacity") ? "The meeting was full."
+            : Has("received_leave_call") ? "The note-taker was called off before it recorded anything."
+            : Has("no recording") ? "The note-taker did not record anything."
             : "The note-taker could not record this meeting.";
         return $"{why} Reference: {reference}.";
     }

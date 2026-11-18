@@ -67,6 +67,11 @@ public sealed class RecallNoteTaker(HttpClient http, RecallOptions options) : IN
         var code = last?["code"]?.GetValue<string>() ?? "ready";
         var sub = last?["sub_code"]?.GetValue<string>();
         var detail = sub is null ? code : $"{code} ({sub})";
+        // "done" carries no reason; the step before it (usually call_ended with a sub_code) says why nothing was recorded.
+        var why = (bot["status_changes"] as JsonArray)?.Reverse().Skip(1)
+            .FirstOrDefault(c => c?["sub_code"]?.GetValue<string>() is { Length: > 0 } || c?["code"]?.GetValue<string>() is "in_waiting_room" or "recording_permission_denied");
+        var earlier = why is null ? "" : "; before that: " + why["code"]?.GetValue<string>()
+            + (why["sub_code"]?.GetValue<string>() is { Length: > 0 } ws ? $" ({ws})" : "");
         var recording = (bot["recordings"] as JsonArray)?.LastOrDefault();
         var shortcuts = recording?["media_shortcuts"];
         var video = shortcuts?["video_mixed"];
@@ -81,8 +86,8 @@ public sealed class RecallNoteTaker(HttpClient http, RecallOptions options) : IN
             "in_call_recording" => new(NoteTakerPhase.Recording, detail),
             "call_ended" => new(NoteTakerPhase.MeetingEnded, detail),
             "done" or "analysis_done" or "analysis_failed" => videoUrl is not null ? new(NoteTakerPhase.Ready, detail, videoUrl, speakers, recordingId)
-                : recording is null ? new(NoteTakerPhase.Failed, detail + ": no recording was made")
-                : video?["status"]?["code"]?.GetValue<string>() is "failed" ? new(NoteTakerPhase.Failed, detail + ": the video failed")
+                : recording is null ? new(NoteTakerPhase.Failed, detail + ": no recording was made" + earlier)
+                : video?["status"]?["code"]?.GetValue<string>() is "failed" ? new(NoteTakerPhase.Failed, detail + ": the video failed" + earlier)
                 : new(NoteTakerPhase.MeetingEnded, detail),
             "fatal" or "media_expired" => new(NoteTakerPhase.Failed, detail),
             "ready" or "scheduled" => new(NoteTakerPhase.Scheduled, detail),

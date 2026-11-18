@@ -7,7 +7,7 @@ import WidgetMacCore
 /// when the dictation is accepted or cancelled, and VerbaFlow keeps only facts (program, times, counts).
 @MainActor
 final class Controller {
-    private enum Phase { case idle, starting, listening, finishing, check, busy }
+    enum Phase { case idle, starting, listening, finishing, check, busy }
 
     private let makeApi: () throws -> Api
     private let settings: () -> WidgetSettings
@@ -15,7 +15,18 @@ final class Controller {
     private let openSettings: () -> Void
     private let panel = DictationPanel()
 
-    private var phase = Phase.idle
+    private var phase = Phase.idle { didSet { if phase != oldValue { phaseChanged?(phase) } } }
+
+    /// The dictation moved on (hands-free listens for other commands in each step).
+    var phaseChanged: ((Phase) -> Void)?
+
+    /// Hands-free: "stop dictating" finishes, and the panel says what to say.
+    var handsFree: Bool {
+        get { panel.model.handsFree }
+        set { panel.model.handsFree = newValue }
+    }
+
+    var isIdle: Bool { phase == .idle }
     private var target: FocusTarget?
     private var widgetId: String?
     private var listener: LiveListener?
@@ -137,9 +148,13 @@ final class Controller {
         guard phase == .listening || phase == .finishing else { return }
         let m = panel.model
         let h = lastHeard
-        m.heard = h.map { DictationText.heard($0.segments, startsWithBreak: $0.startsWithBreak) } ?? ""
+        let heard = h.map { DictationText.heard($0.segments, startsWithBreak: $0.startsWithBreak) } ?? ""
+        let stopSaid = VoiceCommands.withoutStop(heard)
+        m.heard = stopSaid ?? heard
         m.pending = h?.pendingWords ?? 0
         if loudest >= 0.01, m.bad, failure == nil { m.message = ""; m.bad = false }
+        // Hands-free: "stop dictating" at the end of what was heard finishes, as the shortcut or Stop would.
+        if handsFree, stopSaid != nil, phase == .listening { stop() }
     }
 
     private func stop() {
@@ -153,7 +168,8 @@ final class Controller {
             self.spokenMs += l.spokenMs
             self.reconnects += l.reconnects
             self.listener = nil
-            let heard = self.lastHeard.map { DictationText.heard($0.segments, startsWithBreak: $0.startsWithBreak) } ?? ""
+            var heard = self.lastHeard.map { DictationText.heard($0.segments, startsWithBreak: $0.startsWithBreak) } ?? ""
+            if self.handsFree, let without = VoiceCommands.withoutStop(heard) { heard = without }
             let text = DictationText.join(self.prefix, heard)
             if let f = self.failure { self.showCheck(text, f, bad: true) }
             else if !complete { self.showCheck(text, "The last words may be missing: VerbaFlow could not be reached to finish them.", bad: true) }
@@ -174,6 +190,19 @@ final class Controller {
         m.amend = amend
         if let t = target { m.method = settings().method(for: t.program) }
         panel.takeKeyboard()
+    }
+
+    /// A hands-free command for the words being checked.
+    func voice(_ command: VoiceAction) {
+        guard phase == .check else { return }
+        switch command {
+        case .accept: Task { await accept() }
+        case .speakMore: Task { await speakMore() }
+        case .fixGrammar: Task { await fixGrammar() }
+        case .undoFix: undoFix()
+        case .cancel: cancel()
+        default: break
+        }
     }
 
     private func speakMore() async {

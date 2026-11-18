@@ -34,6 +34,7 @@ internal sealed class SettingsForm : Form
     private readonly ListBox _programs = new() { Width = 440, Height = 80, IntegralHeight = false };
     private readonly Button _forget = new() { Text = "Back to the usual way", AutoSize = true, Enabled = false };
     private readonly Label _intro = new() { AutoSize = true, MaximumSize = new Size(440, 0), ForeColor = Color.FromArgb(80, 80, 80) };
+    private readonly CheckBox _handsFree = new() { Text = "Hands-free: listen for spoken commands", AutoSize = true };
     private readonly CheckBox _startWithWindows = new() { Text = "Start the Widget when I sign in to Windows", AutoSize = true };
     private List<SpokenLanguage> _languages = [];
 
@@ -86,7 +87,13 @@ internal sealed class SettingsForm : Form
             "PuTTY pastes with Shift+Insert."));
         flow.Controls.Add(_programs);
         flow.Controls.Add(_forget);
-        flow.Controls.Add(Heading("6. Other"));
+        flow.Controls.Add(Heading("6. Hands-free (no keyboard or mouse)"));
+        flow.Controls.Add(_handsFree);
+        flow.Controls.Add(Note("Say \"VerbaFlow, dictate\" to start, and \"stop dictating\" at the end; then \"accept\", \"speak more\", " +
+            "\"fix grammar\" or \"cancel\". Also \"VerbaFlow, switch to Outlook\", \"VerbaFlow, open Excel\", and in Excel " +
+            "\"VerbaFlow, next cell\", \"VerbaFlow, down\" or \"VerbaFlow, go to cell B5\". Commands are in English and are heard by Windows' own " +
+            "speech recognition on this computer: nothing is sent anywhere until you dictate."));
+        flow.Controls.Add(Heading("7. Other"));
         flow.Controls.Add(_browsers);
         flow.Controls.Add(_startWithWindows);
 
@@ -115,9 +122,10 @@ internal sealed class SettingsForm : Form
             _saved(_settings.WithMethod(row.Program, Insertion.DefaultFor(row.Program)));
             ShowPrograms();
         };
-        _gap.Items.AddRange(["Automatic: an empty line between paragraphs, except in Word", "Always an empty line between paragraphs", "Never: just a new line"]);
+        _gap.Items.AddRange(["Automatic: an empty line between paragraphs, except in Word and Excel", "Always an empty line between paragraphs", "Never: just a new line"]);
         _gap.SelectedIndex = (int)settings.ParagraphGap;
         _browsers.Checked = settings.LeaveBrowsersToExtension;
+        _handsFree.Checked = settings.HandsFree;
         _startWithWindows.Checked = StartsWithWindows();
         _language.Text = settings.Languages;
         _testUser.Items.AddRange(["alice", "bob", "carol", "dave"]);
@@ -148,7 +156,7 @@ internal sealed class SettingsForm : Form
         {
             Server = server, Languages = language, ParagraphGap = (ParagraphGap)Math.Max(0, _gap.SelectedIndex),
             LeaveBrowsersToExtension = _browsers.Checked, TestUser = _testUser.SelectedItem as string ?? "alice",
-            Shortcut = keys.ToString(),
+            Shortcut = keys.ToString(), HandsFree = _handsFree.Checked,
         }).Clean();
         _server.Text = next.Server;
         _saved(next);

@@ -29,6 +29,7 @@ final class SettingsModel: ObservableObject {
     @Published var key: String
     @Published var shortcutNote = ""
     @Published var programs: [ProgramWay] = []
+    @Published var handsFree: Bool
 
     private let app: AppDelegate
     private var linking: Task<Void, Never>?
@@ -38,6 +39,7 @@ final class SettingsModel: ObservableObject {
         let s = app.settings
         server = s.server; languages = s.languages; gap = s.gap; leaveBrowsers = s.leaveBrowsersToExtension; testUser = s.testUser
         hold = s.keys.hold; key = s.keys.key
+        handsFree = s.handsFree
         refreshPrograms()
     }
 
@@ -46,6 +48,7 @@ final class SettingsModel: ObservableObject {
         var s = app.settings
         s.server = MacText.cleanServer(server)?.absoluteString ?? server
         s.languages = languages; s.gap = gap; s.leaveBrowsersToExtension = leaveBrowsers; s.testUser = testUser
+        s.handsFree = handsFree
         return s
     }
 
@@ -282,7 +285,12 @@ struct SettingsView: View {
                 Text("In Accessibility, switch on VerbaFlow Widget. After an update of the Widget, macOS may ask again.")
                     .foregroundColor(.secondary).font(.caption).fixedSize(horizontal: false, vertical: true)
 
-                heading("7. Other")
+                heading("7. Hands-free (no keyboard or mouse)")
+                Toggle("Hands-free: listen for spoken commands", isOn: $model.handsFree)
+                Text("Say \u{201C}VerbaFlow, dictate\u{201D} to start, and \u{201C}stop dictating\u{201D} at the end; then \u{201C}accept\u{201D}, \u{201C}speak more\u{201D}, \u{201C}fix grammar\u{201D} or \u{201C}cancel\u{201D}. Also \u{201C}VerbaFlow, switch to Mail\u{201D}, \u{201C}VerbaFlow, open Excel\u{201D}, and in Excel \u{201C}VerbaFlow, next cell\u{201D}, \u{201C}VerbaFlow, down\u{201D} or \u{201C}VerbaFlow, go to cell B5\u{201D}. Commands are in English and are heard by the Mac's own speech recognition on this Mac: nothing is sent anywhere until you dictate. Saved with Save.")
+                    .foregroundColor(.secondary).font(.caption).fixedSize(horizontal: false, vertical: true)
+
+                heading("8. Other")
                 Toggle("In Chrome and Edge, leave dictation to the browser Widget (its shortcut is ⌥⇧D)", isOn: $model.leaveBrowsers)
                 Toggle("Start the Widget when I log in to this Mac", isOn: Binding(get: { model.startAtLogin }, set: { model.setStartAtLogin($0) }))
                 if !model.loginNote.isEmpty { Text(model.loginNote).foregroundColor(.red).fixedSize(horizontal: false, vertical: true) }

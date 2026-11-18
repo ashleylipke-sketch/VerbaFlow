@@ -92,7 +92,8 @@ public static partial class DictationText
     {
         ParagraphGap.EmptyLine => true,
         ParagraphGap.NewLineOnly => false,
-        _ => !program.Equals("winword.exe", StringComparison.OrdinalIgnoreCase),
+        // Word spaces its own paragraphs; in Excel each line goes into the cell below, so an empty line would leave an empty cell.
+        _ => !program.Equals("winword.exe", StringComparison.OrdinalIgnoreCase) && !program.Equals("excel.exe", StringComparison.OrdinalIgnoreCase),
     };
 
     [GeneratedRegex(@"\n{2,}")]

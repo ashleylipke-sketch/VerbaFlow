@@ -22,13 +22,18 @@ public sealed record WidgetSettings
     public string Shortcut { get; init; } = VerbaFlow.Widget.Shortcut.Default.ToString();
     /// <summary>The way chosen for a program (by its file name, lower case), where it differs from the usual one.</summary>
     public Dictionary<string, InsertMethod> InsertMethods { get; init; } = [];
+    /// <summary>
+    /// Hands-free: the Widget listens on this computer (Windows' own speech recognition, nothing sent anywhere) for
+    /// "VerbaFlow, dictate", "VerbaFlow, switch to …", "VerbaFlow, open …" and the other spoken commands.
+    /// </summary>
+    public bool HandsFree { get; init; }
 
     /// <summary>Same settings: the programs' ways compared by what they hold.</summary>
     public bool Equals(WidgetSettings? o) => o is not null && Server == o.Server && TestUser == o.TestUser && Languages == o.Languages
-        && LeaveBrowsersToExtension == o.LeaveBrowsersToExtension && ParagraphGap == o.ParagraphGap && Shortcut == o.Shortcut
+        && LeaveBrowsersToExtension == o.LeaveBrowsersToExtension && ParagraphGap == o.ParagraphGap && Shortcut == o.Shortcut && HandsFree == o.HandsFree
         && InsertMethods.Count == o.InsertMethods.Count && InsertMethods.All(x => o.InsertMethods.TryGetValue(x.Key, out var m) && m == x.Value);
 
-    public override int GetHashCode() => HashCode.Combine(Server, TestUser, Languages, LeaveBrowsersToExtension, ParagraphGap, Shortcut, InsertMethods.Count);
+    public override int GetHashCode() => HashCode.Combine(Server, TestUser, Languages, LeaveBrowsersToExtension, ParagraphGap, Shortcut, InsertMethods.Count, HandsFree);
 
     /// <summary>The shortcut to use (the default when the stored one is not allowed).</summary>
     [JsonIgnore]

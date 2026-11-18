@@ -87,3 +87,43 @@ final class MacTextTests: XCTestCase {
         XCTAssertEqual(TypedKey.keys(String(repeating: "x", count: 20)), [.characters(String(repeating: "x", count: 16)), .characters("xxxx")])
     }
 }
+
+final class VoiceCommandTests: XCTestCase {
+    func testCommandsNeedTheWakeWordExceptWhileChecking() {
+        XCTAssertEqual(VoiceCommands.parse("VerbaFlow, dictate.", checking: false), .dictate)
+        XCTAssertEqual(VoiceCommands.parse("Verba flow start dictating", checking: false), .dictate)
+        XCTAssertNil(VoiceCommands.parse("dictate", checking: false))
+        XCTAssertEqual(VoiceCommands.parse("Accept.", checking: true), .accept)
+        XCTAssertNil(VoiceCommands.parse("VerbaFlow open Word", checking: true))
+    }
+
+    func testProgramsKeysAndCells() {
+        XCTAssertEqual(VoiceCommands.parse("VerbaFlow, switch to Outlook.", checking: false), .switchTo("outlook"))
+        XCTAssertEqual(VoiceCommands.parse("VerbaFlow open Excel", checking: false), .open("excel"))
+        XCTAssertEqual(VoiceCommands.parse("VerbaFlow, next cell", checking: false), .key(.nextCell))
+        XCTAssertEqual(VoiceCommands.parse("VerbaFlow go to cell B5", checking: false), .goToCell("B5"))
+        XCTAssertEqual(VoiceCommands.parse("verba flow go to see one hundred and five", checking: false), .goToCell("C105"))
+        XCTAssertEqual(VoiceCommands.parse("verba flow go to word", checking: false), .switchTo("word"))
+    }
+
+    func testTheNewestCommandInARunningTranscript() {
+        XCTAssertEqual(VoiceCommands.latest(in: "so I think we should VerbaFlow switch to Mail", checking: false), .switchTo("mail"))
+        XCTAssertNil(VoiceCommands.latest(in: "we could switch to Mail", checking: false))
+        XCTAssertEqual(VoiceCommands.latest(in: "hmm looks fine accept", checking: true), .accept)
+    }
+
+    func testStopDictatingFinishes() {
+        XCTAssertEqual(VoiceCommands.withoutStop("Dear Ann, thanks. Stop dictating."), "Dear Ann, thanks.")
+        XCTAssertEqual(VoiceCommands.withoutStop("Dear Ann, stop dictating"), "Dear Ann")
+        XCTAssertNil(VoiceCommands.withoutStop("Please stop dictating to me and write."))
+    }
+
+    func testProgramNames() {
+        XCTAssertEqual(ProgramNames.clean("Microsoft Teams (work or school)"), "teams")
+        let apps = [(name: "word", item: "w"), (name: "excel", item: "x"), (name: "visual studio code", item: "v")]
+        XCTAssertEqual(ProgramNames.best("Excel", apps), "x")
+        XCTAssertEqual(ProgramNames.best("visual studio", apps), "v")
+        XCTAssertNil(ProgramNames.best("keynote", apps))
+        XCTAssertFalse(MacText.emptyLine(.automatic, program: "com.microsoft.Excel"))
+    }
+}

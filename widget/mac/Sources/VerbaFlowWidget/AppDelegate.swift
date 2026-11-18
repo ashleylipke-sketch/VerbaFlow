@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsModel: SettingsModel?
     private var apiCache: Api?
     private var speakItem: NSMenuItem?
+    private var handsFreeItem: NSMenuItem?
+    private var handsFree: HandsFree?
 
     /// The shortcut in use, in the menu bar icon's tip and menu.
     private func showShortcut() {
@@ -36,6 +38,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signIn.testUser = { [weak self] in self?.settings.testUser ?? "alice" }
         controller = Controller(api: { [unowned self] in try self.api() }, settings: { [unowned self] in self.settings },
                                 save: { [weak self] s in self?.save(s) }, openSettings: { [weak self] in self?.openSettings() })
+        controller?.phaseChanged = { [weak self] p in
+            switch p {
+            case .idle: self?.handsFree?.set(.commands)
+            case .check: self?.handsFree?.set(.checking)
+            default: self?.handsFree?.set(.paused)
+            }
+        }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "VerbaFlow Widget")
@@ -47,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings and sign-in…", action: #selector(openSettingsFromMenu), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "Open VerbaFlow", action: #selector(openVerbaFlow), keyEquivalent: "").target = self
+        handsFreeItem = menu.addItem(withTitle: "Hands-free (voice commands)", action: #selector(toggleHandsFree), keyEquivalent: "")
+        handsFreeItem?.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit the Widget", action: #selector(quit), keyEquivalent: "q").target = self
         item.menu = menu
@@ -57,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let registered = h.change(to: settings.keys) || h.register()
         showShortcut()
         if firstRun || !FocusTarget.trusted { openSettings() }
+        Task { await applyHandsFree(changed: false) }
         if !registered {
             controller?.notice("\(settings.keys.symbols) is taken by another program, so the Widget cannot use it. Choose another shortcut in the Widget's settings.")
         }
@@ -64,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hotkey?.unregister()
+        handsFree?.stop()
         controller?.shutDown()
     }
 
@@ -78,8 +91,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func save(_ s: WidgetSettings) {
+        let handsChanged = s.handsFree != settings.handsFree || (s.handsFree && s.languages != settings.languages)
         settings = s
         s.save()
+        if handsChanged {
+            handsFree?.stop(); handsFree = nil
+            Task { await applyHandsFree(changed: true) }
+        }
+    }
+
+    @objc private func toggleHandsFree() {
+        var s = settings
+        s.handsFree.toggle()
+        save(s)
+    }
+
+    /// Starts or stops hands-free listening to match the settings.
+    private func applyHandsFree(changed: Bool) async {
+        handsFreeItem?.state = settings.handsFree ? .on : .off
+        controller?.handsFree = settings.handsFree
+        guard settings.handsFree else {
+            if changed { controller?.notice("Hands-free is off.") }
+            return
+        }
+        guard handsFree == nil else { return }
+        switch await HandsFree.start(languages: settings.languages) {
+        case .failure(let e):
+            controller?.notice(e.message)
+            settings.handsFree = false
+            settings.save()
+            handsFreeItem?.state = .off
+            controller?.handsFree = false
+        case .success(let h):
+            handsFree = h
+            h.heard = { [weak self] c in Task { await self?.voice(c) } }
+            controller?.notice("Hands-free is on. Say \u{201C}VerbaFlow, dictate\u{201D}, \u{201C}VerbaFlow, switch to …\u{201D} or \u{201C}VerbaFlow, open …\u{201D}.")
+        }
+    }
+
+    private func voice(_ c: VoiceAction) async {
+        guard let controller else { return }
+        switch c {
+        case .accept, .speakMore, .fixGrammar, .undoFix, .cancel:
+            controller.voice(c)
+            return
+        default: break
+        }
+        guard controller.isIdle else { return }
+        switch c {
+        case .dictate:
+            // Here the Widget itself is used in browsers too: the browser Widget has no hands-free commands.
+            if let target = FocusTarget.capture() { await controller.shortcut(target) }
+        case .switchTo(let name):
+            if !Programs.switchTo(name) { controller.notice("No open program called \u{201C}\(name)\u{201D} was found. Say \u{201C}VerbaFlow, open \(name)\u{201D} to start it.") }
+        case .open(let name):
+            if !Programs.open(name) { controller.notice("No program called \u{201C}\(name)\u{201D} was found in Applications.") }
+        case .key(let k):
+            Programs.press(k)
+        case .goToCell(let cell):
+            await Programs.goToCell(cell)
+        default: break
+        }
     }
 
     private func shortcut() {

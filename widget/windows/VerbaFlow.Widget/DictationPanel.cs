@@ -26,6 +26,9 @@ internal sealed class DictationPanel : Form
     /// <summary>The shortcut, as shown while listening.</summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public string ShortcutText { get; set; } = Shortcut.Default.ToString();
+    /// <summary>Hands-free: what to say is shown instead of the keys to press.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool HandsFree { get; set; }
 
     public DictationPanel()
     {
@@ -134,7 +137,7 @@ internal sealed class DictationPanel : Form
             HideMethod();
             Buttons(("Stop", () => StopClicked?.Invoke(), false, true), ("Cancel", () => CancelClicked?.Invoke(), false, true));
         }
-        Strip(Red, "Listening", lost ? "Connection lost: still recording" : ShortcutText + " to stop");
+        Strip(Red, "Listening", lost ? "Connection lost: still recording" : HandsFree ? VoiceCommands.ListeningHint : ShortcutText + " to stop");
         Live(before, heard, pending);
     }
 
@@ -146,7 +149,7 @@ internal sealed class DictationPanel : Form
 
     public void ShowCheck(string text, string message, bool bad, bool canFix, bool canUndoFix, bool amend)
     {
-        Strip(Amber, "Check the text, then Accept", "Ctrl+Enter to accept");
+        Strip(Amber, "Check the text, then Accept", HandsFree ? VoiceCommands.CheckHint : "Ctrl+Enter to accept");
         _live.Visible = false; _edit.Visible = true;
         EditText = text;
         Message(message, bad);

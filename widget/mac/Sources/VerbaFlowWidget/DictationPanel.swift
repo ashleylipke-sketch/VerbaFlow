@@ -25,6 +25,8 @@ final class PanelModel: ObservableObject {
     @Published var method = InsertMethod.paste
     @Published var copyReason: String?
     @Published var shortcutSymbols = MacShortcut.standard.symbols
+    /// Hands-free: what to say is shown instead of the keys to press.
+    @Published var handsFree = false
 
     var stop: () -> Void = {}
     var cancel: () -> Void = {}
@@ -107,8 +109,8 @@ struct PanelView: View {
 
     private var note: String {
         switch model.stage {
-        case .listening: return model.lost ? "Connection lost: still recording" : "\(model.shortcutSymbols) to stop"
-        case .check: return "⌘↩ to accept"
+        case .listening: return model.lost ? "Connection lost: still recording" : model.handsFree ? VoiceCommands.listeningHint : "\(model.shortcutSymbols) to stop"
+        case .check: return model.handsFree ? VoiceCommands.checkHint : "⌘↩ to accept"
         default: return ""
         }
     }

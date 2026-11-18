@@ -149,5 +149,71 @@ internal static partial class Native
         if (up.Length > 0) SendInput((uint)up.Length, up, Marshal.SizeOf<INPUT>());
     }
 
-    private static INPUT Key(ushort vk, bool up) => new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = vk, dwFlags = up ? KEYEVENTF_KEYUP : 0 } };
+    // Arrows, Insert, Delete, Home, End, Page Up/Down are "extended" keys: without the flag some programs read them as the number pad's.
+    private static INPUT Key(ushort vk, bool up) => new()
+    {
+        type = INPUT_KEYBOARD,
+        ki = new KEYBDINPUT { wVk = vk, dwFlags = (up ? KEYEVENTF_KEYUP : 0) | (vk is >= 0x21 and <= 0x28 or VK_INSERT or VK_DELETE ? KEYEVENTF_EXTENDEDKEY : 0) },
+    };
+
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x1;
+    public const ushort VK_TAB = 0x09, VK_BACK = 0x08, VK_ESCAPE = 0x1B, VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28, VK_G = 0x47;
+
+    // Windows on the screen, for "switch to …".
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int max);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+
+    [DllImport("user32.dll")]
+    public static extern int GetWindowLong(IntPtr hWnd, int index);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+
+    [DllImport("user32.dll")]
+    public static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool AttachThreadInput(uint attach, uint attachTo, bool on);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+
+    public const uint GW_OWNER = 4;
+    public const int GWL_EXSTYLE = -20, WS_EX_TOOLWINDOW = 0x80, DWMWA_CLOAKED = 14, SW_RESTORE = 9;
+
+    /// <summary>
+    /// Brings a window to the front. Windows lets only the program in front do that, so the Widget briefly joins the
+    /// front window's input (and, failing that, taps Alt, which Windows also accepts).
+    /// </summary>
+    public static bool BringToFront(IntPtr window)
+    {
+        if (IsIconic(window)) ShowWindow(window, SW_RESTORE);
+        var front = GetForegroundWindow();
+        var frontThread = GetWindowThreadProcessId(front, out _);
+        var me = GetCurrentThreadId();
+        var joined = frontThread != 0 && frontThread != me && AttachThreadInput(me, frontThread, true);
+        try { BringWindowToTop(window); SetForegroundWindow(window); }
+        finally { if (joined) AttachThreadInput(me, frontThread, false); }
+        if (GetForegroundWindow() == window) return true;
+        Press(VK_MENU);
+        SetForegroundWindow(window);
+        return GetForegroundWindow() == window;
+    }
 }

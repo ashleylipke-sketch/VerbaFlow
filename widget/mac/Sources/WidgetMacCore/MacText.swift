@@ -11,7 +11,8 @@ public enum ParagraphGap: String, CaseIterable, Codable, Sendable {
 /// The Mac's rules for the Widget's text, the same as the Widget for Windows' (DictationText.cs).
 public enum MacText {
     /// Programs that put space after each paragraph themselves, so an empty line would make the gap twice as big.
-    public static let spacedParagraphs: Set<String> = ["com.microsoft.word", "com.apple.iwork.pages"]
+    /// Excel too: each line goes into the cell below, so an empty line would leave an empty cell.
+    public static let spacedParagraphs: Set<String> = ["com.microsoft.word", "com.apple.iwork.pages", "com.microsoft.excel"]
 
     /// Browsers where the browser Widget (the extension) has the same shortcut and knows the website.
     public static let browsers: Set<String> = ["com.google.chrome", "com.microsoft.edgemac"]
@@ -176,10 +177,13 @@ public struct WidgetSettings: Codable, Equatable, Sendable {
     public var shortcut = MacShortcut.standard.text
     /// The way chosen for a program (by its bundle ID, lower case), where it differs from the usual one.
     public var insertMethods: [String: InsertMethod] = [:]
+    /// Hands-free: the Widget listens on this Mac (Apple's speech recognition on the Mac itself) for "VerbaFlow,
+    /// dictate", "VerbaFlow, switch to …", "VerbaFlow, open …" and the other spoken commands.
+    public var handsFree = false
 
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case server, languages, gap, leaveBrowsersToExtension, testUser, shortcut, insertMethods }
+    private enum CodingKeys: String, CodingKey { case server, languages, gap, leaveBrowsersToExtension, testUser, shortcut, insertMethods, handsFree }
 
     /// Settings saved by an older Widget lack the newer keys; those take their defaults.
     public init(from decoder: Decoder) throws {
@@ -192,6 +196,7 @@ public struct WidgetSettings: Codable, Equatable, Sendable {
         shortcut = try c.decodeIfPresent(String.self, forKey: .shortcut) ?? MacShortcut.standard.text
         let raw = (try? c.decodeIfPresent([String: String].self, forKey: .insertMethods)) ?? [:]
         insertMethods = raw.reduce(into: [:]) { m, x in if let v = InsertMethod(rawValue: x.value) { m[x.key.lowercased()] = v } }
+        handsFree = try c.decodeIfPresent(Bool.self, forKey: .handsFree) ?? false
     }
 
     /// The shortcut to use (the standard one when the stored one is not allowed).

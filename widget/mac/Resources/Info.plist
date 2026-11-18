@@ -14,6 +14,7 @@
 	<key>LSUIElement</key><true/>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSMicrophoneUsageDescription</key><string>The VerbaFlow Widget listens while you dictate, and sends the sound to your VerbaFlow to be turned into text.</string>
+	<key>NSSpeechRecognitionUsageDescription</key><string>With hands-free switched on, the Widget listens on this Mac for its spoken commands, such as "VerbaFlow, dictate".</string>
 	<key>NSHumanReadableCopyright</key><string>VerbaFlow</string>
 </dict>
 </plist>

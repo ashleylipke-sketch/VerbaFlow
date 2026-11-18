@@ -26,6 +26,8 @@ internal sealed class TrayApp : ApplicationContext
     private HttpClient _http;
     private SettingsForm? _settingsForm;
     private bool _registered;
+    private HandsFree? _handsFree;
+    private readonly ToolStripMenuItem _handsFreeItem = new("Hands-free (voice commands)");
 
     public TrayApp(bool firstRun)
     {
@@ -34,10 +36,18 @@ internal sealed class TrayApp : ApplicationContext
         (_http, _client) = NewClient();
         _signIn.Use(() => _client);
         _controller = new WidgetController(() => _client, () => _settings, Saved, Notify, OpenSettings);
+        _controller.PhaseChanged += p => _handsFree?.Set(p switch
+        {
+            WidgetController.Phase.Idle => HandsFree.Mode.Commands,
+            WidgetController.Phase.Check => HandsFree.Mode.Checking,
+            _ => HandsFree.Mode.Paused,
+        });
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Settings and sign-in…", null, (_, _) => OpenSettings());
         menu.Items.Add("Open VerbaFlow", null, (_, _) => Open(_settings.Server));
+        _handsFreeItem.Click += (_, _) => Saved(_settings with { HandsFree = !_settings.HandsFree });
+        menu.Items.Add(_handsFreeItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Quit the Widget", null, (_, _) => ExitThread());
         _tray = new NotifyIcon { Icon = AppIcon, Text = $"VerbaFlow Widget ({_settings.Keys})", ContextMenuStrip = menu, Visible = true };
@@ -46,7 +56,8 @@ internal sealed class TrayApp : ApplicationContext
         _hotkeys = new HotkeyWindow(OnHotkey);
         Register();
         if (firstRun) OpenSettings();
-        else if (_registered) Notify($"VerbaFlow Widget is running. Click where you want the words, then press {_settings.Keys}.");
+        else if (_registered && !_settings.HandsFree) Notify($"VerbaFlow Widget is running. Click where you want the words, then press {_settings.Keys}.");
+        ApplyHandsFree(false);
     }
 
     private (HttpClient, VerbaFlowClient) NewClient()
@@ -103,6 +114,67 @@ internal sealed class TrayApp : ApplicationContext
         await _controller.ShortcutAsync(target);
     }
 
+    /// <summary>Starts or stops hands-free listening to match the settings.</summary>
+    private void ApplyHandsFree(bool changed)
+    {
+        _handsFreeItem.Checked = _settings.HandsFree;
+        _controller.HandsFree = _settings.HandsFree;
+        if (!_settings.HandsFree)
+        {
+            if (_handsFree is null) return;
+            _handsFree.Dispose(); _handsFree = null;
+            if (changed) Notify("Hands-free is off.");
+            return;
+        }
+        if (_handsFree is not null) return;
+        _handsFree = HandsFree.Start(_settings.Languages, out var problem);
+        if (_handsFree is null)
+        {
+            Notify(problem!);
+            _settings = _settings with { HandsFree = false };
+            _settings.Save(WidgetSettings.DefaultPath);
+            _handsFreeItem.Checked = false; _controller.HandsFree = false;
+            return;
+        }
+        _handsFree.Heard += OnVoice;
+        Notify("Hands-free is on. Say \"VerbaFlow, dictate\", \"VerbaFlow, switch to …\" or \"VerbaFlow, open …\".");
+    }
+
+    private async void OnVoice(VoiceCommand c)
+    {
+        try { await VoiceAsync(c); }
+        catch (Exception e) { Program.Log(e); Notify("Something went wrong in the Widget. Try again."); }
+    }
+
+    private async Task VoiceAsync(VoiceCommand c)
+    {
+        if (c.Action is VoiceAction.Accept or VoiceAction.SpeakMore or VoiceAction.FixGrammar or VoiceAction.UndoFix or VoiceAction.Cancel)
+        {
+            _controller.Voice(c);
+            return;
+        }
+        if (!_controller.Idle) return;
+        switch (c.Action)
+        {
+            case VoiceAction.Dictate:
+                // Here the Widget itself is used in browsers too: the browser Widget has no hands-free commands.
+                if (FocusTarget.Capture() is { } target) await _controller.ShortcutAsync(target);
+                break;
+            case VoiceAction.SwitchTo:
+                if (!Programs.SwitchTo(c.Name!)) Notify($"No open window was found for \"{c.Name}\". Say \"VerbaFlow, open {c.Name}\" to start it.");
+                break;
+            case VoiceAction.Open:
+                if (!Programs.Open(c.Name!)) Notify($"No program called \"{c.Name}\" was found in the Start menu.");
+                break;
+            case VoiceAction.Key:
+                Programs.Press(c.Key!.Value);
+                break;
+            case VoiceAction.GoToCell:
+                await Programs.GoToCellAsync(c.Cell!);
+                break;
+        }
+    }
+
     public void Notify(string text) => _tray.ShowBalloonTip(6000, "VerbaFlow Widget", text, ToolTipIcon.None);
 
     private void OpenSettings()
@@ -117,9 +189,11 @@ internal sealed class TrayApp : ApplicationContext
     private void Saved(WidgetSettings s)
     {
         var serverChanged = s.Server != _settings.Server;
+        var handsChanged = s.HandsFree != _settings.HandsFree || (s.HandsFree && s.Languages != _settings.Languages);
         _settings = s;
         s.Save(WidgetSettings.DefaultPath);
         if (serverChanged) { var old = _http; (_http, _client) = NewClient(); old.Dispose(); }
+        if (handsChanged) { _handsFree?.Dispose(); _handsFree = null; ApplyHandsFree(true); }
     }
 
     public static void Open(string url)
@@ -130,6 +204,7 @@ internal sealed class TrayApp : ApplicationContext
     protected override void ExitThreadCore()
     {
         Native.UnregisterHotKey(_hotkeys.Handle, HotkeyId);
+        _handsFree?.Dispose();
         _controller.Dispose();
         _tray.Visible = false;
         _tray.Dispose();

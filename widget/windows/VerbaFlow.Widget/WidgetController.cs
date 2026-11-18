@@ -7,7 +7,7 @@ namespace VerbaFlow.Widget;
 /// </summary>
 internal sealed class WidgetController : IDisposable
 {
-    private enum Phase { Idle, Starting, Listening, Finishing, Check, Busy }
+    public enum Phase { Idle, Starting, Listening, Finishing, Check, Busy }
 
     private readonly Func<VerbaFlowClient> _client;
     private readonly Func<WidgetSettings> _settings;
@@ -17,7 +17,20 @@ internal sealed class WidgetController : IDisposable
     private readonly DictationPanel _panel = new();
     private readonly SynchronizationContext _ui;
 
-    private Phase _phase;
+    private Phase _phaseValue;
+    private Phase _phase
+    {
+        get => _phaseValue;
+        set { if (_phaseValue == value) return; _phaseValue = value; PhaseChanged?.Invoke(value); }
+    }
+
+    /// <summary>The dictation moved on (hands-free listens for other commands in each step).</summary>
+    public event Action<Phase>? PhaseChanged;
+
+    /// <summary>Hands-free: "stop dictating" finishes, and the panel says what to say.</summary>
+    public bool HandsFree { get => _panel.HandsFree; set => _panel.HandsFree = value; }
+
+    public bool Idle => _phase == Phase.Idle;
     private FocusTarget? _target;
     private Guid? _widgetId;
     private LiveListener? _listener;
@@ -111,8 +124,11 @@ internal sealed class WidgetController : IDisposable
     private void Render()
     {
         if (_phase != Phase.Listening) return;
-        _panel.ShowListening(_prefix, DictationText.Heard(_text.Segments, _text.StartsWithBreak), _text.PendingWords, _lost);
+        var heard = DictationText.Heard(_text.Segments, _text.StartsWithBreak);
+        _panel.ShowListening(_prefix, VoiceCommands.WithoutStop(heard) ?? heard, _text.PendingWords, _lost);
         if (_loudest >= 0.01f) _panel.Message("");
+        // Hands-free: "stop dictating" at the end of what was heard finishes, as the shortcut or Stop would.
+        if (HandsFree && VoiceCommands.WithoutStop(heard) is not null) _ = StopAsync();
     }
 
     private async Task StopAsync()
@@ -128,7 +144,8 @@ internal sealed class WidgetController : IDisposable
         await listener.DisposeAsync();
         if (_listener != listener || _phase != Phase.Finishing) return; // cancelled meanwhile
         _listener = null;
-        var text = DictationText.Join(_prefix, DictationText.Heard(_text.Segments, _text.StartsWithBreak));
+        var heardText = DictationText.Heard(_text.Segments, _text.StartsWithBreak);
+        var text = DictationText.Join(_prefix, HandsFree ? VoiceCommands.WithoutStop(heardText) ?? heardText : heardText);
         if (_failure is not null) ShowCheck(text, _failure, true);
         else if (!r.Complete) ShowCheck(text, "The last words may be missing: VerbaFlow could not be reached to finish them.", true);
         else ShowCheck(text, "", false);
@@ -154,6 +171,20 @@ internal sealed class WidgetController : IDisposable
         if (_target is not { } t) return;
         _save(_settings().WithMethod(t.Program, method));
         ShowMethod();
+    }
+
+    /// <summary>A hands-free command for the words being checked.</summary>
+    public void Voice(VoiceCommand command)
+    {
+        if (_phase != Phase.Check) return;
+        switch (command.Action)
+        {
+            case VoiceAction.Accept: _ = AcceptAsync(); break;
+            case VoiceAction.SpeakMore: _ = SpeakMoreAsync(); break;
+            case VoiceAction.FixGrammar: _ = FixGrammarAsync(); break;
+            case VoiceAction.UndoFix: UndoFix(); break;
+            case VoiceAction.Cancel: _ = CancelAsync(); break;
+        }
     }
 
     private async Task SpeakMoreAsync()

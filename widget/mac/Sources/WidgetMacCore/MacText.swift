@@ -123,7 +123,12 @@ public struct MacShortcut: Equatable, Sendable {
     /// The choices of keys to hold down offered in the settings, as stored.
     public static let holds = ["Option+Shift", "Control+Shift", "Control+Option", "Control+Option+Shift", "Option+Shift+Command", "Control+Command"]
     /// The keys offered: letters, digits, F1 to F12 and Space.
-    public static let keyChoices: [String] = (65...90).map { String(UnicodeScalar(UInt8($0))) } + (0...9).map(String.init) + (1...12).map { "F\($0)" } + ["Space"]
+    public static let keyChoices: [String] = {
+        let letters: [String] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".map { String($0) }
+        let digits: [String] = "0123456789".map { String($0) }
+        let fKeys: [String] = (1...12).map { (n: Int) -> String in "F" + String(n) }
+        return letters + digits + fKeys + ["Space"]
+    }()
 
     public var hold: String {
         [(control, "Control"), (option, "Option"), (shift, "Shift"), (command, "Command")].filter { $0.0 }.map { $0.1 }.joined(separator: "+")

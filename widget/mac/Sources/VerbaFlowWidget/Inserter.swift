@@ -1,12 +1,31 @@
 import AppKit
+import WidgetMacCore
 
-/// Puts the accepted text into the program as a paste of plain text, which every Mac program understands and which
+/// Puts the accepted text into the program, usually as a paste of plain text, which every Mac program understands and which
 /// takes the formatting of the place it lands. The clipboard is put back as it was straight after, and the Widget's
 /// text is marked as passing through so that clipboard managers do not keep it.
 enum Inserter {
-    /// False when the program has gone (quit) or the Widget may not press keys for it.
+    /// Puts the words in the way chosen for the program. False when the program has gone (quit) or the Widget may not
+    /// press keys for it.
     @MainActor
-    static func paste(_ text: String, into target: FocusTarget) async -> Bool {
+    static func put(_ text: String, into target: FocusTarget, method: InsertMethod) async -> Bool {
+        switch method {
+        case .copy:
+            copy(text)
+            return true
+        case .type:
+            guard !target.app.isTerminated, FocusTarget.trusted else { return false }
+            target.app.activate(options: [])
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            await Keys.type(text)
+            return true
+        case .paste:
+            return await paste(text, into: target)
+        }
+    }
+
+    @MainActor
+    private static func paste(_ text: String, into target: FocusTarget) async -> Bool {
         guard !target.app.isTerminated, FocusTarget.trusted else { return false }
         let board = NSPasteboard.general
         let saved = save(board)

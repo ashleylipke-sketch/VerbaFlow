@@ -2,7 +2,10 @@ using Microsoft.Win32;
 
 namespace VerbaFlow.Widget;
 
-/// <summary>The Widget's settings: VerbaFlow's address, signing in, the language spoken, paragraphs, and starting with Windows.</summary>
+/// <summary>
+/// The Widget's settings: VerbaFlow's address, signing in, the language spoken, paragraphs, the shortcut, how words go
+/// into particular programs, and starting with Windows.
+/// </summary>
 internal sealed class SettingsForm : Form
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run", RunName = "VerbaFlow Widget";
@@ -10,7 +13,9 @@ internal sealed class SettingsForm : Form
     private readonly Func<VerbaFlowClient> _client;
     private readonly WindowsSignIn _signIn;
     private readonly Action<WidgetSettings> _saved;
-    private WidgetSettings _settings;
+    private readonly Func<WidgetSettings> _current;
+    private readonly Func<Shortcut, bool> _changeShortcut;
+    private WidgetSettings _settings => _current();
 
     private readonly TextBox _server = new() { Width = 320 };
     private readonly Label _status = new() { AutoSize = true, MaximumSize = new Size(440, 0), Padding = new Padding(0, 4, 0, 4) };
@@ -22,13 +27,20 @@ internal sealed class SettingsForm : Form
     private readonly ComboBox _testUser = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, Visible = false };
     private readonly ComboBox _language = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = 320 };
     private readonly ComboBox _gap = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320 };
-    private readonly CheckBox _browsers = new() { Text = "In Chrome and Edge, leave Alt+Shift+D to the browser Widget", AutoSize = true };
+    private readonly CheckBox _browsers = new() { Text = "In Chrome and Edge, leave dictation to the browser Widget (its shortcut is Alt+Shift+D)", AutoSize = true, MaximumSize = new Size(440, 0) };
+    private readonly ComboBox _hold = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
+    private readonly ComboBox _key = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 80 };
+    private readonly Label _shortcutNote = new() { AutoSize = true, MaximumSize = new Size(440, 0) };
+    private readonly ListBox _programs = new() { Width = 440, Height = 80, IntegralHeight = false };
+    private readonly Button _forget = new() { Text = "Back to the usual way", AutoSize = true, Enabled = false };
+    private readonly Label _intro = new() { AutoSize = true, MaximumSize = new Size(440, 0), ForeColor = Color.FromArgb(80, 80, 80) };
     private readonly CheckBox _startWithWindows = new() { Text = "Start the Widget when I sign in to Windows", AutoSize = true };
     private List<SpokenLanguage> _languages = [];
 
-    public SettingsForm(WidgetSettings settings, Func<VerbaFlowClient> client, WindowsSignIn signIn, Action<WidgetSettings> saved)
+    public SettingsForm(Func<WidgetSettings> current, Func<VerbaFlowClient> client, WindowsSignIn signIn, Action<WidgetSettings> saved, Func<Shortcut, bool> changeShortcut)
     {
-        _settings = settings; _client = client; _signIn = signIn; _saved = saved;
+        _current = current; _client = client; _signIn = signIn; _saved = saved; _changeShortcut = changeShortcut;
+        var settings = current();
         Text = "VerbaFlow Widget settings";
         Icon = TrayApp.AppIcon;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -42,8 +54,7 @@ internal sealed class SettingsForm : Form
         Label Heading(string t) => new() { Text = t, AutoSize = true, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold), Margin = new Padding(0, 12, 0, 4) };
         Label Note(string t) => new() { Text = t, AutoSize = true, MaximumSize = new Size(440, 0), ForeColor = Color.FromArgb(80, 80, 80) };
 
-        flow.Controls.Add(Note("Click where you want the words in any program (Outlook, Word, Teams…), press Alt+Shift+D and speak. " +
-            "Press Alt+Shift+D again (or Stop) when you are done, check the words, then Accept."));
+        flow.Controls.Add(_intro);
         flow.Controls.Add(Heading("1. VerbaFlow"));
         flow.Controls.Add(Note("VerbaFlow's address. On this computer: http://localhost:5044 (VerbaFlow must be running)."));
         flow.Controls.Add(_server);
@@ -63,7 +74,19 @@ internal sealed class SettingsForm : Form
         flow.Controls.Add(Heading("3. New paragraphs"));
         flow.Controls.Add(Note("Word puts space after each paragraph itself; most email and chat boxes do not, so an empty line is left there."));
         flow.Controls.Add(_gap);
-        flow.Controls.Add(Heading("4. Other"));
+        flow.Controls.Add(Heading("4. Keyboard shortcut"));
+        flow.Controls.Add(Note("Hold these keys and press the letter. Pick another if a program you use already has this shortcut."));
+        var keys = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        keys.Controls.AddRange([_hold, new Label { Text = "+", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _key]);
+        flow.Controls.Add(keys);
+        flow.Controls.Add(_shortcutNote);
+        flow.Controls.Add(Heading("5. Programs with their own way"));
+        flow.Controls.Add(Note("The words are usually pasted. Where they do not appear, choose another way in the Widget's window " +
+            "(the line under the words) and it is remembered for that program here. Remote desktops and virtual machines have the letters typed, " +
+            "PuTTY pastes with Shift+Insert."));
+        flow.Controls.Add(_programs);
+        flow.Controls.Add(_forget);
+        flow.Controls.Add(Heading("6. Other"));
         flow.Controls.Add(_browsers);
         flow.Controls.Add(_startWithWindows);
 
@@ -78,6 +101,20 @@ internal sealed class SettingsForm : Form
         AcceptButton = save;
 
         _server.Text = settings.Server;
+        _hold.Items.AddRange(Shortcut.Holds);
+        _key.Items.AddRange(Shortcut.KeyChoices);
+        var k = settings.Keys;
+        _hold.SelectedItem = k.Hold; if (_hold.SelectedIndex < 0) { _hold.Items.Add(k.Hold); _hold.SelectedItem = k.Hold; }
+        _key.SelectedItem = k.Key;
+        ShowIntro(k);
+        ShowPrograms();
+        _programs.SelectedIndexChanged += (_, _) => _forget.Enabled = _programs.SelectedItem is ProgramRow;
+        _forget.Click += (_, _) =>
+        {
+            if (_programs.SelectedItem is not ProgramRow row) return;
+            _saved(_settings.WithMethod(row.Program, Insertion.DefaultFor(row.Program)));
+            ShowPrograms();
+        };
         _gap.Items.AddRange(["Automatic: an empty line between paragraphs, except in Word", "Always an empty line between paragraphs", "Never: just a new line"]);
         _gap.SelectedIndex = (int)settings.ParagraphGap;
         _browsers.Checked = settings.LeaveBrowsersToExtension;
@@ -98,17 +135,46 @@ internal sealed class SettingsForm : Form
         var server = WidgetSettings.CleanServer(_server.Text);
         if (server is null) { Status("That is not a web address. On this computer it is http://localhost:5044.", true); return false; }
         var language = _languages.FirstOrDefault(l => l.Name == _language.Text)?.Code ?? _language.Text.Trim();
-        _settings = _settings with
+        var keys = Shortcut.From(_hold.SelectedItem as string ?? "", _key.SelectedItem as string ?? "");
+        if (keys is null) { _shortcutNote.Text = "Choose the keys to hold and a key."; _shortcutNote.ForeColor = DictationPanel.Red; return false; }
+        if (!_changeShortcut(keys))
+        {
+            _shortcutNote.Text = $"{keys} is taken by another program. Choose another one; {_settings.Keys} still works.";
+            _shortcutNote.ForeColor = DictationPanel.Red;
+            return false;
+        }
+        _shortcutNote.Text = "";
+        var next = (_settings with
         {
             Server = server, Languages = language, ParagraphGap = (ParagraphGap)Math.Max(0, _gap.SelectedIndex),
             LeaveBrowsersToExtension = _browsers.Checked, TestUser = _testUser.SelectedItem as string ?? "alice",
-        };
-        _settings = _settings.Clean();
-        _server.Text = _settings.Server;
-        _saved(_settings);
+            Shortcut = keys.ToString(),
+        }).Clean();
+        _server.Text = next.Server;
+        _saved(next);
+        ShowIntro(keys);
         SetStartWithWindows(_startWithWindows.Checked);
         return true;
     }
+
+    private void ShowIntro(Shortcut keys) =>
+        _intro.Text = $"Click where you want the words in any program (Outlook, Word, Teams, Notepad…), press {keys} and speak. " +
+            $"Press {keys} again (or Stop) when you are done, check the words, then Accept.";
+
+    private sealed record ProgramRow(string Program, InsertMethod Method)
+    {
+        public override string ToString() => $"{Program}: {Insertion.Describe(Method)}";
+    }
+
+    private void ShowPrograms()
+    {
+        _programs.Items.Clear();
+        foreach (var (program, method) in _settings.InsertMethods.OrderBy(x => x.Key)) _programs.Items.Add(new ProgramRow(program, method));
+        if (_programs.Items.Count == 0) _programs.Items.Add("(none: every program gets the usual way)");
+        _forget.Enabled = false;
+    }
+
+    protected override void OnActivated(EventArgs e) { base.OnActivated(e); ShowPrograms(); }
 
     private async Task SaveAndCheckAsync() { if (Save()) await CheckAsync(); }
 

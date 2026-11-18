@@ -15,6 +15,10 @@ struct FocusTarget {
     let isPassword: Bool
     let selectedText: String
     let textBefore: String?
+    /// The place says it cannot be typed in (a read-only text box), so the words are copied instead.
+    var readOnly = false
+
+    static let readOnlyReason = "The place you clicked cannot be typed in. The words will be copied: click where you want them and paste with ⌘V."
 
     /// Whether the Widget may read the program in front and press keys for it.
     static var trusted: Bool { AXIsProcessTrusted() }
@@ -33,6 +37,7 @@ struct FocusTarget {
         var password = IsSecureEventInputEnabled()
         var selected = "", before: String? = nil
         var anchor = NSRect.zero
+        var readOnly = false
         if trusted {
             let system = AXUIElementCreateSystemWide()
             AXUIElementSetMessagingTimeout(system, 1.0)
@@ -41,6 +46,11 @@ struct FocusTarget {
                 let role: String? = attribute(el, kAXRoleAttribute)
                 let subrole: String? = attribute(el, kAXSubroleAttribute)
                 if subrole == (kAXSecureTextFieldSubrole as String) || role == "AXSecureTextField" { password = true }
+                // Only a plain text box that says so counts: web pages and documents often say nothing, and those are tried.
+                if !password, let role, [kAXTextFieldRole as String, kAXTextAreaRole as String, kAXComboBoxRole as String].contains(role) {
+                    var settable = DarwinBoolean(true)
+                    if AXUIElementIsAttributeSettable(el, kAXValueAttribute as CFString, &settable) == .success, !settable.boolValue { readOnly = true }
+                }
                 if !password {
                     selected = attribute(el, kAXSelectedTextAttribute) ?? ""
                     if let range: CFRange = rangeAttribute(el, kAXSelectedTextRangeAttribute) {
@@ -55,9 +65,9 @@ struct FocusTarget {
         if anchor.isEmpty {
             let m = NSEvent.mouseLocation
             return FocusTarget(app: app, program: program, anchor: NSRect(x: m.x, y: m.y, width: 1, height: 1),
-                               isPassword: password, selectedText: selected, textBefore: before)
+                               isPassword: password, selectedText: selected, textBefore: before, readOnly: readOnly)
         }
-        return FocusTarget(app: app, program: program, anchor: flip(anchor), isPassword: password, selectedText: selected, textBefore: before)
+        return FocusTarget(app: app, program: program, anchor: flip(anchor), isPassword: password, selectedText: selected, textBefore: before, readOnly: readOnly)
     }
 
     // MARK: Accessibility

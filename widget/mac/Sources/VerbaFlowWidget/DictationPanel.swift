@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import VerbaFlowShared
+import WidgetMacCore
 
 /// What the panel shows. Red: listening, the words appear as they are heard (grey while still being heard). Amber:
 /// check and change the words, then Accept.
@@ -19,6 +20,11 @@ final class PanelModel: ObservableObject {
     @Published var canFix = false
     @Published var canUndoFix = false
     @Published var amend = false
+    /// How the words go into the program (shown while checking), or why they will be copied instead.
+    @Published var program = ""
+    @Published var method = InsertMethod.paste
+    @Published var copyReason: String?
+    @Published var shortcutSymbols = MacShortcut.standard.symbols
 
     var stop: () -> Void = {}
     var cancel: () -> Void = {}
@@ -27,6 +33,7 @@ final class PanelModel: ObservableObject {
     var fix: () -> Void = {}
     var undoFix: () -> Void = {}
     var settings: () -> Void = {}
+    var chooseMethod: (InsertMethod) -> Void = { _ in }
 }
 
 private let red = Color(red: 176 / 255, green: 42 / 255, blue: 55 / 255)
@@ -77,6 +84,8 @@ struct PanelView: View {
                     .padding(.horizontal, 12).padding(.top, 6)
             }
 
+            if model.stage == .check || model.stage == .busy { methodLine }
+
             HStack(spacing: 8) { buttons }
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -98,7 +107,7 @@ struct PanelView: View {
 
     private var note: String {
         switch model.stage {
-        case .listening: return model.lost ? "Connection lost: still recording" : "⌥⇧D to stop"
+        case .listening: return model.lost ? "Connection lost: still recording" : "\(model.shortcutSymbols) to stop"
         case .check: return "⌘↩ to accept"
         default: return ""
         }
@@ -127,6 +136,29 @@ struct PanelView: View {
         flush()
         let gap = before.isEmpty || DictationText.joinsOn(model.heard) ? "" : " "
         return Text(before + gap).foregroundColor(.primary) + Text(firm).foregroundColor(.primary) + Text(grey).foregroundColor(.gray)
+    }
+
+    /// How the words will go into this program, with a menu to choose another way (remembered for the program).
+    @ViewBuilder private var methodLine: some View {
+        Group {
+            if let reason = model.copyReason {
+                Text(reason).foregroundColor(amber).fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 4) {
+                    Text("Into \(model.program):").foregroundColor(Color(white: 0.3))
+                    Menu(model.method.describe) {
+                        ForEach(InsertMethod.allCases, id: \.self) { m in
+                            Button((m == model.method ? "✓ " : "") + m.describe) { model.chooseMethod(m) }
+                        }
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    Text("(change it if the words do not appear)").foregroundColor(.secondary)
+                }
+            }
+        }
+        .font(.system(size: 11))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.top, 6)
     }
 
     @ViewBuilder private var buttons: some View {

@@ -11,6 +11,7 @@ final class Controller {
 
     private let makeApi: () throws -> Api
     private let settings: () -> WidgetSettings
+    private let saveSettings: (WidgetSettings) -> Void
     private let openSettings: () -> Void
     private let panel = DictationPanel()
 
@@ -27,8 +28,9 @@ final class Controller {
     private var loudest: Float = 0
     private var lastHeard: LiveListener.Heard?
 
-    init(api: @escaping () throws -> Api, settings: @escaping () -> WidgetSettings, openSettings: @escaping () -> Void) {
-        self.makeApi = api; self.settings = settings; self.openSettings = openSettings
+    init(api: @escaping () throws -> Api, settings: @escaping () -> WidgetSettings, save: @escaping (WidgetSettings) -> Void,
+         openSettings: @escaping () -> Void) {
+        self.makeApi = api; self.settings = settings; self.saveSettings = save; self.openSettings = openSettings
         let m = panel.model
         m.stop = { [weak self] in self?.stop() }
         m.cancel = { [weak self] in self?.cancel() }
@@ -37,6 +39,11 @@ final class Controller {
         m.fix = { [weak self] in Task { await self?.fixGrammar() } }
         m.undoFix = { [weak self] in self?.undoFix() }
         m.settings = { [weak self] in self?.openSettings() }
+        m.chooseMethod = { [weak self] method in
+            guard let self, let t = self.target else { return }
+            self.saveSettings(self.settings().with(method, for: t.program))
+            self.panel.model.method = self.settings().method(for: t.program)
+        }
     }
 
     /// A message near the cursor, for when nothing can start.
@@ -53,7 +60,7 @@ final class Controller {
         }
         if !FocusTarget.trusted {
             FocusTarget.askForTrust()
-            panel.notice("Allow the VerbaFlow Widget under System Settings, Privacy & Security, Accessibility, so it can type the words into other programs. Then press ⌥⇧D again.", near: target.anchor)
+            panel.notice("Allow the VerbaFlow Widget under System Settings, Privacy & Security, Accessibility, so it can type the words into other programs. Then press \(settings().keys.symbols) again.", near: target.anchor)
             return
         }
         if target.isPassword { panel.notice("The Widget does not work in password boxes.", near: target.anchor); return }
@@ -61,6 +68,9 @@ final class Controller {
         amend = !target.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         prefix = amend ? target.selectedText : ""
         widgetId = nil; spokenMs = 0; reconnects = 0
+        panel.model.shortcutSymbols = settings().keys.symbols
+        panel.model.program = target.app.localizedName ?? target.program
+        panel.model.copyReason = target.readOnly ? FocusTarget.readOnlyReason : nil
         panel.place(near: target.anchor)
         await listen()
     }
@@ -162,6 +172,7 @@ final class Controller {
         m.canFix = widgetId != nil
         m.canUndoFix = beforeFix != nil
         m.amend = amend
+        if let t = target { m.method = settings().method(for: t.program) }
         panel.takeKeyboard()
     }
 
@@ -206,7 +217,14 @@ final class Controller {
         if !amend { pasted = DictationText.spaced(before: target.textBefore, pasted) }
         end(accepted: true, words: DictationText.words(text))
         panel.hide()
-        let ok = pasted.isEmpty ? await Inserter.deleteSelection(in: target) : await Inserter.paste(pasted, into: target)
+        let method: InsertMethod = target.readOnly ? .copy : settings().method(for: target.program)
+        let ok: Bool
+        if !pasted.isEmpty { ok = await Inserter.put(pasted, into: target, method: method) }
+        else if method == .copy { ok = true }
+        else { ok = await Inserter.deleteSelection(in: target) }
+        if ok && method == .copy && !pasted.isEmpty {
+            panel.notice("The words are copied. Click where you want them and paste with ⌘V.", near: target.anchor)
+        }
         if !ok {
             Inserter.copy(pasted)
             panel.notice("The program was closed, so the words were copied instead. Paste them where you want them with ⌘V.", near: target.anchor)

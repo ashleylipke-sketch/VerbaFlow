@@ -1,16 +1,30 @@
 namespace VerbaFlow.Widget;
 
 /// <summary>
-/// Puts the accepted text into the program as a paste of plain text, which every Windows program understands and which
+/// Puts the accepted text into the program, usually as a paste of plain text, which every Windows program understands and which
 /// takes the formatting of the place it lands (as "Keep text only" does in Word). The clipboard is put back as it was
 /// straight after, and the Widget's text is marked so that Windows keeps it out of clipboard history and cloud clipboard.
 /// </summary>
 internal static class Inserter
 {
-    /// <summary>Must be called on the window (STA) thread. False when the window has gone.</summary>
-    public static async Task<bool> PasteAsync(FocusTarget target, string text)
+    /// <summary>Puts the words in the way chosen for the program. Must be called on the window (STA) thread. False when the window has gone.</summary>
+    public static async Task<bool> PutAsync(FocusTarget target, string text, InsertMethod method)
     {
         if (!Native.IsWindow(target.Window)) return false;
+        if (method == InsertMethod.Copy) { Copy(text); return true; }
+        if (method == InsertMethod.Type)
+        {
+            Native.SetForegroundWindow(target.Window);
+            await Task.Delay(150);
+            Native.ReleaseModifiers();
+            await Native.TypeAsync(text);
+            return true;
+        }
+        return await PasteAsync(target, text, method == InsertMethod.ShiftInsert);
+    }
+
+    private static async Task<bool> PasteAsync(FocusTarget target, string text, bool shiftInsert)
+    {
         var saved = Save();
         var data = new DataObject();
         data.SetData(DataFormats.UnicodeText, text);
@@ -23,7 +37,8 @@ internal static class Inserter
         Native.SetForegroundWindow(target.Window);
         await Task.Delay(150); // the program becomes active and puts its cursor back
         Native.ReleaseModifiers();
-        Native.Press(Native.VK_CONTROL, Native.VK_V);
+        if (shiftInsert) Native.Press(Native.VK_SHIFT, Native.VK_INSERT);
+        else Native.Press(Native.VK_CONTROL, Native.VK_V);
         // The program reads the clipboard when it handles the paste; slow programs get a second before it is put back.
         await Task.Delay(1000);
         Restore(saved);

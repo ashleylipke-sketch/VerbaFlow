@@ -13,6 +13,7 @@ internal sealed class WidgetController : IDisposable
     private readonly Func<WidgetSettings> _settings;
     private readonly Action<string> _notify;
     private readonly Action _openSettings;
+    private readonly Action<WidgetSettings> _save;
     private readonly DictationPanel _panel = new();
     private readonly SynchronizationContext _ui;
 
@@ -31,9 +32,9 @@ internal sealed class WidgetController : IDisposable
 
     private static readonly LiveText Empty = new([], 0, false);
 
-    public WidgetController(Func<VerbaFlowClient> client, Func<WidgetSettings> settings, Action<string> notify, Action openSettings)
+    public WidgetController(Func<VerbaFlowClient> client, Func<WidgetSettings> settings, Action<WidgetSettings> save, Action<string> notify, Action openSettings)
     {
-        _client = client; _settings = settings; _notify = notify; _openSettings = openSettings;
+        _client = client; _settings = settings; _save = save; _notify = notify; _openSettings = openSettings;
         _ui = SynchronizationContext.Current ?? throw new InvalidOperationException("Start the Widget on the window thread.");
         _panel.StopClicked += () => _ = StopAsync();
         _panel.CancelClicked += () => _ = CancelAsync();
@@ -42,6 +43,7 @@ internal sealed class WidgetController : IDisposable
         _panel.FixClicked += () => _ = FixGrammarAsync();
         _panel.UndoFixClicked += UndoFix;
         _panel.SettingsClicked += _openSettings;
+        _panel.MethodChosen += ChooseMethod;
         _panel.EditChanged += () => { if (_phase == Phase.Check) _panel.UpdateCheckButtons(_widgetId is not null, _beforeFix is not null, _amend); };
     }
 
@@ -59,6 +61,7 @@ internal sealed class WidgetController : IDisposable
         _amend = target.SelectedText.Trim().Length > 0;
         _prefix = _amend ? target.SelectedText : "";
         _widgetId = null; _spokenMs = 0; _reconnects = 0;
+        _panel.ShortcutText = _settings().Keys.ToString();
         _panel.PlaceNear(target.Anchor);
         await ListenAsync();
     }
@@ -135,6 +138,22 @@ internal sealed class WidgetController : IDisposable
     {
         _phase = Phase.Check;
         _panel.ShowCheck(text, message, bad, _widgetId is not null, _beforeFix is not null, _amend);
+        ShowMethod();
+    }
+
+    /// <summary>How the words will go in, under the text: the way for this program, or why they will be copied.</summary>
+    private void ShowMethod()
+    {
+        if (_target is not { } t) return;
+        _panel.ShowMethod(t.Program, _settings().MethodFor(t.Program), t.CopyReason);
+    }
+
+    /// <summary>The person chose another way for this program: it is remembered for next time.</summary>
+    private void ChooseMethod(InsertMethod method)
+    {
+        if (_target is not { } t) return;
+        _save(_settings().WithMethod(t.Program, method));
+        ShowMethod();
     }
 
     private async Task SpeakMoreAsync()
@@ -180,7 +199,9 @@ internal sealed class WidgetController : IDisposable
         if (!_amend) pasted = DictationText.Spaced(target.TextBefore, pasted);
         End(true, DictationText.Words(text));
         _panel.Hide();
-        var ok = pasted.Length == 0 ? DeleteSelection(target) : await Inserter.PasteAsync(target, pasted);
+        var method = target.CopyReason is not null ? InsertMethod.Copy : _settings().MethodFor(target.Program);
+        var ok = pasted.Length == 0 ? method == InsertMethod.Copy || DeleteSelection(target) : await Inserter.PutAsync(target, pasted, method);
+        if (ok && method == InsertMethod.Copy && pasted.Length > 0) _notify("The words are copied. Click where you want them and paste with Ctrl+V.");
         if (!ok)
         {
             Inserter.Copy(pasted);

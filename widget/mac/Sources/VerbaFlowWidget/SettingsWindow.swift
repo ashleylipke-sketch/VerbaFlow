@@ -3,8 +3,8 @@ import ServiceManagement
 import SwiftUI
 import WidgetMacCore
 
-/// What the settings window shows and does: VerbaFlow's address, signing in, the language, paragraphs, the two macOS
-/// permissions the Widget needs, and starting when the person logs in.
+/// What the settings window shows and does: VerbaFlow's address, signing in, the language, paragraphs, the shortcut,
+/// how words go into particular programs, the two macOS permissions the Widget needs, and starting when the person logs in.
 @MainActor
 final class SettingsModel: ObservableObject {
     @Published var server: String
@@ -25,6 +25,10 @@ final class SettingsModel: ObservableObject {
     @Published var startAtLogin = SMAppService.mainApp.status == .enabled
     @Published var loginNote = ""
     @Published var working = false
+    @Published var hold: String
+    @Published var key: String
+    @Published var shortcutNote = ""
+    @Published var programs: [ProgramWay] = []
 
     private let app: AppDelegate
     private var linking: Task<Void, Never>?
@@ -33,16 +37,45 @@ final class SettingsModel: ObservableObject {
         self.app = app
         let s = app.settings
         server = s.server; languages = s.languages; gap = s.gap; leaveBrowsers = s.leaveBrowsersToExtension; testUser = s.testUser
+        hold = s.keys.hold; key = s.keys.key
+        refreshPrograms()
     }
 
+    /// The settings as now (with the programs' ways chosen in the Widget's window), with this window's choices.
     private var current: WidgetSettings {
-        var s = WidgetSettings()
+        var s = app.settings
         s.server = MacText.cleanServer(server)?.absoluteString ?? server
         s.languages = languages; s.gap = gap; s.leaveBrowsersToExtension = leaveBrowsers; s.testUser = testUser
         return s
     }
 
-    func save() { app.save(current) }
+    var shortcutText: String { app.settings.keys.symbols }
+
+    /// Saves; false when the chosen shortcut cannot be used (the old one is kept).
+    @discardableResult
+    func save() -> Bool {
+        var s = current
+        guard let keys = MacShortcut.from(hold: hold, key: key) else { shortcutNote = "Choose the keys to hold and a key."; return false }
+        if !app.changeShortcut(keys) {
+            shortcutNote = "\(keys.symbols) is taken by another program. Choose another one; \(app.settings.keys.symbols) still works."
+            app.save(s)
+            return false
+        }
+        shortcutNote = ""
+        s.shortcut = keys.text
+        app.save(s)
+        return true
+    }
+
+    func refreshPrograms() {
+        programs = app.settings.insertMethods.sorted { $0.key < $1.key }.map { ProgramWay(program: $0.key, method: $0.value) }
+    }
+
+    /// The usual way again for this program.
+    func forget(_ program: String) {
+        app.save(app.settings.with(InsertMethod.usual(for: program), for: program))
+        refreshPrograms()
+    }
 
     /// Saves, then asks VerbaFlow how it signs people in and who is signed in now.
     func check() async {
@@ -133,6 +166,7 @@ final class SettingsModel: ObservableObject {
         microphone = Microphone.permitted
         accessibility = FocusTarget.trusted
         startAtLogin = SMAppService.mainApp.status == .enabled
+        refreshPrograms()
     }
 
     func askMicrophone() async {
@@ -160,13 +194,20 @@ final class SettingsModel: ObservableObject {
     }
 }
 
+/// A program with its own way of getting the words.
+struct ProgramWay: Identifiable {
+    let program: String
+    let method: InsertMethod
+    var id: String { program }
+}
+
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Click where you want the words in any program (Mail, Outlook, Word, WhatsApp…), press ⌥⇧D (Option, Shift and D) and speak. Press ⌥⇧D again (or Stop) when you are done, check the words, then Accept.")
+                Text("Click where you want the words in any program (Mail, Outlook, Word, WhatsApp, Notes…), press \(model.shortcutText) and speak. Press \(model.shortcutText) again (or Stop) when you are done, check the words, then Accept.")
                     .foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
 
                 heading("1. VerbaFlow")
@@ -210,19 +251,44 @@ struct SettingsView: View {
                     Text("Never an empty line, just a new line").tag(ParagraphGap.newLineOnly)
                 }.labelsHidden().frame(width: 340)
 
-                heading("4. What macOS must allow")
+                heading("4. Keyboard shortcut")
+                Text("Hold these keys and press the letter. Pick another if a program you use already has this shortcut.")
+                    .foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Picker("", selection: $model.hold) { ForEach(MacShortcut.holds, id: \.self) { Text($0).tag($0) } }.labelsHidden().frame(width: 220)
+                    Text("+")
+                    Picker("", selection: $model.key) { ForEach(MacShortcut.keyChoices, id: \.self) { Text($0).tag($0) } }.labelsHidden().frame(width: 90)
+                }
+                if !model.shortcutNote.isEmpty { Text(model.shortcutNote).foregroundColor(.red).fixedSize(horizontal: false, vertical: true) }
+
+                heading("5. Programs with their own way")
+                Text("The words are usually pasted. Where they do not appear, choose another way in the Widget's window (the line under the words) and it is remembered for that program here. Remote desktops and virtual machines have the letters typed.")
+                    .foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                if model.programs.isEmpty {
+                    Text("None: every program gets the usual way.").foregroundColor(.secondary)
+                } else {
+                    ForEach(model.programs) { p in
+                        HStack {
+                            Text("\(p.program): \(p.method.describe)")
+                            Spacer()
+                            Button("Back to the usual way") { model.forget(p.program) }
+                        }.frame(width: 470)
+                    }
+                }
+
+                heading("6. What macOS must allow")
                 permission("Microphone", ok: model.microphone, button: "Allow the microphone") { Task { await model.askMicrophone() } }
                 permission("Accessibility (to type the words into other programs)", ok: model.accessibility, button: "Open Accessibility settings") { model.askAccessibility() }
                 Text("In Accessibility, switch on VerbaFlow Widget. After an update of the Widget, macOS may ask again.")
                     .foregroundColor(.secondary).font(.caption).fixedSize(horizontal: false, vertical: true)
 
-                heading("5. Other")
-                Toggle("In Chrome and Edge, leave ⌥⇧D to the browser Widget", isOn: $model.leaveBrowsers)
+                heading("7. Other")
+                Toggle("In Chrome and Edge, leave dictation to the browser Widget (its shortcut is ⌥⇧D)", isOn: $model.leaveBrowsers)
                 Toggle("Start the Widget when I log in to this Mac", isOn: Binding(get: { model.startAtLogin }, set: { model.setStartAtLogin($0) }))
                 if !model.loginNote.isEmpty { Text(model.loginNote).foregroundColor(.red).fixedSize(horizontal: false, vertical: true) }
 
                 HStack {
-                    Button("Save") { model.save(); NSApp.keyWindow?.close() }.keyboardShortcut(.defaultAction)
+                    Button("Save") { if model.save() { NSApp.keyWindow?.close() } }.keyboardShortcut(.defaultAction)
                     Button("Close") { NSApp.keyWindow?.close() }
                 }.padding(.top, 12)
             }

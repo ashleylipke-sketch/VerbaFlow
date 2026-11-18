@@ -16,9 +16,16 @@ internal sealed class DictationPanel : Form
     private readonly TextBox _edit = new() { Dock = DockStyle.Fill, Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Segoe UI", 11f), Visible = false };
     private readonly Label _message = new() { Dock = DockStyle.Bottom, AutoSize = false, Height = 0, Font = new Font("Segoe UI", 9f), Padding = new Padding(10, 2, 10, 2) };
     private readonly FlowLayoutPanel _buttons = new() { Dock = DockStyle.Bottom, Height = 44, Padding = new Padding(8, 6, 8, 6), WrapContents = false };
+    private readonly LinkLabel _method = new() { Dock = DockStyle.Bottom, AutoSize = false, Height = 0, Font = new Font("Segoe UI", 9f), Padding = new Padding(10, 2, 10, 2), Visible = false };
+    private readonly ContextMenuStrip _methods = new();
     private bool _activate;
 
     public event Action? StopClicked, CancelClicked, AcceptClicked, SpeakMoreClicked, FixClicked, UndoFixClicked, SettingsClicked;
+    public event Action<InsertMethod>? MethodChosen;
+
+    /// <summary>The shortcut, as shown while listening.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string ShortcutText { get; set; } = Shortcut.Default.ToString();
 
     public DictationPanel()
     {
@@ -40,6 +47,14 @@ internal sealed class DictationPanel : Form
         _strip.Controls.Add(_note);
         Controls.Add(middle);
         Controls.Add(_message);
+        Controls.Add(_method);
+        foreach (var m in Enum.GetValues<InsertMethod>())
+        {
+            var item = new ToolStripMenuItem(Insertion.Describe(m)) { Tag = m };
+            item.Click += (_, _) => MethodChosen?.Invoke(m);
+            _methods.Items.Add(item);
+        }
+        _method.LinkClicked += (_, _) => _methods.Show(_method, new Point(10, _method.Height));
         Controls.Add(_buttons);
         Controls.Add(_strip);
         _edit.TextChanged += (_, _) => EditChanged?.Invoke();
@@ -103,6 +118,7 @@ internal sealed class DictationPanel : Form
     public void ShowStarting()
     {
         _edit.Visible = false; _live.Visible = true;
+        HideMethod();
         Strip(Red, "Starting…", "");
         Live("", "", 0);
         Message("");
@@ -115,9 +131,10 @@ internal sealed class DictationPanel : Form
         if (_edit.Visible || _state.Text != "Listening")
         {
             _edit.Visible = false; _live.Visible = true;
+            HideMethod();
             Buttons(("Stop", () => StopClicked?.Invoke(), false, true), ("Cancel", () => CancelClicked?.Invoke(), false, true));
         }
-        Strip(Red, "Listening", lost ? "Connection lost: still recording" : "Alt+Shift+D to stop");
+        Strip(Red, "Listening", lost ? "Connection lost: still recording" : ShortcutText + " to stop");
         Live(before, heard, pending);
     }
 
@@ -150,6 +167,34 @@ internal sealed class DictationPanel : Form
         Buttons([.. list]);
     }
 
+    /// <summary>
+    /// The line under the text saying how the words go into this program, with a link to choose another way; or why
+    /// they will be copied instead.
+    /// </summary>
+    public void ShowMethod(string program, InsertMethod method, string? copyReason)
+    {
+        _method.Links.Clear();
+        if (copyReason is not null)
+        {
+            _method.Text = copyReason;
+            _method.LinkArea = new LinkArea(0, 0);
+            _method.ForeColor = Amber;
+        }
+        else
+        {
+            var start = $"Into {program}: ";
+            var how = Insertion.Describe(method) + " ▾";
+            _method.Text = start + how + "   (change it if the words do not appear)";
+            _method.LinkArea = new LinkArea(start.Length, how.Length);
+            _method.ForeColor = Color.FromArgb(60, 60, 60);
+            foreach (ToolStripMenuItem i in _methods.Items) i.Checked = (InsertMethod)i.Tag! == method;
+        }
+        _method.Visible = true;
+        _method.Height = TextRenderer.MeasureText(_method.Text, _method.Font, new Size(ClientSize.Width - 20, 0), TextFormatFlags.WordBreak).Height + 6;
+    }
+
+    private void HideMethod() { _method.Visible = false; _method.Height = 0; }
+
     public void Busy(string message)
     {
         foreach (Control c in _buttons.Controls) c.Enabled = false;
@@ -158,6 +203,7 @@ internal sealed class DictationPanel : Form
 
     public void ShowAdded()
     {
+        HideMethod();
         Strip(Green, "Added", "");
         Buttons();
     }

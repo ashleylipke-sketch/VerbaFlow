@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace VerbaFlow.Widget;
 
 /// <summary>
-/// The Widget for Windows: an icon near the clock and the Alt+Shift+D shortcut. It runs until Quit is chosen from the
+/// The Widget for Windows: an icon near the clock and a keyboard shortcut (Alt+Shift+D unless changed). It runs until Quit is chosen from the
 /// icon's menu, and can start with Windows (in the settings).
 /// </summary>
 internal sealed class TrayApp : ApplicationContext
@@ -33,20 +33,20 @@ internal sealed class TrayApp : ApplicationContext
         _signIn = new WindowsSignIn(() => _settings);
         (_http, _client) = NewClient();
         _signIn.Use(() => _client);
-        _controller = new WidgetController(() => _client, () => _settings, Notify, OpenSettings);
+        _controller = new WidgetController(() => _client, () => _settings, Saved, Notify, OpenSettings);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Settings and sign-in…", null, (_, _) => OpenSettings());
         menu.Items.Add("Open VerbaFlow", null, (_, _) => Open(_settings.Server));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Quit the Widget", null, (_, _) => ExitThread());
-        _tray = new NotifyIcon { Icon = AppIcon, Text = "VerbaFlow Widget (Alt+Shift+D)", ContextMenuStrip = menu, Visible = true };
+        _tray = new NotifyIcon { Icon = AppIcon, Text = $"VerbaFlow Widget ({_settings.Keys})", ContextMenuStrip = menu, Visible = true };
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) OpenSettings(); };
 
         _hotkeys = new HotkeyWindow(OnHotkey);
         Register();
         if (firstRun) OpenSettings();
-        else if (_registered) Notify("VerbaFlow Widget is running. Click where you want the words, then press Alt+Shift+D.");
+        else if (_registered) Notify($"VerbaFlow Widget is running. Click where you want the words, then press {_settings.Keys}.");
     }
 
     private (HttpClient, VerbaFlowClient) NewClient()
@@ -55,10 +55,27 @@ internal sealed class TrayApp : ApplicationContext
         return (http, new VerbaFlowClient(http, _signIn));
     }
 
-    private void Register()
+    private void Register(bool quiet = false) => _registered = TryRegister(_settings.Keys, quiet);
+
+    private bool TryRegister(Shortcut keys, bool quiet)
     {
-        _registered = Native.RegisterHotKey(_hotkeys.Handle, HotkeyId, Native.MOD_ALT | Native.MOD_SHIFT | Native.MOD_NOREPEAT, Native.VK_D);
-        if (!_registered) Notify("Alt+Shift+D is taken by another program, so the Widget cannot use it. Close that program, then quit and start the Widget again.");
+        var mods = Native.MOD_NOREPEAT | (keys.Ctrl ? Native.MOD_CONTROL : 0) | (keys.Alt ? Native.MOD_ALT : 0)
+            | (keys.Shift ? Native.MOD_SHIFT : 0) | (keys.Win ? Native.MOD_WIN : 0);
+        var ok = Native.RegisterHotKey(_hotkeys.Handle, HotkeyId, mods, keys.VirtualKey);
+        if (!ok && !quiet) Notify($"{keys} is taken by another program, so the Widget cannot use it. Choose another shortcut in the Widget's settings.");
+        return ok;
+    }
+
+    /// <summary>
+    /// Changes the shortcut. False (and the old one kept) when another program has the new one.
+    /// </summary>
+    public bool ChangeShortcut(Shortcut keys)
+    {
+        if (keys == _settings.Keys && _registered) return true;
+        Native.UnregisterHotKey(_hotkeys.Handle, HotkeyId);
+        if (TryRegister(keys, true)) { _registered = true; _tray.Text = $"VerbaFlow Widget ({keys})"; return true; }
+        Register(true);
+        return false;
     }
 
     private async void OnHotkey()
@@ -74,10 +91,13 @@ internal sealed class TrayApp : ApplicationContext
         if (_settings.LeaveBrowsersToExtension && target.Program is "chrome.exe" or "msedge.exe")
         {
             // Websites are the browser Widget's: it knows the website, and an administrator's blocks apply to websites.
-            Native.UnregisterHotKey(_hotkeys.Handle, HotkeyId);
+            // The browser Widget's own shortcut is Alt+Shift+D, whichever one this Widget uses.
+            var same = _settings.Keys == Shortcut.Default;
+            if (same) Native.UnregisterHotKey(_hotkeys.Handle, HotkeyId);
+            Native.ReleaseModifiers();
             Native.Press(Native.VK_MENU, Native.VK_SHIFT, Native.VK_D);
             await Task.Delay(200);
-            Register();
+            if (same) Register();
             return;
         }
         await _controller.ShortcutAsync(target);
@@ -88,7 +108,7 @@ internal sealed class TrayApp : ApplicationContext
     private void OpenSettings()
     {
         if (_settingsForm is { IsDisposed: false }) { _settingsForm.Activate(); return; }
-        _settingsForm = new SettingsForm(_settings, () => _client, _signIn, Saved);
+        _settingsForm = new SettingsForm(() => _settings, () => _client, _signIn, Saved, ChangeShortcut);
         _settingsForm.Show();
         _settingsForm.Activate();
     }

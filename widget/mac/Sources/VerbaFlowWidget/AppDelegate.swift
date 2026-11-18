@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import WidgetMacCore
 
-/// The VerbaFlow Widget for Mac: an icon in the menu bar and the Option+Shift+D shortcut. It runs until Quit is chosen
+/// The VerbaFlow Widget for Mac: an icon in the menu bar and a keyboard shortcut (Option+Shift+D unless changed). It runs until Quit is chosen
 /// from the icon's menu, and can start when the person logs in (in the settings).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -14,20 +14,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var settingsModel: SettingsModel?
     private var apiCache: Api?
+    private var speakItem: NSMenuItem?
+
+    /// The shortcut in use, in the menu bar icon's tip and menu.
+    private func showShortcut() {
+        let k = hotkey?.keys.symbols ?? settings.keys.symbols
+        item?.button?.toolTip = "VerbaFlow Widget (\(k))"
+        speakItem?.title = "Speak here (\(k))"
+    }
+
+    /// Changes the shortcut. False (the old one kept) when another program has the new one.
+    func changeShortcut(_ keys: MacShortcut) -> Bool {
+        guard let hotkey else { return false }
+        let ok = hotkey.change(to: keys)
+        showShortcut()
+        return ok
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let firstRun = !WidgetSettings.exists()
         signIn.testUser = { [weak self] in self?.settings.testUser ?? "alice" }
         controller = Controller(api: { [unowned self] in try self.api() }, settings: { [unowned self] in self.settings },
-                                openSettings: { [weak self] in self?.openSettings() })
+                                save: { [weak self] s in self?.save(s) }, openSettings: { [weak self] in self?.openSettings() })
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "VerbaFlow Widget")
         image?.isTemplate = true
         item.button?.image = image
-        item.button?.toolTip = "VerbaFlow Widget (⌥⇧D)"
         let menu = NSMenu()
-        menu.addItem(withTitle: "Speak here (⌥⇧D)", action: #selector(speakFromMenu), keyEquivalent: "").target = self
+        speakItem = menu.addItem(withTitle: "Speak here", action: #selector(speakFromMenu), keyEquivalent: "")
+        speakItem?.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings and sign-in…", action: #selector(openSettingsFromMenu), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "Open VerbaFlow", action: #selector(openVerbaFlow), keyEquivalent: "").target = self
@@ -38,10 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let h = Hotkey { [weak self] in self?.shortcut() }
         hotkey = h
-        let registered = h.register()
+        let registered = h.change(to: settings.keys) || h.register()
+        showShortcut()
         if firstRun || !FocusTarget.trusted { openSettings() }
         if !registered {
-            controller?.notice("Option+Shift+D is taken by another program, so the Widget cannot use it. Quit that program, then quit and start the Widget again.")
+            controller?.notice("\(settings.keys.symbols) is taken by another program, so the Widget cannot use it. Choose another shortcut in the Widget's settings.")
         }
     }
 

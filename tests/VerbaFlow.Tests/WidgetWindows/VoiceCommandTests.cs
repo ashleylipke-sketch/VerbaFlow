@@ -29,6 +29,9 @@ public class VoiceCommandTests
         Assert.Equal(new VoiceCommand(VoiceAction.GoToCell, Cell: "AA12"), VoiceCommands.Parse("verba flow go to a a twelve", false));
         Assert.Equal(new VoiceCommand(VoiceAction.GoToCell, Cell: "C105"), VoiceCommands.Parse("verba flow go to cell see one hundred and five", false));
         Assert.Equal(new VoiceCommand(VoiceAction.SwitchTo, "word"), VoiceCommands.Parse("verba flow go to word", false)); // not a cell
+        Assert.Equal(new VoiceCommand(VoiceAction.Key, Key: VoiceKey.NewDocument), VoiceCommands.Parse("VerbaFlow, open a blank document.", false));
+        Assert.Equal(new VoiceCommand(VoiceAction.Key, Key: VoiceKey.NewDocument), VoiceCommands.Parse("verba flow new document", false));
+        Assert.Equal(new VoiceCommand(VoiceAction.Open, "word"), VoiceCommands.Parse("verba flow open word", false));
     }
 
     [Fact]

@@ -24,7 +24,7 @@ public enum VoiceAction
 }
 
 /// <summary>A key the person can press by voice.</summary>
-public enum VoiceKey { NextCell, PreviousCell, Down, Up, Right, Left, Enter, Tab, Escape, Backspace, Delete }
+public enum VoiceKey { NextCell, PreviousCell, Down, Up, Right, Left, Enter, Tab, Escape, Backspace, Delete, NewDocument }
 
 /// <summary>One spoken command: what to do, and the program, key or cell it names.</summary>
 public sealed record VoiceCommand(VoiceAction Action, string? Name = null, VoiceKey? Key = null, string? Cell = null);
@@ -56,6 +56,11 @@ public static class VoiceCommands
         ["cell to the left"] = VoiceKey.Left, ["cell left"] = VoiceKey.Left, ["left"] = VoiceKey.Left, ["move left"] = VoiceKey.Left,
         ["press enter"] = VoiceKey.Enter, ["press return"] = VoiceKey.Enter, ["press tab"] = VoiceKey.Tab,
         ["press escape"] = VoiceKey.Escape, ["press backspace"] = VoiceKey.Backspace, ["press delete"] = VoiceKey.Delete,
+        // A new blank document (Ctrl+N), e.g. from Word's start screen. Before "open X", so it is not taken as a program.
+        ["new document"] = VoiceKey.NewDocument, ["new blank document"] = VoiceKey.NewDocument, ["blank document"] = VoiceKey.NewDocument,
+        ["open a new document"] = VoiceKey.NewDocument, ["open new document"] = VoiceKey.NewDocument,
+        ["open a blank document"] = VoiceKey.NewDocument, ["open blank document"] = VoiceKey.NewDocument,
+        ["new file"] = VoiceKey.NewDocument, ["new email"] = VoiceKey.NewDocument, ["new spreadsheet"] = VoiceKey.NewDocument,
     };
 
     public static readonly IReadOnlyDictionary<string, VoiceAction> CheckPhrases = new Dictionary<string, VoiceAction>

@@ -125,6 +125,7 @@ internal static class Programs
             case VoiceKey.Escape: Native.Press(Native.VK_ESCAPE); break;
             case VoiceKey.Backspace: Native.Press(Native.VK_BACK); break;
             case VoiceKey.Delete: Native.Press(Native.VK_DELETE); break;
+            case VoiceKey.NewDocument: Native.Press(Native.VK_CONTROL, Native.VK_N); break;
         }
     }
 

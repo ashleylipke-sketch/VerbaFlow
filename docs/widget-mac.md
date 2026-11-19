@@ -75,6 +75,7 @@ For people who cannot use their hands, or not easily. Tick **Hands-free** in the
 | VerbaFlow, next cell / previous cell / down / up / left / right | Moves between cells (Tab, Shift+Tab, arrows) |
 | VerbaFlow, go to cell B5 | Excel's Go To (Control+G), the address, Enter |
 | VerbaFlow, press enter / tab / escape / backspace / delete | Presses that key |
+| VerbaFlow, new document (or open a blank document) | Starts a new blank document, email or spreadsheet in the app in front (⌘N) |
 
 In Excel, each line of the words goes into the cell below, so no empty line is left between paragraphs. Program names come from the running programs and the Applications folders. **Not yet tried on a real computer.**
 

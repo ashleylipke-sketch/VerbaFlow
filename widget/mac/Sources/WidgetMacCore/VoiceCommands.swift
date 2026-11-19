@@ -8,7 +8,7 @@ public enum VoiceAction: Equatable, Sendable {
 
 /// A key the person can press by voice.
 public enum VoiceKey: Equatable, Sendable {
-    case nextCell, previousCell, down, up, right, left, enter, tab, escape, backspace, delete
+    case nextCell, previousCell, down, up, right, left, enter, tab, escape, backspace, delete, newDocument
 }
 
 /// Hands-free use: the commands said to the Widget. Commands start with the wake word "VerbaFlow" ("VerbaFlow, switch
@@ -28,6 +28,10 @@ public enum VoiceCommands {
         "cell to the left": .left, "cell left": .left, "left": .left, "move left": .left,
         "press enter": .enter, "press return": .enter, "press tab": .tab,
         "press escape": .escape, "press backspace": .backspace, "press delete": .delete,
+        "new document": .newDocument, "new blank document": .newDocument, "blank document": .newDocument,
+        "open a new document": .newDocument, "open new document": .newDocument,
+        "open a blank document": .newDocument, "open blank document": .newDocument,
+        "new file": .newDocument, "new email": .newDocument, "new spreadsheet": .newDocument,
     ]
     public static let checkPhrases: [String: VoiceAction] = [
         "accept": .accept, "accept it": .accept, "insert it": .accept, "put it in": .accept,

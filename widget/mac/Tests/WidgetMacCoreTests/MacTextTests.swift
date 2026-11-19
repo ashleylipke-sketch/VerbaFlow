@@ -92,6 +92,7 @@ final class VoiceCommandTests: XCTestCase {
     func testCommandsNeedTheWakeWordExceptWhileChecking() {
         XCTAssertEqual(VoiceCommands.parse("VerbaFlow, dictate.", checking: false), .dictate)
         XCTAssertEqual(VoiceCommands.parse("Verba flow start dictating", checking: false), .dictate)
+        XCTAssertEqual(VoiceCommands.parse("VerbaFlow, open a blank document.", checking: false), .key(.newDocument))
         XCTAssertNil(VoiceCommands.parse("dictate", checking: false))
         XCTAssertEqual(VoiceCommands.parse("Accept.", checking: true), .accept)
         XCTAssertNil(VoiceCommands.parse("VerbaFlow open Word", checking: true))

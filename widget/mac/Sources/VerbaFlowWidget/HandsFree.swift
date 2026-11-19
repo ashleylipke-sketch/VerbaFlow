@@ -222,6 +222,7 @@ enum Programs {
         case .escape: Keys.press(CGKeyCode(kVK_Escape))
         case .backspace: Keys.press(CGKeyCode(kVK_Delete))
         case .delete: Keys.press(CGKeyCode(kVK_ForwardDelete))
+        case .newDocument: Keys.press(CGKeyCode(kVK_ANSI_N), flags: .maskCommand)
         }
     }
 

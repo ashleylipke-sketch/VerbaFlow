@@ -157,7 +157,7 @@ internal static partial class Native
     };
 
     private const uint KEYEVENTF_EXTENDEDKEY = 0x1;
-    public const ushort VK_TAB = 0x09, VK_BACK = 0x08, VK_ESCAPE = 0x1B, VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28, VK_G = 0x47;
+    public const ushort VK_TAB = 0x09, VK_BACK = 0x08, VK_ESCAPE = 0x1B, VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28, VK_G = 0x47, VK_N = 0x4E;
 
     // Windows on the screen, for "switch to …".
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);

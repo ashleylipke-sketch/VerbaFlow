@@ -234,6 +234,14 @@ internal sealed class SettingsForm : Form
         {
             var info = await _client().SignInInfoAsync();
             await _signIn.SignInAsync(info, Handle, CancellationToken.None);
+            try { await _client().MeAsync(); }
+            catch (DirectorySwitchException)
+            {
+                // This address is the organisation's work account: sign in once more, through its directory.
+                Status("Your email address belongs to your organisation's Microsoft account. Microsoft's sign-in opens once more; sign in there.", false);
+                await _signIn.SignInAsync(info, Handle, CancellationToken.None);
+            }
+            catch (WidgetException) { /* shown by the check below */ }
             Activate();
             await CheckAsync();
         }

@@ -7,7 +7,7 @@ namespace VerbaFlow.Widget;
 /// <summary>A plain sentence for the person, written by VerbaFlow or by the Widget. Never technical detail.</summary>
 public class WidgetException(string message) : Exception(message);
 /// <summary>The person needs to sign in (again) before VerbaFlow can be used.</summary>
-public sealed class SignInNeededException(string message) : WidgetException(message);
+public class SignInNeededException(string message) : WidgetException(message);
 
 public sealed record MicrosoftSignIn(string TenantId, string ClientId, string Scope, string Authority);
 public sealed record GoogleSignInInfo(string ClientId);
@@ -32,7 +32,17 @@ public interface ISignIn
     Task<KeyValuePair<string, string>> HeaderAsync(SignInInfo info, CancellationToken ct);
     /// <summary>VerbaFlow refused the sign-in: forget it, so the next call asks again.</summary>
     Task ForgetAsync();
+
+    /// <summary>
+    /// VerbaFlow refused the sign-in with 403. signInAt is the Tenant ID of the organisation whose Microsoft account owns
+    /// this email address, when VerbaFlow says so. True means the sign-in changed and the call should be tried once more;
+    /// a SignInNeededException means the person must sign in again.
+    /// </summary>
+    Task<bool> RefusedAsync(string? signInAt) => Task.FromResult(false);
 }
+
+/// <summary>The email address is the organisation's work account: sign in again with Microsoft, through its directory.</summary>
+public sealed class DirectorySwitchException(string message) : SignInNeededException(message);
 
 /// <summary>The calls the Widget makes to VerbaFlow: the same as the browser Widget's.</summary>
 public sealed class VerbaFlowClient(HttpClient http, ISignIn signIn)
@@ -149,7 +159,7 @@ public sealed class VerbaFlowClient(HttpClient http, ISignIn signIn)
         return b.Uri;
     }
 
-    private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
+    private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct, bool retried = false)
     {
         var info = await SignInInfoAsync(ct);
         var header = await signIn.HeaderAsync(info, ct);
@@ -167,11 +177,24 @@ public sealed class VerbaFlowClient(HttpClient http, ISignIn signIn)
                 await signIn.ForgetAsync();
                 throw new SignInNeededException("Your sign-in has run out. Sign in again from the Widget's settings.");
             }
+            if (res.StatusCode == HttpStatusCode.Forbidden && !retried && await signIn.RefusedAsync(SignInAtOf(text)))
+                return await SendAsync<T>(method, path, body, ct, retried: true);
             if (!res.IsSuccessStatusCode) throw new WidgetException(ErrorOf(text) ?? "Something went wrong in VerbaFlow.");
             if (text.Length == 0) return default!;
             try { return JsonSerializer.Deserialize<T>(text, Json)!; }
             catch (JsonException) { throw new WidgetException("Something went wrong in VerbaFlow."); }
         }
+    }
+
+    /// <summary>The Tenant ID VerbaFlow names when this address must sign in with the organisation's Microsoft account.</summary>
+    private static string? SignInAtOf(string text)
+    {
+        try
+        {
+            using var d = JsonDocument.Parse(text);
+            return d.RootElement.ValueKind == JsonValueKind.Object && d.RootElement.TryGetProperty("signInAt", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     /// <summary>The plain sentence VerbaFlow wrote for people, if there is one.</summary>

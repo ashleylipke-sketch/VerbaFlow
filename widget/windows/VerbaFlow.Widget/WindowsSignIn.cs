@@ -28,7 +28,7 @@ internal sealed class WindowsSignIn(Func<WidgetSettings> settings) : ISignIn
         var app = PublicClientApplicationBuilder.Create(ms.ClientId).WithAuthority(ms.Authority).WithRedirectUri(RedirectUri).Build();
         try
         {
-            Directory.CreateDirectory(CacheFolder);
+            System.IO.Directory.CreateDirectory(CacheFolder);
             var helper = await MsalCacheHelper.CreateAsync(new StorageCreationPropertiesBuilder("signin.cache", CacheFolder).Build());
             helper.RegisterCache(app.UserTokenCache);
         }
@@ -37,10 +37,39 @@ internal sealed class WindowsSignIn(Func<WidgetSettings> settings) : ISignIn
         return app;
     }
 
+    // ---------- The organisation's own directory ----------
+    // An address that is both a personal Microsoft account and the organisation's work account: VerbaFlow answers 403
+    // with the organisation's Tenant ID, and from then on the Widget signs in through that directory only.
+    private sealed record Directory(string Server, string Authority, string? Hint);
+    private static readonly string DirectoryFile = Path.Combine(CacheFolder, "directory.json");
+
+    private static Directory? ReadDirectory()
+    {
+        try { return File.Exists(DirectoryFile) ? JsonSerializer.Deserialize<Directory>(File.ReadAllText(DirectoryFile)) : null; }
+        catch (Exception) { return null; }
+    }
+
+    private static void WriteDirectory(Directory? d)
+    {
+        try
+        {
+            if (d is null) { if (File.Exists(DirectoryFile)) File.Delete(DirectoryFile); return; }
+            System.IO.Directory.CreateDirectory(CacheFolder);
+            File.WriteAllText(DirectoryFile, JsonSerializer.Serialize(d));
+        }
+        catch (Exception) { /* then it lasts only until the Widget closes */ }
+    }
+
+    private Directory? _directory = ReadDirectory();
+
+    /// <summary>Microsoft's details, through the organisation's directory once VerbaFlow has asked for that.</summary>
+    private MicrosoftSignIn? MicrosoftFor(SignInInfo info) =>
+        info.Microsoft is { } ms && _directory is { } d && SameServer(d.Server) ? ms with { Authority = d.Authority } : info.Microsoft;
+
     /// <summary>The Microsoft account signed in now, if any.</summary>
     public async Task<string?> AccountAsync(SignInInfo info)
     {
-        if (info.Microsoft is not { } ms) return null;
+        if (MicrosoftFor(info) is not { } ms) return null;
         return (await (await AppAsync(ms)).GetAccountsAsync()).FirstOrDefault()?.Username;
     }
 
@@ -65,7 +94,7 @@ internal sealed class WindowsSignIn(Func<WidgetSettings> settings) : ISignIn
         try
         {
             if (l is null) { if (File.Exists(LinkedFile)) File.Delete(LinkedFile); return; }
-            Directory.CreateDirectory(CacheFolder);
+            System.IO.Directory.CreateDirectory(CacheFolder);
             File.WriteAllBytes(LinkedFile, ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(l), Entropy, DataProtectionScope.CurrentUser));
         }
         catch (Exception) { /* then it lasts only until the Widget closes */ }
@@ -114,10 +143,13 @@ internal sealed class WindowsSignIn(Func<WidgetSettings> settings) : ISignIn
                 _linked = l = l with { Token = fresh, Renewed = DateTimeOffset.UtcNow };
                 WriteLinked(l);
             }
+            _usedLink = true;
             return new("Authorization", "Bearer " + l.Token);
         }
-        if (info.Microsoft is { } ms)
+        _usedLink = false;
+        if (MicrosoftFor(info) is { } ms)
         {
+            _lastMicrosoft = ms;
             var app = await AppAsync(ms);
             var account = (await app.GetAccountsAsync()).FirstOrDefault();
             if (account is not null)
@@ -138,15 +170,42 @@ internal sealed class WindowsSignIn(Func<WidgetSettings> settings) : ISignIn
         throw new SignInNeededException("Sign-in is not set up on this VerbaFlow yet.");
     }
 
+    private bool _usedLink;
+    private MicrosoftSignIn? _lastMicrosoft;
+
+    public async Task<bool> RefusedAsync(string? signInAt)
+    {
+        if (_usedLink && _linked is not null)
+        {
+            // The website link belongs to an account VerbaFlow no longer accepts (for example one email address with
+            // two sign-ins): forget it and try the next way to sign in once.
+            _linked = null; WriteLinked(null);
+            return true;
+        }
+        if (signInAt is null || _lastMicrosoft is not { } ms) return false;
+        var authority = "https://login.microsoftonline.com/" + signInAt;
+        if (string.Equals(ms.Authority.TrimEnd('/'), authority, StringComparison.OrdinalIgnoreCase)) return false;
+        var app = await AppAsync(ms);
+        string? hint = null;
+        foreach (var a in await app.GetAccountsAsync()) { hint ??= a.Username; await app.RemoveAsync(a); }
+        _directory = new Directory(settings().Server, authority, hint);
+        WriteDirectory(_directory);
+        throw new DirectorySwitchException("This email address signs in with your organisation's Microsoft account. Open the Widget's settings and click Sign in with Microsoft again.");
+    }
+
     /// <summary>Opens Microsoft's sign-in page in the browser. Returns the account name.</summary>
     public async Task<string> SignInAsync(SignInInfo info, IntPtr window, CancellationToken ct)
     {
-        if (info.Microsoft is not { } ms) throw new WidgetException("Microsoft sign-in is not set up on this VerbaFlow.");
+        if (MicrosoftFor(info) is not { } ms) throw new WidgetException("Microsoft sign-in is not set up on this VerbaFlow.");
         var app = await AppAsync(ms);
         try
         {
-            var r = await app.AcquireTokenInteractive([ms.Scope]).WithPrompt(Prompt.SelectAccount).WithUseEmbeddedWebView(false)
-                .WithParentActivityOrWindow(window).ExecuteAsync(ct);
+            var hint = _directory is { } d && SameServer(d.Server) ? d.Hint : null;
+            var ask = app.AcquireTokenInteractive([ms.Scope]).WithUseEmbeddedWebView(false).WithParentActivityOrWindow(window);
+            ask = hint is null ? ask.WithPrompt(Prompt.SelectAccount) : ask.WithLoginHint(hint);
+            var r = await ask.ExecuteAsync(ct);
+            // Signing in with Microsoft by hand replaces any earlier link through the website (it would be used first).
+            _linked = null; WriteLinked(null);
             return r.Account.Username;
         }
         catch (MsalException) { throw new WidgetException("The Microsoft sign-in did not finish. Try again."); }
@@ -155,7 +214,9 @@ internal sealed class WindowsSignIn(Func<WidgetSettings> settings) : ISignIn
     public async Task SignOutAsync(SignInInfo info)
     {
         _linked = null; WriteLinked(null);
-        if (info.Microsoft is not { } ms) return;
+        var ms = MicrosoftFor(info);
+        _directory = null; WriteDirectory(null);
+        if (ms is null) return;
         var app = await AppAsync(ms);
         foreach (var a in await app.GetAccountsAsync()) await app.RemoveAsync(a);
     }

@@ -164,8 +164,20 @@ internal sealed class TrayApp : ApplicationContext
                 if (!Programs.SwitchTo(c.Name!)) Notify($"No open window was found for \"{c.Name}\". Say \"VerbaFlow, open {c.Name}\" to start it.");
                 break;
             case VoiceAction.Open:
-                if (!Programs.Open(c.Name!)) Notify($"No program called \"{c.Name}\" was found in the Start menu.");
+                // A program of that name first, else a saved document.
+                if (!Programs.Open(c.Name!) && !Documents.Open(c.Name!))
+                    Notify($"No program or document called \"{c.Name}\" was found.");
                 break;
+            case VoiceAction.OpenFile:
+                if (!Documents.Open(c.Name!)) Notify($"No document called \"{c.Name}\" was found in your recent files, Documents, Desktop, Downloads or OneDrive.");
+                break;
+            case VoiceAction.AttachFiles:
+            {
+                var (attached, missing) = await Documents.AttachAsync(c.Name!);
+                if (attached.Count == 0) Notify($"No document called \"{c.Name}\" was found to attach.");
+                else if (missing.Count > 0) Notify($"Attached {string.Join(", ", attached.Select(d => Path.GetFileName(d.Path)))}. Not found: {string.Join(", ", missing)}.");
+                break;
+            }
             case VoiceAction.Key:
                 Programs.Press(c.Key!.Value);
                 break;

@@ -45,6 +45,28 @@ internal static class Inserter
         return true;
     }
 
+    /// <summary>
+    /// Pastes files into the program in front (Ctrl+V), as copying them in File Explorer and pasting would: an email being
+    /// written attaches them, a chat offers to send them. Must be called on the window (STA) thread.
+    /// </summary>
+    public static async Task<bool> PasteFilesAsync(System.Collections.Specialized.StringCollection files)
+    {
+        var saved = Save();
+        var data = new DataObject();
+        data.SetFileDropList(files);
+        data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(1))); // copy, never move
+        data.SetData("CanIncludeInClipboardHistory", new MemoryStream(new byte[4]));
+        data.SetData("CanUploadToCloudClipboard", new MemoryStream(new byte[4]));
+        try { Clipboard.SetDataObject(data, false, 10, 50); }
+        catch (System.Runtime.InteropServices.ExternalException) { return false; }
+        Native.ReleaseModifiers();
+        Native.Press(Native.VK_CONTROL, Native.VK_V);
+        // Attaching reads the files, which can take a moment for large ones or ones kept online.
+        await Task.Delay(2000);
+        Restore(saved);
+        return true;
+    }
+
     /// <summary>The clipboard's text, pictures and files, to put back after the paste.</summary>
     private static DataObject? Save()
     {

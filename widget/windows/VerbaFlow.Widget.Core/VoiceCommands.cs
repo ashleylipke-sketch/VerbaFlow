@@ -10,8 +10,12 @@ public enum VoiceAction
     Dictate,
     /// <summary>Bring an open program to the front.</summary>
     SwitchTo,
-    /// <summary>Start a program.</summary>
+    /// <summary>Start a program, or, when no program has that name, open a saved document of that name.</summary>
     Open,
+    /// <summary>Open a saved document ("open the document budget").</summary>
+    OpenFile,
+    /// <summary>Paste one or more saved documents into the program in front, as attachments ("attach budget and invoice").</summary>
+    AttachFiles,
     /// <summary>Press a key (moving between cells, Enter, Tab, Escape...).</summary>
     Key,
     /// <summary>Go to a cell of a spreadsheet, such as B5.</summary>
@@ -46,6 +50,9 @@ public static class VoiceCommands
     public static readonly string[] DictatePhrases = ["dictate", "start dictating", "start dictation", "take dictation", "dictation"];
     public static readonly string[] SwitchWords = ["switch to", "go to", "show me", "show"];
     public static readonly string[] OpenWords = ["open", "start", "launch"];
+    /// <summary>Said between "open" and a name to mean a saved document, not a program.</summary>
+    public static readonly string[] FileWords = ["the document", "the file", "the spreadsheet", "the presentation", "document", "file", "spreadsheet", "presentation", "my"];
+    public static readonly string[] AttachWords = ["attach", "add attachment", "attach the file", "attach the document", "attach file", "attach document", "attach files", "attach documents"];
 
     public static readonly IReadOnlyDictionary<string, VoiceKey> KeyPhrases = new Dictionary<string, VoiceKey>
     {
@@ -97,8 +104,15 @@ public static class VoiceCommands
         if (cell.Success && CellOf(cell.Groups[1].Value) is { } address) return new VoiceCommand(VoiceAction.GoToCell, Cell: address);
         foreach (var s in SwitchWords.OrderByDescending(s => s.Length))
             if (t.StartsWith(s + " ") && t[(s.Length + 1)..].Trim() is { Length: > 0 } name) return new VoiceCommand(VoiceAction.SwitchTo, name);
+        foreach (var a in AttachWords.OrderByDescending(a => a.Length))
+            if (t.StartsWith(a + " ") && t[(a.Length + 1)..].Trim() is { Length: > 0 } files) return new VoiceCommand(VoiceAction.AttachFiles, files);
         foreach (var o in OpenWords)
-            if (t.StartsWith(o + " ") && t[(o.Length + 1)..].Trim() is { Length: > 0 } name) return new VoiceCommand(VoiceAction.Open, name);
+        {
+            if (!t.StartsWith(o + " ") || t[(o.Length + 1)..].Trim() is not { Length: > 0 } name) continue;
+            foreach (var f in FileWords.OrderByDescending(f => f.Length))
+                if (name.StartsWith(f + " ") && name[(f.Length + 1)..].Trim() is { Length: > 0 } file) return new VoiceCommand(VoiceAction.OpenFile, file);
+            return new VoiceCommand(VoiceAction.Open, name);
+        }
         return null;
     }
 
@@ -232,5 +246,81 @@ public static class ProgramNames
             ?? list.FirstOrDefault(c => c.Name.Replace(" ", "") == s.Replace(" ", "")).Item
             ?? list.FirstOrDefault(c => c.Name.StartsWith(s + " ")).Item
             ?? list.FirstOrDefault(c => words.All(w => c.Name.Split(' ').Contains(w))).Item;
+    }
+}
+
+/// <summary>
+/// The names saved documents are called by when opening or attaching them by voice: the file name without its type,
+/// as it would be said ("Budget_2025-final.xlsx" is "budget 2025 final").
+/// </summary>
+public static class DocumentNames
+{
+    /// <summary>The kinds of file the Widget offers by voice: documents, spreadsheets, presentations, PDFs, pictures.</summary>
+    public static readonly HashSet<string> Kinds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".doc", ".docx", ".docm", ".dotx", ".rtf", ".odt", ".txt", ".md", ".pdf",
+        ".xls", ".xlsx", ".xlsm", ".xlsb", ".ods", ".csv",
+        ".ppt", ".pptx", ".pptm", ".ppsx", ".odp",
+        ".pages", ".numbers", ".key",
+        ".jpg", ".jpeg", ".png", ".gif", ".heic", ".bmp", ".tif", ".tiff",
+        ".msg", ".eml", ".vsdx", ".pub", ".one", ".zip",
+    };
+
+    /// <summary>Words people add after a name that are not part of it ("the budget spreadsheet").</summary>
+    private static readonly string[] TypeWords = ["word document", "excel file", "excel spreadsheet", "powerpoint presentation", "powerpoint",
+        "document", "doc", "file", "spreadsheet", "workbook", "presentation", "slides", "slideshow", "pdf", "picture", "photo", "email"];
+
+    /// <summary>Whether a file is one the Widget offers (by its type; hidden Office lock files "~$…" left out).</summary>
+    public static bool Offered(string path)
+    {
+        var name = Path.GetFileName(path);
+        return name.Length > 0 && !name.StartsWith("~$") && !name.StartsWith('.') && Kinds.Contains(Path.GetExtension(name));
+    }
+
+    /// <summary>The spoken name of a file, or "" when it has none that could be said (only digits, or very long).</summary>
+    public static string Of(string path)
+    {
+        // Windows paths are read the same on any computer (the tests run on Linux too).
+        var stem = Path.GetFileNameWithoutExtension(path[(path.LastIndexOfAny(['\\', '/']) + 1)..]);
+        // "QuarterlyReport" is said "quarterly report".
+        stem = Regex.Replace(stem, @"(?<=[a-z])(?=[A-Z])", " ");
+        var n = ProgramNames.Clean(stem);
+        var words = n.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length is >= 1 and <= 8 && n.Any(char.IsLetter) && n.Length >= 2 ? n : "";
+    }
+
+    /// <summary>The ways a spoken name may be meant: as said, then without a kind word at the end ("budget spreadsheet" is "budget").</summary>
+    public static IEnumerable<string> Forms(string spoken)
+    {
+        var s = ProgramNames.Clean(spoken);
+        if (s.StartsWith("my ")) s = s[3..];
+        yield return s;
+        foreach (var t in TypeWords)
+            if (s.EndsWith(" " + t) && s[..^(t.Length + 1)].Trim() is { Length: > 0 } shorter) { yield return shorter; break; }
+    }
+
+    /// <summary>The document that fits what was said best (newest first wins a tie), or null.</summary>
+    public static T? Best<T>(string spoken, IReadOnlyList<(string Name, T Item)> documents) where T : class
+    {
+        foreach (var form in Forms(spoken))
+            if (ProgramNames.Best(form, documents) is { } found) return found;
+        return null;
+    }
+
+    /// <summary>
+    /// The documents named in "budget and invoice and the minutes": the whole as one name first (a file may be called
+    /// "terms and conditions"), else each part. Missing holds the parts no document fits.
+    /// </summary>
+    public static (List<T> Found, List<string> Missing) Pick<T>(string spoken, IReadOnlyList<(string Name, T Item)> documents) where T : class
+    {
+        if (Best(spoken, documents) is { } whole) return ([whole], []);
+        var found = new List<T>();
+        var missing = new List<string>();
+        foreach (var part in Regex.Split(VoiceCommands.Plain(spoken), @"\s+(?:and|plus|also)\s+").Where(p => p.Length > 0))
+        {
+            if (Best(part, documents) is { } d) { if (!found.Contains(d)) found.Add(d); }
+            else missing.Add(part);
+        }
+        return (found, missing);
     }
 }

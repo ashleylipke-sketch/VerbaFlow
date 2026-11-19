@@ -76,8 +76,10 @@ For people who cannot use their hands, or not easily. Tick **Hands-free** in the
 | VerbaFlow, go to cell B5 | Excel's Go To (Control+G), the address, Enter |
 | VerbaFlow, press enter / tab / escape / backspace / delete | Presses that key |
 | VerbaFlow, new document (or open a blank document) | Starts a new blank document, email or spreadsheet in the app in front (⌘N) |
+| VerbaFlow, open budget (or "open the document budget") | Opens a saved document in its own app (Word, Excel, Pages, Preview…). "open X" tries a program first, then a document |
+| VerbaFlow, attach budget (or "attach budget and invoice") | Pastes those documents into the app in front, as attachments: an email being written, a WhatsApp chat (then say "VerbaFlow, press enter" to send) |
 
-In Excel, each line of the words goes into the cell below, so no empty line is left between paragraphs. Program names come from the running programs and the Applications folders. **Not yet tried on a real computer.**
+Saved documents are found by file name (the type left off; saying the start of the name, or a few of its words, is enough; the newest one wins) in Documents, Desktop, Downloads and iCloud Drive, looked at again every two minutes; the first look may make macOS ask whether the Widget may see those folders (say OK). Attaching uses the clipboard (put back after 2 seconds), as copying files in Finder and pasting would. In Excel, each line of the words goes into the cell below, so no empty line is left between paragraphs. Program names come from the running programs and the Applications folders. **Not yet tried on a real computer.**
 
 ## What is kept
 Nothing the person said. VerbaFlow keeps the facts of each use, as for the other Widgets, with the program's bundle ID (for example `com.microsoft.outlook`, `com.apple.mail`, `com.microsoft.word`) as the site and "Mac program" as the device. An administrator can switch the Widget off in a program by adding its bundle ID to the list on the Widget page. On the Mac: the settings in the Widget's preferences (address, test user, language, choices; no keys) and the sign-in in the login keychain (items "VerbaFlow").

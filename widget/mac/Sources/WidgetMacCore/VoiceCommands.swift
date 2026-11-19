@@ -2,7 +2,9 @@ import Foundation
 
 /// What a spoken command asks the Widget to do (the same as the Widget for Windows' VoiceCommands.cs).
 public enum VoiceAction: Equatable, Sendable {
-    case dictate, switchTo(String), open(String), key(VoiceKey), goToCell(String)
+    /// `open` starts a program, or opens a saved document when no program has that name; `openFile` is always a
+    /// document; `attachFiles` pastes saved documents into the program in front ("budget and invoice").
+    case dictate, switchTo(String), open(String), openFile(String), attachFiles(String), key(VoiceKey), goToCell(String)
     case accept, speakMore, fixGrammar, undoFix, cancel
 }
 
@@ -20,6 +22,9 @@ public enum VoiceCommands {
     public static let dictatePhrases: Set<String> = ["dictate", "start dictating", "start dictation", "take dictation", "dictation"]
     public static let switchWords = ["switch to", "go to", "show me", "show"]
     public static let openWords = ["open", "start", "launch"]
+    /// Said between "open" and a name to mean a saved document, not a program.
+    public static let fileWords = ["the document", "the file", "the spreadsheet", "the presentation", "document", "file", "spreadsheet", "presentation", "my"]
+    public static let attachWords = ["attach", "add attachment", "attach the file", "attach the document", "attach file", "attach document", "attach files", "attach documents"]
     public static let keyPhrases: [String: VoiceKey] = [
         "next cell": .nextCell, "previous cell": .previousCell, "last cell": .previousCell,
         "cell below": .down, "next row": .down, "down": .down, "move down": .down,
@@ -67,9 +72,18 @@ public enum VoiceCommands {
             let name = String(t.dropFirst(s.count + 1)).trimmingCharacters(in: .whitespaces)
             if !name.isEmpty { return .switchTo(name) }
         }
+        for a in attachWords.sorted(by: { $0.count > $1.count }) where t.hasPrefix(a + " ") {
+            let files = String(t.dropFirst(a.count + 1)).trimmingCharacters(in: .whitespaces)
+            if !files.isEmpty { return .attachFiles(files) }
+        }
         for o in openWords where t.hasPrefix(o + " ") {
             let name = String(t.dropFirst(o.count + 1)).trimmingCharacters(in: .whitespaces)
-            if !name.isEmpty { return .open(name) }
+            guard !name.isEmpty else { continue }
+            for f in fileWords.sorted(by: { $0.count > $1.count }) where name.hasPrefix(f + " ") {
+                let file = String(name.dropFirst(f.count + 1)).trimmingCharacters(in: .whitespaces)
+                if !file.isEmpty { return .openFile(file) }
+            }
+            return .open(name)
         }
         return nil
     }
@@ -185,5 +199,77 @@ public enum ProgramNames {
             ?? candidates.first(where: { squash($0.name) == squash(s) })?.item
             ?? candidates.first(where: { $0.name.hasPrefix(s + " ") })?.item
             ?? candidates.first(where: { c in let n = Set(c.name.split(separator: " ").map(String.init)); return words.allSatisfy(n.contains) })?.item
+    }
+}
+
+/// The names saved documents are called by when opening or attaching them by voice: the file name without its type,
+/// as it would be said ("Budget_2025-final.xlsx" is "budget 2025 final"). The same as the Widget for Windows.
+public enum DocumentNames {
+    /// The kinds of file offered by voice: documents, spreadsheets, presentations, PDFs, pictures.
+    public static let kinds: Set<String> = [
+        "doc", "docx", "docm", "dotx", "rtf", "odt", "txt", "md", "pdf",
+        "xls", "xlsx", "xlsm", "xlsb", "ods", "csv",
+        "ppt", "pptx", "pptm", "ppsx", "odp",
+        "pages", "numbers", "key",
+        "jpg", "jpeg", "png", "gif", "heic", "bmp", "tif", "tiff",
+        "msg", "eml", "vsdx", "pub", "one", "zip",
+    ]
+    private static let typeWords = ["word document", "excel file", "excel spreadsheet", "powerpoint presentation", "powerpoint",
+                                    "document", "doc", "file", "spreadsheet", "workbook", "presentation", "slides", "slideshow", "pdf", "picture", "photo", "email"]
+
+    private static func split(_ path: String) -> (stem: String, ext: String) {
+        let name = String(path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last ?? "")
+        guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return (name, "") }
+        return (String(name[..<dot]), String(name[name.index(after: dot)...]).lowercased())
+    }
+
+    /// Whether a file is one offered (by its type; Office lock files "~$…" and hidden files left out).
+    public static func offered(_ path: String) -> Bool {
+        let (stem, ext) = split(path)
+        return !stem.isEmpty && !stem.hasPrefix("~$") && !stem.hasPrefix(".") && kinds.contains(ext)
+    }
+
+    /// The spoken name of a file, or "" when it has none that could be said.
+    public static func of(_ path: String) -> String {
+        var stem = split(path).stem
+        if let r = try? NSRegularExpression(pattern: "(?<=[a-z])(?=[A-Z])") {
+            stem = r.stringByReplacingMatches(in: stem, range: NSRange(stem.startIndex..., in: stem), withTemplate: " ")
+        }
+        let n = ProgramNames.clean(stem)
+        let words = n.split(separator: " ")
+        return (1...8).contains(words.count) && n.count >= 2 && n.contains(where: \.isLetter) ? n : ""
+    }
+
+    /// The ways a spoken name may be meant: as said, then without a kind word at the end.
+    public static func forms(_ spoken: String) -> [String] {
+        var s = ProgramNames.clean(spoken)
+        if s.hasPrefix("my ") { s = String(s.dropFirst(3)) }
+        var out = [s]
+        for t in typeWords where s.hasSuffix(" " + t) {
+            let shorter = String(s.dropLast(t.count + 1)).trimmingCharacters(in: .whitespaces)
+            if !shorter.isEmpty { out.append(shorter); break }
+        }
+        return out
+    }
+
+    /// The document that fits what was said best (newest first wins a tie), or nil.
+    public static func best<T>(_ spoken: String, _ documents: [(name: String, item: T)]) -> T? {
+        for f in forms(spoken) { if let d = ProgramNames.best(f, documents) { return d } }
+        return nil
+    }
+
+    /// The documents named in "budget and invoice": the whole as one name first, else each part; missing holds the
+    /// parts no document fits.
+    public static func pick<T: Equatable>(_ spoken: String, _ documents: [(name: String, item: T)]) -> (found: [T], missing: [String]) {
+        if let whole = best(spoken, documents) { return ([whole], []) }
+        var found: [T] = [], missing: [String] = []
+        let plain = VoiceCommands.plain(spoken)
+        let parts = (try? NSRegularExpression(pattern: "\\s+(?:and|plus|also)\\s+")).map { r in
+            r.stringByReplacingMatches(in: plain, range: NSRange(plain.startIndex..., in: plain), withTemplate: "|")
+        } ?? plain
+        for part in parts.split(separator: "|").map(String.init) where !part.isEmpty {
+            if let d = best(part, documents) { if !found.contains(d) { found.append(d) } } else { missing.append(part) }
+        }
+        return (found, missing)
     }
 }

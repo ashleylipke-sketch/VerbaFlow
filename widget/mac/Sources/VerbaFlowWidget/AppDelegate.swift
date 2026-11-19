@@ -145,7 +145,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .switchTo(let name):
             if !Programs.switchTo(name) { controller.notice("No open program called \u{201C}\(name)\u{201D} was found. Say \u{201C}VerbaFlow, open \(name)\u{201D} to start it.") }
         case .open(let name):
-            if !Programs.open(name) { controller.notice("No program called \u{201C}\(name)\u{201D} was found in Applications.") }
+            // A program of that name first, else a saved document.
+            if !Programs.open(name) && !Documents.open(name) { controller.notice("No program or document called \u{201C}\(name)\u{201D} was found.") }
+        case .openFile(let name):
+            if !Documents.open(name) { controller.notice("No document called \u{201C}\(name)\u{201D} was found in Documents, Desktop, Downloads or iCloud Drive.") }
+        case .attachFiles(let names):
+            let (attached, missing) = await Documents.attach(names)
+            if attached.isEmpty { controller.notice("No document called \u{201C}\(names)\u{201D} was found to attach.") }
+            else if !missing.isEmpty {
+                controller.notice("Attached \(attached.map { $0.url.lastPathComponent }.joined(separator: ", ")). Not found: \(missing.joined(separator: ", ")).")
+            }
         case .key(let k):
             Programs.press(k)
         case .goToCell(let cell):

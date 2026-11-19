@@ -56,6 +56,32 @@ public class VoiceCommandTests
     }
 
     [Fact]
+    public void Saved_documents_are_opened_and_attached_by_name()
+    {
+        Assert.Equal(new VoiceCommand(VoiceAction.OpenFile, "budget 2025"), VoiceCommands.Parse("VerbaFlow, open the document budget 2025", false));
+        Assert.Equal(new VoiceCommand(VoiceAction.OpenFile, "budget"), VoiceCommands.Parse("verba flow open file budget", false));
+        Assert.Equal(new VoiceCommand(VoiceAction.Open, "budget spreadsheet"), VoiceCommands.Parse("verba flow open budget spreadsheet", false));
+        Assert.Equal(new VoiceCommand(VoiceAction.AttachFiles, "the budget and invoice"), VoiceCommands.Parse("VerbaFlow, attach the budget and invoice.", false));
+        Assert.Equal(new VoiceCommand(VoiceAction.AttachFiles, "minutes"), VoiceCommands.Parse("verba flow attach the file minutes", false));
+
+        Assert.Equal("budget 2025 final", DocumentNames.Of(@"C:\Users\a\Documents\Budget_2025-final.xlsx"));
+        Assert.Equal("quarterly report", DocumentNames.Of("QuarterlyReport.pptx"));
+        Assert.Equal("", DocumentNames.Of("20251104.pdf"));
+        Assert.True(DocumentNames.Offered("Letter.docx"));
+        Assert.False(DocumentNames.Offered("~$Letter.docx"));
+        Assert.False(DocumentNames.Offered("setup.exe"));
+
+        var docs = new[] { ("budget 2025 final", "b"), ("invoice march", "i"), ("terms and conditions", "t"), ("budget draft", "old") }
+            .Select(d => (d.Item1, d.Item2)).ToList();
+        Assert.Equal("b", DocumentNames.Best("budget spreadsheet", docs)); // the kind word is left off; newest first
+        Assert.Equal("t", DocumentNames.Best("terms and conditions", docs));
+        var (found, missing) = DocumentNames.Pick("the budget and invoice and the minutes", docs);
+        Assert.Equal(["b", "i"], found);
+        Assert.Equal(["the minutes"], missing);
+        Assert.Equal(["t"], DocumentNames.Pick("terms and conditions", docs).Found);
+    }
+
+    [Fact]
     public void Excel_gets_no_empty_lines_between_paragraphs()
     {
         Assert.False(DictationText.EmptyLineFor(ParagraphGap.Automatic, "EXCEL.EXE"));

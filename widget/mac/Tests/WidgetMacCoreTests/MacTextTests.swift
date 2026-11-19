@@ -119,6 +119,23 @@ final class VoiceCommandTests: XCTestCase {
         XCTAssertNil(VoiceCommands.withoutStop("Please stop dictating to me and write."))
     }
 
+    func testSavedDocumentsAreOpenedAndAttachedByName() {
+        XCTAssertEqual(VoiceCommands.parse("VerbaFlow, open the document budget 2025", checking: false), .openFile("budget 2025"))
+        XCTAssertEqual(VoiceCommands.parse("verba flow open budget spreadsheet", checking: false), .open("budget spreadsheet"))
+        XCTAssertEqual(VoiceCommands.parse("VerbaFlow, attach the budget and invoice.", checking: false), .attachFiles("the budget and invoice"))
+        XCTAssertEqual(DocumentNames.of("Documents/Budget_2025-final.xlsx"), "budget 2025 final")
+        XCTAssertEqual(DocumentNames.of("QuarterlyReport.key"), "quarterly report")
+        XCTAssertEqual(DocumentNames.of("20251104.pdf"), "")
+        XCTAssertTrue(DocumentNames.offered("Letter.pages"))
+        XCTAssertFalse(DocumentNames.offered("~$Letter.docx"))
+        let docs = [(name: "budget 2025 final", item: "b"), (name: "invoice march", item: "i"), (name: "terms and conditions", item: "t")]
+        XCTAssertEqual(DocumentNames.best("budget spreadsheet", docs), "b")
+        let picked = DocumentNames.pick("the budget and invoice and the minutes", docs)
+        XCTAssertEqual(picked.found, ["b", "i"])
+        XCTAssertEqual(picked.missing, ["the minutes"])
+        XCTAssertEqual(DocumentNames.pick("terms and conditions", docs).found, ["t"])
+    }
+
     func testProgramNames() {
         XCTAssertEqual(ProgramNames.clean("Microsoft Teams (work or school)"), "teams")
         let apps = [(name: "word", item: "w"), (name: "excel", item: "x"), (name: "visual studio code", item: "v")]

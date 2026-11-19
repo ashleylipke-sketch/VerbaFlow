@@ -47,6 +47,22 @@ enum Inserter {
         return true
     }
 
+    /// Pastes files into the program in front (⌘V), as copying them in Finder and pasting would: an email being written
+    /// attaches them, a chat offers to send them. The clipboard is put back after.
+    @MainActor
+    static func pasteFiles(_ urls: [URL]) async -> Bool {
+        guard FocusTarget.trusted else { return false }
+        let board = NSPasteboard.general
+        let saved = save(board)
+        board.clearContents()
+        board.writeObjects(urls as [NSURL])
+        Keys.paste()
+        // Attaching reads the files, which can take a moment for large ones or ones kept in iCloud.
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        restore(saved, board)
+        return true
+    }
+
     /// Takes out the selected text (Accept with an emptied box after selecting text).
     @MainActor
     static func deleteSelection(in target: FocusTarget) async -> Bool {

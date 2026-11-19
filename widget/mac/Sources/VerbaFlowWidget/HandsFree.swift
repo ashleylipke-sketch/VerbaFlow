@@ -68,6 +68,7 @@ final class HandsFree {
         r.taskHint = .search
         r.contextualStrings = ["VerbaFlow", "dictate", "switch to", "open", "next cell", "go to cell", "stop dictating", "accept", "speak more", "fix grammar", "cancel"]
             + Programs.running().map(\.name) + Programs.installed().prefix(80).map(\.name)
+            + ["attach"] + Documents.list().prefix(60).map(\.name)
         request = r
         acted = ""
         generation += 1
@@ -233,5 +234,75 @@ enum Programs {
         await Keys.type(cell)
         try? await Task.sleep(nanoseconds: 100_000_000)
         Keys.press(CGKeyCode(kVK_Return))
+    }
+}
+
+/// The saved documents a person can name by voice ("VerbaFlow, open budget", "VerbaFlow, attach budget and invoice"):
+/// those in Documents, Desktop, Downloads and iCloud Drive (three folders deep), newest first. Read in the background
+/// and again every two minutes; nothing leaves the Mac. The first look may make macOS ask whether the Widget may
+/// see those folders.
+@MainActor
+enum Documents {
+    struct Document: Equatable, Sendable { let url: URL; let name: String }
+
+    private static var cache: [Document] = []
+    private static var read = Date.distantPast
+    private static var reading = false
+
+    static func list() -> [Document] {
+        if Date().timeIntervalSince(read) > 120, !reading {
+            reading = true
+            Task.detached(priority: .utility) {
+                let found = DocumentFinder.find()
+                await MainActor.run { cache = found; read = Date(); reading = false }
+            }
+        }
+        return cache
+    }
+
+    private static func pairs() -> [(name: String, item: Document)] { list().map { (name: $0.name, item: $0) } }
+
+    /// "open budget": opens it in its usual program. False when none fits.
+    static func open(_ spoken: String) -> Bool {
+        guard let d = DocumentNames.best(spoken, pairs()) else { return false }
+        return NSWorkspace.shared.open(d.url)
+    }
+
+    /// "attach budget and invoice": pastes them into the program in front.
+    static func attach(_ spoken: String) async -> (attached: [Document], missing: [String]) {
+        let (found, missing) = DocumentNames.pick(spoken, pairs())
+        guard !found.isEmpty, await Inserter.pasteFiles(found.map(\.url)) else { return ([], missing) }
+        return (found, missing)
+    }
+}
+
+/// Looks through the folders documents are kept in, off the main thread.
+enum DocumentFinder {
+    static func find() -> [Documents.Document] {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        let folders = ["Documents", "Desktop", "Downloads", "Library/Mobile Documents/com~apple~CloudDocs"].map { home.appendingPathComponent($0) }
+        var found: [(URL, Date)] = []
+        var seen = Set<String>()
+        let fm = FileManager.default
+        for folder in folders {
+            guard let e = fm.enumerator(at: folder, includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+                                        options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
+            for case let url as URL in e {
+                if found.count >= 6000 { break }
+                if e.level > 4 { e.skipDescendants(); continue }
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isDirectoryKey])
+                if values?.isDirectory == true {
+                    if url.lastPathComponent == "node_modules" { e.skipDescendants() }
+                    // Pages, Numbers and Keynote files are folders (packages) on a Mac.
+                    if !DocumentNames.offered(url.path) { continue }
+                }
+                guard DocumentNames.offered(url.path), seen.insert(url.path).inserted else { continue }
+                found.append((url, values?.contentModificationDate ?? .distantPast))
+            }
+        }
+        return found.sorted { $0.1 > $1.1 }.prefix(3000).compactMap { (url, _) in
+            let n = DocumentNames.of(url.path)
+            return n.isEmpty ? nil : Documents.Document(url: url, name: n)
+        }
     }
 }

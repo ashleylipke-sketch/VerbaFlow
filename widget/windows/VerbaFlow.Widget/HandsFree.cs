@@ -98,11 +98,12 @@ internal sealed class HandsFree : IDisposable
     {
         if (_disposed) return;
         var (open, start) = Programs.Names();
-        var key = string.Join("|", open) + "#" + string.Join("|", start);
+        var documents = Documents.Names();
+        var key = string.Join("|", open) + "#" + string.Join("|", start) + "#" + string.Join("|", documents);
         if (key == _names) return;
         _names = key;
         var culture = _engine.RecognizerInfo.Culture;
-        var commands = Commands(open, start, culture);
+        var commands = Commands(open, start, documents, culture);
         var checking = Checking(culture);
         void Swap()
         {
@@ -124,7 +125,7 @@ internal sealed class HandsFree : IDisposable
     }
 
     /// <summary>"verba flow" followed by one command.</summary>
-    private static Grammar Commands(List<string> open, List<string> start, CultureInfo culture)
+    private static Grammar Commands(List<string> open, List<string> start, List<string> documents, CultureInfo culture)
     {
         var choices = new Choices();
         foreach (var p in VoiceCommands.DictatePhrases.Concat(VoiceCommands.KeyPhrases.Keys)) choices.Add(p);
@@ -139,6 +140,24 @@ internal sealed class HandsFree : IDisposable
             var g = new GrammarBuilder(new Choices([.. VoiceCommands.OpenWords]));
             g.Append(new Choices([.. start]));
             choices.Add(g);
+        }
+        if (documents.Count > 0)
+        {
+            // "open (the document) budget (spreadsheet)", "attach budget and invoice".
+            var names = new Choices([.. documents]);
+            var kind = new Choices("document", "file", "spreadsheet", "presentation", "pdf");
+            var open1 = new GrammarBuilder(new Choices([.. VoiceCommands.OpenWords]));
+            open1.Append(new Choices([.. VoiceCommands.FileWords]), 0, 1);
+            open1.Append(names);
+            open1.Append(kind, 0, 1);
+            choices.Add(open1);
+            var more = new GrammarBuilder("and");
+            more.Append(names);
+            var attach = new GrammarBuilder(new Choices([.. VoiceCommands.AttachWords]));
+            attach.Append("the", 0, 1);
+            attach.Append(names);
+            attach.Append(more, 0, 4);
+            choices.Add(attach);
         }
         // "go to cell B 5": a letter or two, then a number.
         var letters = new Choices(Enumerable.Range('a', 26).Select(c => ((char)c).ToString()).ToArray());
